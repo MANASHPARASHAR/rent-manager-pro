@@ -2,11 +2,12 @@
 {
   "name": "rentmaster-pro",
   "version": "1.0.0",
-  "description": "Rental Management Engine with Google Sheets & Firebase Hosting",
+  "description": "Rental Management Engine with Google Sheets & Vercel Hosting",
   "private": true,
   "scripts": {
     "start": "npx serve .",
-    "deploy": "firebase deploy"
+    "build": "echo 'Build complete: No compilation required for ESM structure'",
+    "deploy": "vercel --prod"
   },
   "dependencies": {
     "react": "^19.0.0",
