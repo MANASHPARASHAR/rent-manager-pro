@@ -110,7 +110,6 @@ const RentCollection: React.FC = () => {
       const end = new Date(endDate); end.setHours(23,59,59,999);
       return payments.some(p => {
         if (!p.paidAt) return false;
-        // Fix: Renamed paidDate to pd to resolve "Cannot find name 'pd'" error on the next line.
         const pd = new Date(p.paidAt);
         return pd >= start && pd <= end;
       });
@@ -499,10 +498,15 @@ const RentCollection: React.FC = () => {
             {filterType === 'monthly' && (
               <div className="flex items-center gap-2 whitespace-nowrap">
                 <button onClick={() => navigateMonth(-1)} className="p-1 hover:text-indigo-600 transition-colors active:scale-90"><ChevronLeft className="w-4 h-4" /></button>
-                <div className="flex items-center gap-2">
-                  <CalendarDays className="w-4 h-4 text-indigo-500" />
+                <label 
+                   className="flex items-center gap-2 cursor-pointer group/date"
+                   onClick={(e) => {
+                     try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(e) {}
+                   }}
+                >
+                  <CalendarDays className="w-4 h-4 text-indigo-500 group-hover/date:scale-110 transition-transform" />
                   <input type="month" className="bg-transparent border-none text-[10px] font-black uppercase text-slate-900 outline-none cursor-pointer" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} />
-                </div>
+                </label>
                 <button onClick={() => navigateMonth(1)} className="p-1 hover:text-indigo-600 transition-colors active:scale-90"><ChevronRight className="w-4 h-4" /></button>
               </div>
             )}
@@ -740,19 +744,28 @@ const RentCollection: React.FC = () => {
                                {col.options?.map((o: string) => <option key={o} value={o}>{o}</option>)}
                             </select>
                           ) : (
-                            <input 
-                               type={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.RENT_DUE_DAY || col.type === ColumnType.SECURITY_DEPOSIT ? 'number' : col.type === ColumnType.DATE ? 'date' : 'text'}
-                               className={`w-full bg-slate-50 border ${formErrors[col.id] ? 'border-red-500' : 'border-slate-100'} rounded-2xl px-5 py-4 text-sm font-bold outline-none`}
-                               value={editFormData[col.id] || ''}
-                               onChange={e => {
-                                 setEditFormData({...editFormData, [col.id]: e.target.value});
-                                 if(formErrors[col.id]) {
-                                   const newErrors = {...formErrors};
-                                   delete newErrors[col.id];
-                                   setFormErrors(newErrors);
+                            <div 
+                               className={`w-full bg-slate-50 border ${formErrors[col.id] ? 'border-red-500' : 'border-slate-100'} rounded-2xl relative cursor-pointer`}
+                               onClick={(e) => {
+                                 if (col.type === ColumnType.DATE) {
+                                   try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(err) {}
                                  }
                                }}
-                            />
+                            >
+                              <input 
+                                 type={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.RENT_DUE_DAY || col.type === ColumnType.SECURITY_DEPOSIT ? 'number' : col.type === ColumnType.DATE ? 'date' : 'text'}
+                                 className="w-full bg-transparent px-5 py-4 text-sm font-bold outline-none cursor-pointer"
+                                 value={editFormData[col.id] || ''}
+                                 onChange={e => {
+                                   setEditFormData({...editFormData, [col.id]: e.target.value});
+                                   if(formErrors[col.id]) {
+                                     const newErrors = {...formErrors};
+                                     delete newErrors[col.id];
+                                     setFormErrors(newErrors);
+                                   }
+                                 }}
+                              />
+                            </div>
                           )}
                           {formErrors[col.id] && <p className="text-[10px] text-red-500 font-black uppercase ml-1">{formErrors[col.id]}</p>}
                        </div>

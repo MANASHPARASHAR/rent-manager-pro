@@ -313,7 +313,6 @@ const PropertyDetails: React.FC = () => {
           </div>
         </div>
 
-        {/* Added max-height and custom-scrollbar to units management table container */}
         <div className="overflow-x-auto max-h-[600px] overflow-y-auto custom-scrollbar">
           <table className="w-full text-left">
             <thead className="sticky top-0 z-10 bg-white">
@@ -338,14 +337,23 @@ const PropertyDetails: React.FC = () => {
                             {col.options?.map(o => <option key={o} value={o}>{o}</option>)}
                           </select>
                         ) : (
-                          <input 
-                            className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500 ring-2 ring-red-500/20' : 'border-gray-200'} rounded-xl px-4 py-3 text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all`} 
-                            type={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.RENT_DUE_DAY || col.type === ColumnType.SECURITY_DEPOSIT ? 'number' : col.type === ColumnType.DATE ? 'date' : 'text'} 
-                            value={formData[col.id] || ''} 
-                            onChange={e => handleInputChange(col.id, e.target.value)} 
-                            placeholder={col.name} 
-                            min={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.SECURITY_DEPOSIT ? "0" : undefined}
-                          />
+                          <div 
+                             className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500 ring-2 ring-red-500/20' : 'border-gray-200'} rounded-xl relative cursor-pointer`}
+                             onClick={(e) => {
+                               if (col.type === ColumnType.DATE) {
+                                 try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(err) {}
+                               }
+                             }}
+                          >
+                            <input 
+                              className="w-full bg-transparent px-4 py-3 text-sm font-bold outline-none cursor-pointer" 
+                              type={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.RENT_DUE_DAY || col.type === ColumnType.SECURITY_DEPOSIT ? 'number' : col.type === ColumnType.DATE ? 'date' : 'text'} 
+                              value={formData[col.id] || ''} 
+                              onChange={e => handleInputChange(col.id, e.target.value)} 
+                              placeholder={col.name} 
+                              min={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.SECURITY_DEPOSIT ? "0" : undefined}
+                            />
+                          </div>
                         )}
                         {formErrors[col.id] && (
                           <div className="flex items-center gap-1.5 px-1 py-0.5">
@@ -388,13 +396,22 @@ const PropertyDetails: React.FC = () => {
                                   {col.options?.map(o => <option key={o} value={o}>{o}</option>)}
                                 </select>
                               ) : (
-                                <input 
-                                  className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500 ring-2 ring-red-500/20' : 'border-indigo-200'} rounded-xl px-3 py-2 text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all`} 
-                                  type={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.RENT_DUE_DAY || col.type === ColumnType.SECURITY_DEPOSIT ? 'number' : col.type === ColumnType.DATE ? 'date' : 'text'}
-                                  value={formData[col.id] || ''} 
-                                  onChange={e => handleInputChange(col.id, e.target.value)} 
-                                  min={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.SECURITY_DEPOSIT ? "0" : undefined}
-                                />
+                                <div 
+                                   className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500 ring-2 ring-red-500/20' : 'border-indigo-200'} rounded-xl relative cursor-pointer`}
+                                   onClick={(e) => {
+                                     if (col.type === ColumnType.DATE) {
+                                       try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(err) {}
+                                     }
+                                   }}
+                                >
+                                  <input 
+                                    className="w-full bg-transparent px-3 py-2 text-sm font-bold outline-none cursor-pointer" 
+                                    type={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.RENT_DUE_DAY || col.type === ColumnType.SECURITY_DEPOSIT ? 'number' : col.type === ColumnType.DATE ? 'date' : 'text'}
+                                    value={formData[col.id] || ''} 
+                                    onChange={e => handleInputChange(col.id, e.target.value)} 
+                                    min={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.SECURITY_DEPOSIT ? "0" : undefined}
+                                  />
+                                </div>
                               )}
                               {formErrors[col.id] && (
                                 <div className="flex items-center gap-1.5 px-1 py-0.5">

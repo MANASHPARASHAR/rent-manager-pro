@@ -197,15 +197,18 @@ const Reports: React.FC = () => {
                 <button onClick={() => navigateMonth(-1)} className="p-1 hover:text-indigo-600 transition-colors">
                   <ChevronLeft className="w-4 h-4" />
                 </button>
-                <div className="flex items-center gap-3">
-                  <CalendarDays className="w-4 h-4 text-indigo-500" />
+                <label 
+                   className="flex items-center gap-3 cursor-pointer group/date"
+                   onClick={(e) => { try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(e) {} }}
+                >
+                  <CalendarDays className="w-4 h-4 text-indigo-500 group-hover/date:scale-110 transition-transform" />
                   <input 
                     type="month"
                     className="bg-transparent border-none text-xs font-black uppercase text-slate-900 outline-none cursor-pointer"
                     value={selectedMonth}
                     onChange={(e) => setSelectedMonth(e.target.value)}
                   />
-                </div>
+                </label>
                 <button onClick={() => navigateMonth(1)} className="p-1 hover:text-indigo-600 transition-colors">
                   <ChevronRight className="w-4 h-4" />
                 </button>
@@ -240,9 +243,13 @@ const Reports: React.FC = () => {
               <div className="flex items-center gap-3">
                 <CalendarDays className="w-4 h-4 text-indigo-500" />
                 <div className="flex items-center gap-2">
-                  <input type="date" className="bg-transparent border-none text-[10px] font-black uppercase text-slate-900 outline-none cursor-pointer" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                  <label className="cursor-pointer group/date" onClick={(e) => { try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(e) {} }}>
+                     <input type="date" className="bg-transparent border-none text-[10px] font-black uppercase text-slate-900 outline-none cursor-pointer" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                  </label>
                   <div className="text-slate-300">→</div>
-                  <input type="date" className="bg-transparent border-none text-[10px] font-black uppercase text-slate-900 outline-none cursor-pointer" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                  <label className="cursor-pointer group/date" onClick={(e) => { try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(e) {} }}>
+                     <input type="date" className="bg-transparent border-none text-[10px] font-black uppercase text-slate-900 outline-none cursor-pointer" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                  </label>
                 </div>
               </div>
             )}
