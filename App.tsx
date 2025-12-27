@@ -8,6 +8,7 @@ import PropertyTypeManager from './components/PropertyTypeManager';
 import PropertyDetails from './components/PropertyDetails';
 import RentCollection from './components/RentCollection';
 import Reports from './components/Reports';
+import UserManagement from './components/UserManagement';
 import Login from './components/Login';
 import { useRentalStore, RentalProvider } from './store/useRentalStore';
 
@@ -28,6 +29,7 @@ const AppContent: React.FC = () => {
           <Route path="/collection" element={<RentCollection />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/types" element={<PropertyTypeManager />} />
+          <Route path="/team" element={<UserManagement />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Layout>

@@ -1,12 +1,11 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Search, 
   ChevronLeft, 
   ChevronRight, 
   CheckCircle2, 
   Clock, 
-  AlertCircle,
   Building2,
   DollarSign,
   X,
@@ -14,23 +13,22 @@ import {
   RefreshCw,
   Target,
   AlertTriangle,
-  Landmark,
   Edit2,
   History,
-  Calendar,
-  Wallet,
-  ArrowRight,
-  Save,
-  User,
   CalendarDays,
   TrendingUp,
-  Filter,
   ChevronDown,
   Plus,
   Undo2,
   Settings,
   Trash2,
-  ShieldAlert
+  ShieldAlert,
+  Wallet,
+  ArrowRight,
+  User,
+  PlusCircle,
+  CreditCard,
+  Landmark
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { PaymentStatus, UserRole, ColumnType, ColumnDefinition, Payment } from '../types';
@@ -75,7 +73,6 @@ const RentCollection: React.FC = () => {
   const [newPaidTo, setNewPaidTo] = useState('');
   const [newPaymentMode, setNewPaymentMode] = useState('');
   
-  // Modals state
   const [historyRecord, setHistoryRecord] = useState<any | null>(null);
   const [editingUnit, setEditingUnit] = useState<any | null>(null);
   const [editFormData, setEditFormData] = useState<Record<string, string>>({});
@@ -219,20 +216,40 @@ const RentCollection: React.FC = () => {
     };
   }, [recordsWithRent, store.payments, filterType, selectedMonth, selectedYear, startDate, endDate, visiblePropertyIds]);
 
-  const pendingByProperty = useMemo(() => {
-    const map: Record<string, { name: string, amount: number, count: number }> = {};
+  const handleEditUnit = (record: any) => {
+    setEditingUnit(record);
+    const initial = record.recordValues.reduce((acc: any, v: any) => ({...acc, [v.columnId]: v.value}), {});
+    setEditFormData(initial);
+    setFormErrors({});
+  };
+
+  const handleSaveUnit = () => {
+    if (!editingUnit) return;
+    const errors: Record<string, string> = {};
+    const columns = editingUnit.propertyType.columns;
     
-    recordsWithRent.forEach(r => {
-      if (r.status !== 'PAID') {
-        const propId = r.propertyId;
-        const propName = r.property?.name || 'Unknown';
-        if (!map[propId]) map[propId] = { name: propName, amount: 0, count: 0 };
-        map[propId].amount += (r.rentAmount * stats.rangeMultiplier);
-        map[propId].count += 1;
+    columns.forEach((col: any) => {
+      const val = editFormData[col.id]?.trim() || "";
+      if (col.required && val === "") {
+        errors[col.id] = `${col.name} is required`;
       }
     });
-    return Object.values(map).sort((a, b) => b.amount - a.amount);
-  }, [recordsWithRent, stats.rangeMultiplier]);
+
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      return;
+    }
+
+    const updatedValues = Object.entries(editFormData).map(([colId, value]) => ({
+      id: 'v_' + Math.random().toString(36).substr(2, 9), 
+      recordId: editingUnit.id, 
+      columnId: colId, 
+      value
+    }));
+    
+    store.updateRecord(editingUnit.id, updatedValues);
+    setEditingUnit(null);
+  };
 
   const handleAction = (record: any, type: 'RENT' | 'DEPOSIT') => {
     if (type === 'RENT' && record.isRentPaid && filterType === 'monthly') {
@@ -280,80 +297,11 @@ const RentCollection: React.FC = () => {
   const confirmCollection = () => {
     if (!collectingRecord) return;
     const { paidTo, paymentMode, amount, type, month } = collectionData;
-    const { id: recordId, tenantName, dueDay } = collectingRecord;
+    const { id: recordId, dueDay } = collectingRecord;
 
-    setConfirmConfig({
-      isOpen: true,
-      title: `Confirm Settlement`,
-      message: `Mark $${amount.toLocaleString()} as received from ${tenantName}?`,
-      actionLabel: "Confirm Receipt",
-      icon: type === 'DEPOSIT' ? <ShieldCheck className="w-10 h-10 text-amber-500" /> : <DollarSign className="w-10 h-10 text-indigo-500" />,
-      onConfirm: () => {
-        const dueDateString = type === 'RENT' ? `${month}-${String(dueDay).padStart(2, '0')}` : 'N/A';
-        store.togglePayment(recordId, month, amount, dueDateString, { paidTo, paymentMode }, type);
-        setCollectingRecord(null);
-        setConfirmConfig(prev => ({ ...prev, isOpen: false }));
-      }
-    });
-  };
-
-  const addPaidToOption = () => {
-    if (!newPaidTo.trim()) return;
-    store.updateConfig({ paidToOptions: [...store.config.paidToOptions, newPaidTo.trim()] });
-    setNewPaidTo('');
-  };
-
-  const removePaidToOption = (option: string) => {
-    store.updateConfig({ paidToOptions: store.config.paidToOptions.filter((o: string) => o !== option) });
-  };
-
-  const addPaymentModeOption = () => {
-    if (!newPaymentMode.trim()) return;
-    store.updateConfig({ paymentModeOptions: [...store.config.paymentModeOptions, newPaymentMode.trim()] });
-    setNewPaymentMode('');
-  };
-
-  const removePaymentModeOption = (option: string) => {
-    store.updateConfig({ paymentModeOptions: store.config.paymentModeOptions.filter((o: string) => o !== option) });
-  };
-
-  const handleEditUnit = (record: any) => {
-    const initial = record.recordValues.reduce((acc: any, v: any) => ({...acc, [v.columnId]: v.value}), {});
-    setEditFormData(initial);
-    setEditingUnit(record);
-    setFormErrors({});
-  };
-
-  const saveUnitChanges = () => {
-    if (!editingUnit) return;
-    const errors: Record<string, string> = {};
-    editingUnit.propertyType.columns.forEach((col: ColumnDefinition) => {
-      const val = editFormData[col.id]?.trim() || "";
-      if (col.required && val === "") errors[col.id] = "Required";
-    });
-
-    if (Object.keys(errors).length > 0) {
-      setFormErrors(errors);
-      return;
-    }
-
-    setConfirmConfig({
-      isOpen: true,
-      title: "Update Unit Record",
-      message: `Save changes for ${editingUnit.tenantName}?`,
-      actionLabel: "Save Changes",
-      onConfirm: () => {
-        const updatedValues = Object.entries(editFormData).map(([colId, value]) => ({
-          id: 'v_' + Math.random().toString(36).substr(2, 9), 
-          recordId: editingUnit.id, 
-          columnId: colId, 
-          value
-        }));
-        store.updateRecord(editingUnit.id, updatedValues);
-        setEditingUnit(null);
-        setConfirmConfig(prev => ({ ...prev, isOpen: false }));
-      }
-    });
+    const dueDateString = type === 'RENT' ? `${month}-${String(dueDay).padStart(2, '0')}` : 'N/A';
+    store.togglePayment(recordId, month, amount, dueDateString, { paidTo, paymentMode }, type);
+    setCollectingRecord(null);
   };
 
   const navigateMonth = (direction: number) => {
@@ -382,385 +330,269 @@ const RentCollection: React.FC = () => {
     return Array.from(years).sort((a, b) => b - a);
   }, [store.payments]);
 
+  const addPaidToOption = () => {
+    if (!newPaidTo.trim()) return;
+    if (store.config.paidToOptions.includes(newPaidTo.trim())) return;
+    store.updateConfig({ paidToOptions: [...store.config.paidToOptions, newPaidTo.trim()] });
+    setNewPaidTo('');
+  };
+
+  const removePaidToOption = (option: string) => {
+    store.updateConfig({ paidToOptions: store.config.paidToOptions.filter((o: string) => o !== option) });
+  };
+
+  const addPaymentModeOption = () => {
+    if (!newPaymentMode.trim()) return;
+    if (store.config.paymentModeOptions.includes(newPaymentMode.trim())) return;
+    store.updateConfig({ paymentModeOptions: [...store.config.paymentModeOptions, newPaymentMode.trim()] });
+    setNewPaymentMode('');
+  };
+
+  const removePaymentModeOption = (option: string) => {
+    store.updateConfig({ paymentModeOptions: store.config.paymentModeOptions.filter((o: string) => o !== option) });
+  };
+
   return (
-    <div className="space-y-8 animate-in fade-in duration-500 max-w-6xl mx-auto pb-20">
+    <div className="space-y-8 animate-in fade-in duration-500 max-w-7xl mx-auto pb-24">
       {confirmConfig.isOpen && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md">
-          <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl border border-white/20 overflow-hidden animate-in zoom-in-95">
+          <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl border border-white/20 overflow-hidden animate-in zoom-in-95 duration-200">
             <div className={`p-10 text-center ${confirmConfig.isDanger ? 'bg-red-50/50' : 'bg-indigo-50/50'}`}>
-              <div className={`w-20 h-20 rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-xl ${confirmConfig.isDanger ? 'bg-red-500 text-white' : 'bg-white text-indigo-600'}`}>
+              <div className={`w-20 h-20 rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-xl ${confirmConfig.isDanger ? 'bg-red-500 text-white shadow-red-500/20' : 'bg-indigo-600 text-white shadow-indigo-500/20'}`}>
                 {confirmConfig.icon}
               </div>
               <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tight mb-4">{confirmConfig.title}</h3>
-              <p className="text-slate-500 font-medium">{confirmConfig.message}</p>
+              <p className="text-slate-500 font-medium leading-relaxed">{confirmConfig.message}</p>
             </div>
             <div className="p-8 flex gap-4 bg-white">
-              <button onClick={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest">Cancel</button>
-              <button onClick={confirmConfig.onConfirm} className={`flex-1 py-4 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl transition-all ${confirmConfig.isDanger ? 'bg-red-500' : 'bg-indigo-600'}`}>{confirmConfig.actionLabel}</button>
+              <button onClick={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-200">Cancel</button>
+              <button onClick={confirmConfig.onConfirm} className={`flex-1 py-4 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl transition-all active:scale-95 ${confirmConfig.isDanger ? 'bg-red-500' : 'bg-indigo-600'}`}>{confirmConfig.actionLabel}</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* History Modal */}
-      {historyRecord && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-lg animate-in fade-in">
-           <div className="bg-white w-full max-w-2xl rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
-              <div className="p-8 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-                 <div>
-                    <h3 className="text-xl font-black text-gray-900 uppercase">Settlement History</h3>
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{historyRecord.tenantName} • {historyRecord.property.name}</p>
-                 </div>
-                 <button onClick={() => setHistoryRecord(null)} className="p-2 hover:bg-white rounded-full transition-colors"><X className="w-6 h-6 text-gray-400" /></button>
-              </div>
-              <div className="p-0 max-h-[60vh] overflow-auto custom-scrollbar">
-                 <table className="w-full text-left">
-                    <thead className="bg-gray-50 border-b border-gray-100 sticky top-0 z-10">
-                       <tr>
-                          <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Type / Date</th>
-                          <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Mode</th>
-                          <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Amount</th>
-                       </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-50">
-                       {historyRecord.paymentHistory.length > 0 ? historyRecord.paymentHistory.sort((a,b) => new Date(b.paidAt || '').getTime() - new Date(a.paidAt || '').getTime()).map((p: Payment) => (
-                          <tr key={p.id} className="hover:bg-gray-50 transition-colors">
-                             <td className="px-8 py-5">
-                                <div className="flex items-center gap-3">
-                                   <div className={`p-2 rounded-lg ${p.type === 'DEPOSIT' ? 'bg-amber-100 text-amber-600' : 'bg-indigo-100 text-indigo-600'}`}>
-                                      {p.type === 'DEPOSIT' ? <ShieldCheck className="w-4 h-4" /> : <DollarSign className="w-4 h-4" />}
-                                   </div>
-                                   <div>
-                                      <p className="text-sm font-black text-gray-900">{p.type === 'RENT' ? `Rent (${p.month})` : 'Security Deposit'}</p>
-                                      <p className="text-[10px] font-bold text-gray-400">{p.paidAt ? new Date(p.paidAt).toLocaleDateString() : 'N/A'}</p>
-                                   </div>
-                                </div>
-                             </td>
-                             <td className="px-8 py-5">
-                                <p className="text-xs font-black text-gray-600">{p.paymentMode || 'N/A'}</p>
-                                <p className="text-[9px] font-bold text-gray-400">{p.paidTo}</p>
-                             </td>
-                             <td className="px-8 py-5 text-right">
-                                <p className={`text-sm font-black ${p.isRefunded ? 'text-red-500 line-through' : 'text-gray-900'}`}>${p.amount.toLocaleString()}</p>
-                                {p.isRefunded && <p className="text-[9px] font-black text-red-500 uppercase">Refunded</p>}
-                             </td>
-                          </tr>
-                       )) : (
-                          <tr><td colSpan={3} className="px-8 py-20 text-center text-gray-400 font-bold uppercase text-[10px] tracking-widest italic">No settlement activity recorded</td></tr>
-                       )}
-                    </tbody>
-                 </table>
-              </div>
-              <div className="p-8 bg-gray-50 border-t border-gray-100">
-                 <button onClick={() => setHistoryRecord(null)} className="w-full py-4 bg-white border border-gray-200 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-gray-100 transition-all">Close History</button>
-              </div>
-           </div>
+      {showSettings && isAdmin && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xl animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-3xl rounded-[3rem] shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95">
+            <div className="p-10 bg-slate-900 text-white flex justify-between items-center shrink-0">
+               <div className="flex items-center gap-4">
+                  <div className="bg-indigo-600 p-3.5 rounded-2xl shadow-xl shadow-indigo-600/20"><Settings className="w-7 h-7" /></div>
+                  <div>
+                    <h3 className="text-2xl font-black uppercase tracking-tight">Ledger Controls</h3>
+                    <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">Global Collection Configuration</p>
+                  </div>
+               </div>
+               <button onClick={() => setShowSettings(false)} className="p-3 hover:bg-white/10 rounded-full transition-colors text-slate-500"><X className="w-6 h-6" /></button>
+            </div>
+            
+            <div className="p-10 space-y-10 overflow-y-auto custom-scrollbar flex-1">
+               <div className="space-y-6">
+                  <div className="flex items-center gap-3">
+                     <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl"><Landmark className="w-5 h-5" /></div>
+                     <h4 className="text-sm font-black uppercase tracking-widest text-slate-900">Settlement Accounts</h4>
+                  </div>
+                  <div className="flex gap-3">
+                     <input 
+                        className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-6 py-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all"
+                        placeholder="e.g. Corporate Bank Account"
+                        value={newPaidTo}
+                        onChange={e => setNewPaidTo(e.target.value)}
+                        onKeyPress={e => e.key === 'Enter' && addPaidToOption()}
+                     />
+                     <button onClick={addPaidToOption} className="bg-indigo-600 text-white px-8 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all active:scale-95 flex items-center gap-2">
+                        <PlusCircle className="w-4 h-4" /> Add
+                     </button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                     {store.config.paidToOptions.map((opt: string) => (
+                        <div key={opt} className="flex items-center justify-between p-4 bg-white border border-slate-100 rounded-2xl group hover:border-indigo-200 transition-all shadow-sm">
+                           <span className="text-xs font-bold text-slate-700">{opt}</span>
+                           <button onClick={() => removePaidToOption(opt)} className="p-2 text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"><Trash2 className="w-4 h-4" /></button>
+                        </div>
+                     ))}
+                  </div>
+               </div>
+
+               <div className="space-y-6 pt-6 border-t border-slate-100">
+                  <div className="flex items-center gap-3">
+                     <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl"><CreditCard className="w-5 h-5" /></div>
+                     <h4 className="text-sm font-black uppercase tracking-widest text-slate-900">Inflow Channels</h4>
+                  </div>
+                  <div className="flex gap-3">
+                     <input 
+                        className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-6 py-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all"
+                        placeholder="e.g. Digital Transfer"
+                        value={newPaymentMode}
+                        onChange={e => setNewPaymentMode(e.target.value)}
+                        onKeyPress={e => e.key === 'Enter' && addPaymentModeOption()}
+                     />
+                     <button onClick={addPaymentModeOption} className="bg-emerald-600 text-white px-8 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-emerald-100 hover:bg-emerald-700 transition-all active:scale-95 flex items-center gap-2">
+                        <PlusCircle className="w-4 h-4" /> Add
+                     </button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                     {store.config.paymentModeOptions.map((opt: string) => (
+                        <div key={opt} className="flex items-center justify-between p-4 bg-white border border-slate-100 rounded-2xl group hover:border-emerald-200 transition-all shadow-sm">
+                           <span className="text-xs font-bold text-slate-700">{opt}</span>
+                           <button onClick={() => removePaymentModeOption(opt)} className="p-2 text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"><Trash2 className="w-4 h-4" /></button>
+                        </div>
+                     ))}
+                  </div>
+               </div>
+            </div>
+
+            <div className="p-10 bg-slate-50 border-t border-slate-100 text-center">
+               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Configurations are synchronized globally across all team members.</p>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* Edit Unit Modal */}
-      {editingUnit && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-lg animate-in fade-in">
-           <div className="bg-white w-full max-w-xl rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
-              <div className="p-8 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-                 <div>
-                    <h3 className="text-xl font-black text-gray-900 uppercase">Edit Unit Details</h3>
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{editingUnit.property.name}</p>
-                 </div>
-                 <button onClick={() => setEditingUnit(null)} className="p-2 hover:bg-white rounded-full transition-colors"><X className="w-6 h-6 text-gray-400" /></button>
-              </div>
-              <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-6 max-h-[60vh] overflow-auto custom-scrollbar">
-                 {editingUnit.propertyType.columns.map((col: ColumnDefinition) => (
-                    <div key={col.id} className="space-y-1.5">
-                       <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">{col.name} {col.required && <span className="text-red-500">*</span>}</label>
-                       {col.type === ColumnType.DROPDOWN ? (
-                          <select 
-                             className={`w-full bg-gray-50 border ${formErrors[col.id] ? 'border-red-500 ring-2 ring-red-500/20' : 'border-gray-200'} rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 transition-all cursor-pointer`} 
-                             value={editFormData[col.id] || ''} 
-                             onChange={e => setEditFormData({...editFormData, [col.id]: e.target.value})}
-                          >
-                             <option value="">Select...</option>
-                             {col.options?.map(o => <option key={o} value={o}>{o}</option>)}
-                          </select>
-                       ) : (
-                          <input 
-                             className={`w-full bg-gray-50 border ${formErrors[col.id] ? 'border-red-500 ring-2 ring-red-500/20' : 'border-gray-200'} rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 transition-all`} 
-                             type={col.type === ColumnType.DATE ? 'date' : 'text'} 
-                             value={editFormData[col.id] || ''} 
-                             onChange={e => setEditFormData({...editFormData, [col.id]: e.target.value})} 
-                             placeholder={col.name}
-                          />
-                       )}
-                       {formErrors[col.id] && <p className="text-[9px] font-black text-red-500 uppercase tracking-tighter ml-1">{formErrors[col.id]}</p>}
-                    </div>
-                 ))}
-              </div>
-              <div className="p-8 bg-gray-50 border-t border-gray-100 flex gap-4">
-                 <button onClick={() => setEditingUnit(null)} className="flex-1 py-4 bg-white border border-gray-200 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-gray-100 transition-all">Cancel</button>
-                 <button onClick={saveUnitChanges} className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all">Save Changes</button>
-              </div>
-           </div>
-        </div>
-      )}
-
-      {/* Admin Settings Panel */}
-      {isAdmin && showSettings && (
-        <div className="bg-white p-8 rounded-[2.5rem] border-2 border-indigo-100 shadow-2xl animate-in slide-in-from-top-4 duration-500 space-y-8">
-           <div className="flex justify-between items-center">
-              <div>
-                 <h2 className="text-2xl font-black text-gray-900 uppercase">Ledger Configuration</h2>
-                 <p className="text-gray-400 text-xs font-bold uppercase tracking-widest">Manage valid recipients and transfer modes.</p>
-              </div>
-              <button onClick={() => setShowSettings(false)} className="p-3 bg-gray-50 rounded-2xl hover:bg-gray-100 transition-all"><X className="w-5 h-5 text-gray-500" /></button>
-           </div>
-           
-           <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-              {/* Paid To Options */}
-              <div className="space-y-4">
-                 <label className="text-[10px] font-black text-indigo-600 uppercase tracking-[0.2em]">Recipient Accounts</label>
-                 <div className="flex gap-2 mb-4">
-                    <input 
-                       className="flex-1 bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500"
-                       placeholder="Add new account..."
-                       value={newPaidTo}
-                       onChange={e => setNewPaidTo(e.target.value)}
-                       onKeyDown={e => e.key === 'Enter' && addPaidToOption()}
-                    />
-                    <button onClick={addPaidToOption} className="p-3 bg-indigo-600 text-white rounded-2xl shadow-lg hover:bg-indigo-700 transition-all"><Plus className="w-5 h-5" /></button>
-                 </div>
-                 <div className="space-y-2 max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
-                    {store.config.paidToOptions.map((opt: string) => (
-                       <div key={opt} className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl border border-gray-100 group">
-                          <span className="text-sm font-bold text-gray-700">{opt}</span>
-                          <button onClick={() => removePaidToOption(opt)} className="p-2 text-gray-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"><Trash2 className="w-4 h-4" /></button>
-                       </div>
-                    ))}
-                 </div>
-              </div>
-
-              {/* Payment Mode Options */}
-              <div className="space-y-4">
-                 <label className="text-[10px] font-black text-indigo-600 uppercase tracking-[0.2em]">Transfer Methods</label>
-                 <div className="flex gap-2 mb-4">
-                    <input 
-                       className="flex-1 bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500"
-                       placeholder="Add new method..."
-                       value={newPaymentMode}
-                       onChange={e => setNewPaymentMode(e.target.value)}
-                       onKeyDown={e => e.key === 'Enter' && addPaymentModeOption()}
-                    />
-                    <button onClick={addPaymentModeOption} className="p-3 bg-indigo-600 text-white rounded-2xl shadow-lg hover:bg-indigo-700 transition-all"><Plus className="w-5 h-5" /></button>
-                 </div>
-                 <div className="space-y-2 max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
-                    {store.config.paymentModeOptions.map((opt: string) => (
-                       <div key={opt} className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl border border-gray-100 group">
-                          <span className="text-sm font-bold text-gray-700">{opt}</span>
-                          <button onClick={() => removePaymentModeOption(opt)} className="p-2 text-gray-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"><Trash2 className="w-4 h-4" /></button>
-                       </div>
-                    ))}
-                 </div>
-              </div>
-           </div>
-        </div>
-      )}
-
-      {/* Header */}
-      <header className="flex flex-col xl:flex-row xl:items-end justify-between gap-8 bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm">
-        <div>
-          <h1 className="text-3xl font-black text-gray-900 tracking-tight uppercase">Collection Ledger</h1>
-          <p className="text-gray-500 mt-1 font-medium">Monitoring settlements for your active portfolio.</p>
+      <header className="flex flex-col lg:flex-row lg:items-end justify-between gap-10 bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm relative overflow-hidden">
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-2">
+             <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl"><Wallet className="w-4 h-4" /></div>
+             <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400">Portfolio Ledger</span>
+          </div>
+          <h1 className="text-3xl font-black text-slate-950 tracking-tight uppercase leading-none">Collection Engine</h1>
+          <p className="text-slate-500 mt-2 font-medium">Monitoring real-time settlements across all assets.</p>
         </div>
         
-        <div className="flex flex-col lg:flex-row items-center gap-4">
+        <div className="flex flex-col md:flex-row items-center gap-4">
           {isAdmin && (
-             <button onClick={() => setShowSettings(!showSettings)} className={`p-4 rounded-2xl border transition-all ${showSettings ? 'bg-indigo-600 text-white border-indigo-600 shadow-xl' : 'bg-gray-50 text-gray-400 border-gray-200 hover:bg-white hover:text-indigo-600'}`}>
-                <Settings className="w-6 h-6" />
+             <button 
+                onClick={() => setShowSettings(true)}
+                className="p-4 bg-white border border-slate-200 text-slate-400 rounded-2xl hover:text-indigo-600 hover:border-indigo-200 transition-all shadow-sm active:scale-95 flex items-center gap-2"
+                title="Manage Ledger Settings"
+             >
+                <Settings className="w-5 h-5" />
              </button>
           )}
 
-          <div className="bg-gray-100 p-1.5 rounded-2xl flex items-center">
+          <div className="bg-slate-100 p-1.5 rounded-2xl flex items-center shadow-inner">
              {['monthly', 'annual', 'custom'].map((type) => (
                <button 
                 key={type}
                 onClick={() => setFilterType(type as FilterType)}
-                className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${filterType === type ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-gray-600'}`}
+                className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${filterType === type ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}
                >
                  {type}
                </button>
              ))}
           </div>
 
-          <div className="bg-gray-50 border border-gray-100 px-4 py-2 rounded-2xl flex items-center gap-2 min-h-[50px]">
+          <div className="bg-white border border-slate-100 px-4 py-2 rounded-2xl flex items-center gap-2 min-h-[50px] shadow-sm">
             {filterType === 'monthly' && (
-              <div className="flex items-center gap-2">
-                <button onClick={() => navigateMonth(-1)} className="p-1 hover:text-indigo-600 transition-colors">
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <div className="flex items-center gap-3">
-                  <CalendarDays className="w-4 h-4 text-indigo-500" />
-                  <input 
-                    type="month"
-                    className="bg-transparent border-none text-xs font-black uppercase text-gray-900 outline-none cursor-pointer"
-                    value={selectedMonth}
-                    onChange={(e) => setSelectedMonth(e.target.value)}
-                  />
-                </div>
-                <button onClick={() => navigateMonth(1)} className="p-1 hover:text-indigo-600 transition-colors">
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-
-            {filterType === 'annual' && (
-              <div className="flex items-center gap-2">
-                <button onClick={() => navigateYear(-1)} className="p-1 hover:text-indigo-600 transition-colors">
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <div className="flex items-center gap-3">
-                  <TrendingUp className="w-4 h-4 text-indigo-500" />
-                  <select 
-                    className="bg-transparent border-none text-xs font-black uppercase text-slate-900 outline-none cursor-pointer appearance-none pr-8"
-                    value={selectedYear}
-                    onChange={(e) => setSelectedYear(e.target.value)}
-                  >
-                    {availableYears.map(year => (
-                      <option key={year} value={year.toString()}>{year}</option>
-                    ))}
-                  </select>
-                  <ChevronDown className="w-3 h-3 text-gray-400 -ml-7 pointer-events-none" />
-                </div>
-                <button onClick={() => navigateYear(1)} className="p-1 hover:text-indigo-600 transition-colors">
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-
-            {filterType === 'custom' && (
-              <div className="flex items-center gap-3">
-                <CalendarDays className="w-4 h-4 text-indigo-500" />
+              <div className="flex items-center gap-2 whitespace-nowrap">
+                <button onClick={() => navigateMonth(-1)} className="p-1 hover:text-indigo-600 transition-colors active:scale-90"><ChevronLeft className="w-4 h-4" /></button>
                 <div className="flex items-center gap-2">
-                  <input type="date" className="bg-transparent border-none text-[10px] font-black uppercase text-gray-900 outline-none cursor-pointer" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-                  <ArrowRight className="w-3 h-3 text-gray-300" />
-                  <input type="date" className="bg-transparent border-none text-[10px] font-black uppercase text-gray-900 outline-none cursor-pointer" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                  <CalendarDays className="w-4 h-4 text-indigo-500" />
+                  <input type="month" className="bg-transparent border-none text-[10px] font-black uppercase text-slate-900 outline-none cursor-pointer" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} />
                 </div>
+                <button onClick={() => navigateMonth(1)} className="p-1 hover:text-indigo-600 transition-colors active:scale-90"><ChevronRight className="w-4 h-4" /></button>
               </div>
+            )}
+            {filterType === 'annual' && (
+               <div className="flex items-center gap-2 whitespace-nowrap">
+                 <button onClick={() => navigateYear(-1)} className="p-1 hover:text-indigo-600 transition-colors active:scale-90"><ChevronLeft className="w-4 h-4" /></button>
+                 <div className="flex items-center gap-2">
+                   <TrendingUp className="w-4 h-4 text-indigo-500" />
+                   <select className="bg-transparent border-none text-[10px] font-black uppercase text-slate-900 outline-none cursor-pointer appearance-none pr-6" value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)}>
+                     {availableYears.map(year => <option key={year} value={year.toString()}>{year}</option>)}
+                   </select>
+                   <ChevronDown className="w-3 h-3 text-slate-400 -ml-6 pointer-events-none" />
+                 </div>
+                 <button onClick={() => navigateYear(1)} className="p-1 hover:text-indigo-600 transition-colors active:scale-90"><ChevronRight className="w-4 h-4" /></button>
+               </div>
             )}
           </div>
         </div>
 
-        <div className="flex flex-col items-end gap-2">
-           <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">
-              <Target className="w-3 h-3 text-indigo-500" /> Goal: {Math.round(stats.progress)}%
+        <div className="flex flex-col items-center lg:items-end gap-2 w-full lg:w-auto relative">
+           <div className="flex items-center gap-2 text-[11px] font-black text-slate-400 uppercase tracking-widest">
+              <Target className="w-4 h-4 text-indigo-500" /> Goal: <span className="text-indigo-600 font-black">{Math.round(stats.progress)}%</span>
            </div>
-           <div className="w-64 h-2 bg-gray-100 rounded-full overflow-hidden border border-gray-200 shadow-inner">
-              <div className="h-full bg-indigo-600 transition-all duration-1000" style={{ width: `${stats.progress}%` }}></div>
+           <div className="w-full sm:w-64 h-2.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200/50 shadow-inner">
+              <div 
+                className="h-full bg-indigo-600 rounded-full transition-all duration-1000" 
+                style={{ width: `${Math.min(100, stats.progress)}%` }}
+              ></div>
            </div>
         </div>
       </header>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
-           <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Scope Target</p>
-           <p className="text-2xl font-black text-gray-900">${stats.expected.toLocaleString()}</p>
-        </div>
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
-           <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-1">Inflow</p>
-           <p className="text-2xl font-black text-emerald-600">${stats.collected.toLocaleString()}</p>
-        </div>
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
-           <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-1">Deficit</p>
-           <p className="text-2xl font-black text-amber-600">${stats.pending.toLocaleString()}</p>
-        </div>
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
-           <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">Total Deposits</p>
-           <p className="text-2xl font-black text-indigo-900">${stats.heldAssets.toLocaleString()}</p>
-        </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        {[
+          { label: 'Target Scope', val: stats.expected, icon: Target, color: 'text-slate-400', bg: 'bg-white' },
+          { label: 'Inflow', val: stats.collected, icon: CheckCircle2, color: 'text-emerald-500', bg: 'bg-emerald-50/50' },
+          { label: 'Deficit', val: stats.pending, icon: AlertTriangle, color: 'text-rose-500', bg: 'bg-rose-50/50' },
+          { label: 'Escrow Deposits', val: stats.heldAssets, icon: ShieldCheck, color: 'text-indigo-500', bg: 'bg-indigo-50/50' },
+        ].map((item, i) => (
+          <div key={i} className={`p-8 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col items-center text-center ${item.bg}`}>
+             <div className={`p-3 rounded-xl mb-4 shadow-sm bg-white ${item.color}`}>
+                <item.icon className="w-6 h-6" />
+             </div>
+             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{item.label}</p>
+             <p className="text-3xl font-black text-slate-950 tracking-tight">${item.val.toLocaleString()}</p>
+          </div>
+        ))}
       </div>
 
-      {/* Deficit Exposure Summary with Scroll functionality */}
-      {pendingByProperty.length > 0 && (
-        <div className="bg-rose-50 border border-rose-100 p-8 rounded-[2.5rem] animate-in slide-in-from-bottom-4">
-           <div className="flex items-center gap-3 mb-6">
-              <div className="bg-rose-500 p-2 rounded-xl text-white shadow-lg shadow-rose-200">
-                 <ShieldAlert className="w-5 h-5" />
-              </div>
-              <div>
-                 <h2 className="text-xl font-black text-rose-900 uppercase tracking-tight">Deficit Exposure</h2>
-                 <p className="text-[10px] font-bold text-rose-400 uppercase tracking-widest">Outstanding liabilities by property</p>
-              </div>
-           </div>
-           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-              {pendingByProperty.map((item, idx) => (
-                 <div key={idx} className="bg-white/80 backdrop-blur-sm p-5 rounded-2xl border border-rose-100 shadow-sm flex items-center justify-between">
-                    <div>
-                       <p className="text-[9px] font-black text-rose-400 uppercase tracking-widest mb-1 truncate max-w-[120px]">{item.name}</p>
-                       <p className="text-xl font-black text-rose-900">${item.amount.toLocaleString()}</p>
-                    </div>
-                    <div className="bg-rose-100 text-rose-600 px-3 py-1 rounded-lg text-[10px] font-black uppercase">
-                       {item.count} Units
-                    </div>
-                 </div>
-              ))}
-           </div>
-        </div>
-      )}
-
-      <div className="bg-white rounded-[2.5rem] border border-gray-100 shadow-xl overflow-hidden">
-        <div className="p-8 border-b border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="relative w-full md:w-80">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input className="w-full pl-10 pr-4 py-4 bg-gray-50 border border-transparent rounded-2xl text-sm outline-none font-bold placeholder:text-gray-400" placeholder="Filter records..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+      <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-xl overflow-hidden">
+        <div className="p-8 border-b border-slate-50 flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="relative w-full md:w-96">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
+            <input className="w-full pl-11 pr-4 py-4 bg-gray-50 border border-transparent rounded-2xl text-sm outline-none font-bold placeholder:text-slate-400" placeholder="Filter ledger..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
           </div>
-          <select className="bg-gray-50 border-none px-6 py-4 rounded-2xl text-sm font-black uppercase tracking-widest outline-none cursor-pointer hover:bg-gray-100 transition-colors" value={selectedPropertyId} onChange={e => setSelectedPropertyId(e.target.value)}>
-             <option value="all">All Properties</option>
+          <select className="bg-gray-50 border-none px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest outline-none cursor-pointer hover:bg-slate-100 transition-colors appearance-none min-w-[200px]" value={selectedPropertyId} onChange={e => setSelectedPropertyId(e.target.value)}>
+             <option value="all">Global Portfolio</option>
              {visibleProperties.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </div>
 
-        {/* Added max-height and custom-scrollbar to main ledger table container */}
         <div className="overflow-x-auto max-h-[600px] overflow-y-auto custom-scrollbar">
           <table className="w-full text-left">
-            <thead className="sticky top-0 z-10 bg-white">
-              <tr className="bg-gray-50 border-b border-gray-100">
-                <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Unit / Tenant</th>
-                <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Base Rent</th>
-                <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Current Status</th>
-                <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Actions</th>
+            <thead className="sticky top-0 z-10 bg-white shadow-sm">
+              <tr className="bg-slate-50 border-b border-slate-100">
+                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Unit / Tenant</th>
+                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Base Yield</th>
+                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Status</th>
+                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-50">
+            <tbody className="divide-y divide-slate-50">
               {recordsWithRent.map((record: any) => (
                 <tr key={record.id} className="hover:bg-indigo-50/10 transition-colors group">
                   <td className="px-8 py-6">
                     <div className="flex items-center gap-4">
-                       <div className="bg-indigo-50 p-2.5 rounded-xl text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                       <div className="bg-slate-50 p-2.5 rounded-xl text-slate-400 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
                           <User className="w-5 h-5" />
                        </div>
-                       <div className="flex-1">
+                       <div>
                           <div className="flex items-center gap-2">
-                             <p className="font-black text-gray-900 uppercase tracking-tight group-hover:text-indigo-600 transition-colors">{record.tenantName}</p>
-                             <button onClick={() => handleEditUnit(record)} className="p-1.5 text-gray-300 hover:text-indigo-600 transition-colors"><Edit2 className="w-3.5 h-3.5" /></button>
+                             <p className="font-black text-slate-900 uppercase tracking-tight group-hover:text-indigo-600 transition-colors">{record.tenantName}</p>
+                             <button onClick={() => handleEditUnit(record)} className="p-1 text-slate-300 hover:text-indigo-600 transition-colors active:scale-90"><Edit2 className="w-3.5 h-3.5" /></button>
                           </div>
-                          <div className="flex items-center gap-3">
-                             <p className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1.5"><Building2 className="w-3 h-3" /> {record.property?.name} • Due: {record.dueDay}</p>
-                             <button onClick={() => setHistoryRecord(record)} className="text-[9px] font-black uppercase text-indigo-400 hover:text-indigo-600 flex items-center gap-1"><History className="w-3 h-3" /> History</button>
+                          <div className="flex items-center gap-3 mt-1">
+                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5"><Building2 className="w-3 h-3" /> {record.property?.name}</p>
+                             <button onClick={() => setHistoryRecord(record)} className="text-[10px] font-black uppercase text-indigo-400 hover:text-indigo-600 flex items-center gap-1.5 active:scale-95 transition-colors"><History className="w-3.5 h-3.5" /> History</button>
                           </div>
                        </div>
                     </div>
                   </td>
-                  <td className="px-8 py-6">
-                    <p className="font-black text-gray-900 text-lg">${record.rentAmount.toLocaleString()}</p>
+                  <td className="px-8 py-6 text-center">
+                    <p className="font-black text-slate-950 text-lg tracking-tight">${record.rentAmount.toLocaleString()}</p>
                   </td>
                   <td className="px-8 py-6 text-center">
                     <div className="flex flex-col items-center gap-1.5">
-                       <span className={`px-3 py-1 rounded-full text-[10px] font-black border uppercase tracking-tighter flex items-center gap-1.5 shadow-sm ${
+                       <span className={`px-4 py-1.5 rounded-full text-[10px] font-black border uppercase tracking-widest flex items-center gap-2 shadow-sm ${
                          record.status === 'PAID' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 
-                         record.status === 'OVERDUE' ? 'bg-red-50 text-red-700 border-red-100 animate-pulse' : 
+                         record.status === 'OVERDUE' ? 'bg-rose-50 text-rose-700 border-rose-100 animate-pulse' : 
                          'bg-amber-50 text-amber-700 border-amber-100'
                        }`}>
-                         {record.status === 'PAID' ? <CheckCircle2 className="w-3 h-3" /> : record.status === 'OVERDUE' ? <AlertTriangle className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-                         {record.status === 'PAID' ? 'Settled' : record.status === 'OVERDUE' ? 'Overdue' : 'Pending'}
+                         {record.status === 'PAID' ? <CheckCircle2 className="w-3.5 h-3.5" /> : record.status === 'OVERDUE' ? <AlertTriangle className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
+                         {record.status === 'PAID' ? 'Settled' : record.status === 'OVERDUE' ? 'Default' : 'Awaiting'}
                        </span>
                     </div>
                   </td>
@@ -769,18 +601,18 @@ const RentCollection: React.FC = () => {
                       {record.hasDepositOwed && (
                         <button 
                           onClick={() => handleAction(record, 'DEPOSIT')} 
-                          className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${
-                            record.isDepositPaid && !record.isDepositRefunded ? 'bg-rose-500 text-white shadow-xl hover:bg-rose-600' : 'bg-amber-500 text-white shadow-lg hover:bg-amber-600'
+                          className={`px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 active:scale-95 ${
+                            record.isDepositPaid && !record.isDepositRefunded ? 'bg-rose-500 text-white shadow-lg hover:bg-rose-600' : 'bg-amber-500 text-white shadow-lg hover:bg-amber-600'
                           }`}
                         >
                            {record.isDepositPaid && !record.isDepositRefunded ? <Undo2 className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
-                           {record.isDepositPaid && !record.isDepositRefunded ? 'Refund Deposit' : 'Deposit'}
+                           {record.isDepositPaid && !record.isDepositRefunded ? 'Refund' : 'Deposit'}
                         </button>
                       )}
                       
                       {filterType === 'monthly' && (
-                        <button onClick={() => handleAction(record, 'RENT')} className={`px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${record.isRentPaid ? 'bg-gray-100 text-gray-400 hover:text-red-500 border border-transparent' : 'bg-indigo-600 text-white shadow-xl shadow-indigo-100 hover:bg-indigo-700 active:scale-95'}`}>
-                          {record.isRentPaid ? 'Unmark Settlement' : 'Confirm Rent'}
+                        <button onClick={() => handleAction(record, 'RENT')} className={`px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${record.isRentPaid ? 'bg-slate-100 text-slate-400 hover:text-rose-500 border border-transparent border-slate-200' : 'bg-slate-950 text-white shadow-xl hover:bg-indigo-700'}`}>
+                          {record.isRentPaid ? 'Revert Settlement' : 'Confirm Inflow'}
                         </button>
                       )}
                     </div>
@@ -793,36 +625,125 @@ const RentCollection: React.FC = () => {
       </div>
 
       {collectingRecord && (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-lg animate-in fade-in duration-300">
-           <div className="bg-white w-full max-md rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
-              <div className="p-8 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-                 <h3 className="text-xl font-black text-gray-900 uppercase">Settlement Portal</h3>
-                 <button onClick={() => setCollectingRecord(null)} className="p-2 hover:bg-white rounded-full transition-colors"><X className="w-6 h-6 text-gray-400" /></button>
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md animate-in fade-in duration-300">
+           <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
+              <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
+                 <h3 className="text-xl font-black text-slate-900 uppercase">Settlement Portal</h3>
+                 <button onClick={() => setCollectingRecord(null)} className="p-2 hover:bg-white rounded-full transition-colors"><X className="w-6 h-6 text-slate-400" /></button>
               </div>
               <div className="p-8 space-y-6">
-                 <div className={`${collectionData.type === 'DEPOSIT' ? 'bg-amber-50 border-amber-100 text-amber-900' : 'bg-indigo-50 border-indigo-100 text-indigo-900'} p-8 rounded-[2.5rem] border text-center shadow-inner animate-in zoom-in-95 duration-500`}>
+                 <div className={`${collectionData.type === 'DEPOSIT' ? 'bg-amber-50 border-amber-100 text-amber-900' : 'bg-indigo-50 border-indigo-100 text-indigo-900'} p-8 rounded-[2.5rem] border text-center shadow-inner`}>
                     <p className="text-[10px] font-black uppercase tracking-widest opacity-60 mb-2">{collectionData.type} Amount</p>
-                    <p className="text-5xl font-black tracking-tighter animate-in slide-in-from-bottom-2">${collectionData.amount.toLocaleString()}</p>
+                    <p className="text-5xl font-black tracking-tighter">${collectionData.amount.toLocaleString()}</p>
                  </div>
                  
                  <div className="space-y-4">
-                    <div className="space-y-2">
-                       <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Receive Into Account</label>
-                       <select className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 transition-all cursor-pointer" value={collectionData.paidTo} onChange={e => setCollectionData({...collectionData, paidTo: e.target.value})}>
+                    <div className="space-y-1.5">
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Receive Into Account</label>
+                       <select className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-5 py-4 text-sm font-bold outline-none cursor-pointer" value={collectionData.paidTo} onChange={e => setCollectionData({...collectionData, paidTo: e.target.value})}>
                           {store.config.paidToOptions.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
                        </select>
                     </div>
-                    <div className="space-y-2">
-                       <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Method of Transfer</label>
-                       <select className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 transition-all cursor-pointer" value={collectionData.paymentMode} onChange={e => setCollectionData({...collectionData, paymentMode: e.target.value})}>
+                    <div className="space-y-1.5">
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Method of Transfer</label>
+                       <select className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-5 py-4 text-sm font-bold outline-none cursor-pointer" value={collectionData.paymentMode} onChange={e => setCollectionData({...collectionData, paymentMode: e.target.value})}>
                           {store.config.paymentModeOptions.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
                        </select>
                     </div>
                  </div>
               </div>
-              <div className="p-8 bg-gray-50 border-t border-gray-100 flex gap-4">
-                 <button onClick={() => setCollectingRecord(null)} className="flex-1 py-4 bg-white border border-gray-200 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-gray-100 transition-all">Cancel</button>
+              <div className="p-8 bg-slate-50 border-t border-slate-100 flex gap-4">
+                 <button onClick={() => setCollectingRecord(null)} className="flex-1 py-4 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-gray-100 transition-all">Cancel</button>
                  <button onClick={confirmCollection} className={`flex-1 py-4 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl transition-all active:scale-95 ${collectionData.type === 'DEPOSIT' ? 'bg-amber-500 shadow-amber-200' : 'bg-indigo-600 shadow-indigo-200'}`}>Confirm Receipt</button>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {editingUnit && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md animate-in fade-in duration-300">
+           <div className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
+              <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
+                 <h3 className="text-xl font-black text-slate-900 uppercase">Edit Unit: {editingUnit.tenantName}</h3>
+                 <button onClick={() => setEditingUnit(null)} className="p-2 hover:bg-white rounded-full transition-colors"><X className="w-6 h-6 text-slate-400" /></button>
+              </div>
+              <div className="p-8 space-y-6 max-h-[60vh] overflow-y-auto custom-scrollbar">
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {editingUnit.propertyType.columns.map((col: any) => (
+                       <div key={col.id} className="space-y-1.5">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{col.name} {col.required && '*'}</label>
+                          {col.type === ColumnType.DROPDOWN ? (
+                            <select 
+                               className={`w-full bg-slate-50 border ${formErrors[col.id] ? 'border-red-500' : 'border-slate-100'} rounded-2xl px-5 py-4 text-sm font-bold outline-none`}
+                               value={editFormData[col.id] || ''}
+                               onChange={e => {
+                                 setEditFormData({...editFormData, [col.id]: e.target.value});
+                                 if(formErrors[col.id]) {
+                                   const newErrors = {...formErrors};
+                                   delete newErrors[col.id];
+                                   setFormErrors(newErrors);
+                                 }
+                               }}
+                            >
+                               <option value="">Select...</option>
+                               {col.options?.map((o: string) => <option key={o} value={o}>{o}</option>)}
+                            </select>
+                          ) : (
+                            <input 
+                               type={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.RENT_DUE_DAY || col.type === ColumnType.SECURITY_DEPOSIT ? 'number' : col.type === ColumnType.DATE ? 'date' : 'text'}
+                               className={`w-full bg-slate-50 border ${formErrors[col.id] ? 'border-red-500' : 'border-slate-100'} rounded-2xl px-5 py-4 text-sm font-bold outline-none`}
+                               value={editFormData[col.id] || ''}
+                               onChange={e => {
+                                 setEditFormData({...editFormData, [col.id]: e.target.value});
+                                 if(formErrors[col.id]) {
+                                   const newErrors = {...formErrors};
+                                   delete newErrors[col.id];
+                                   setFormErrors(newErrors);
+                                 }
+                               }}
+                            />
+                          )}
+                          {formErrors[col.id] && <p className="text-[10px] text-red-500 font-black uppercase ml-1">{formErrors[col.id]}</p>}
+                       </div>
+                    ))}
+                 </div>
+              </div>
+              <div className="p-8 bg-slate-50 border-t border-slate-100 flex gap-4">
+                 <button onClick={() => setEditingUnit(null)} className="flex-1 py-4 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-gray-100 transition-all">Cancel</button>
+                 <button onClick={handleSaveUnit} className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-indigo-200">Save Changes</button>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {historyRecord && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md animate-in fade-in duration-300">
+           <div className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
+              <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
+                 <h3 className="text-xl font-black text-slate-900 uppercase">Transaction History: {historyRecord.tenantName}</h3>
+                 <button onClick={() => setHistoryRecord(null)} className="p-2 hover:bg-white rounded-full transition-colors"><X className="w-6 h-6 text-slate-400" /></button>
+              </div>
+              <div className="p-8 space-y-4 max-h-[60vh] overflow-y-auto custom-scrollbar">
+                 {historyRecord.paymentHistory.length > 0 ? historyRecord.paymentHistory.map((pay: Payment) => (
+                    <div key={pay.id} className="flex items-center justify-between p-5 bg-slate-50 rounded-2xl border border-slate-100 shadow-sm">
+                       <div>
+                          <p className="text-xs font-black text-slate-900 uppercase tracking-tight">{pay.type} - {pay.month === 'ONE_TIME' ? 'Security' : pay.month}</p>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{pay.paymentMode} via {pay.paidTo}</p>
+                       </div>
+                       <div className="text-right">
+                          <p className="text-sm font-black text-indigo-600">${pay.amount.toLocaleString()}</p>
+                          <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">{pay.paidAt ? new Date(pay.paidAt).toLocaleDateString() : 'N/A'}</p>
+                       </div>
+                    </div>
+                 )) : (
+                    <div className="py-20 text-center opacity-40">
+                       <History className="w-16 h-16 mx-auto mb-4 text-slate-300" />
+                       <p className="text-[10px] font-black uppercase tracking-widest">No transaction history detected</p>
+                    </div>
+                 )}
+              </div>
+              <div className="p-8 bg-slate-50 border-t border-slate-100">
+                 <button onClick={() => setHistoryRecord(null)} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl">Close History</button>
               </div>
            </div>
         </div>

@@ -19,63 +19,6 @@ const RentalContext = createContext<any>(null);
 const DATABASE_FILENAME = "RentMaster_Pro_Database";
 const SHEET_TABS = ["Users", "PropertyTypes", "Properties", "Records", "RecordValues", "Payments", "Config"];
 
-const gid = () => Math.random().toString(36).substring(2, 11);
-
-const DUMMY_USERS: User[] = [
-  { id: 'u-admin', username: 'admin', name: 'System Admin', role: UserRole.ADMIN, passwordHash: 'admin123', createdAt: new Date().toISOString() },
-  { id: 'u-manager', username: 'manager', name: 'Site Manager', role: UserRole.MANAGER, passwordHash: 'manager123', createdAt: new Date().toISOString() }
-];
-
-const DUMMY_PROPERTY_TYPE: PropertyType = {
-  id: 'pt-std',
-  name: 'Standard Apartment',
-  defaultDueDateDay: 5,
-  columns: [
-    { id: 'c1', name: 'Unit #', type: ColumnType.TEXT, required: true, isRentCalculatable: false, order: 0 },
-    { id: 'c2', name: 'Tenant Name', type: ColumnType.TEXT, required: true, isRentCalculatable: false, order: 1 },
-    { id: 'c3', name: 'Monthly Rent', type: ColumnType.CURRENCY, required: true, isRentCalculatable: true, order: 2 },
-    { id: 'c4', name: 'Security Deposit', type: ColumnType.SECURITY_DEPOSIT, required: true, isRentCalculatable: false, order: 3 },
-    { id: 'c5', name: 'Status', type: ColumnType.DROPDOWN, required: true, isRentCalculatable: false, options: ['Occupied', 'Vacant'], order: 4 }
-  ]
-};
-
-const DUMMY_PROPERTIES: Property[] = [
-  { id: 'p-1', name: 'Grand Plaza', propertyTypeId: 'pt-std', address: '123 Main St, New York', createdAt: new Date().toISOString(), isVisibleToManager: true },
-  { id: 'p-2', name: 'Seaside Villas', propertyTypeId: 'pt-std', address: '456 Ocean Ave, Miami', createdAt: new Date().toISOString(), isVisibleToManager: true }
-];
-
-const gpUnits = ['101', '102', '201', '202'].map(num => ({ id: `r-gp-${num}`, propertyId: 'p-1' }));
-const svUnits = ['A1', 'A2', 'B1'].map(num => ({ id: `r-sv-${num}`, propertyId: 'p-2' }));
-
-const DUMMY_RECORDS: PropertyRecord[] = [...gpUnits, ...svUnits].map(u => ({
-  id: u.id,
-  propertyId: u.propertyId,
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString()
-}));
-
-const DUMMY_RECORD_VALUES: RecordValue[] = [
-  { id: gid(), recordId: 'r-gp-101', columnId: 'c1', value: '101' },
-  { id: gid(), recordId: 'r-gp-101', columnId: 'c2', value: 'John Doe' },
-  { id: gid(), recordId: 'r-gp-101', columnId: 'c3', value: '2500' },
-  { id: gid(), recordId: 'r-gp-101', columnId: 'c4', value: '2500' },
-  { id: gid(), recordId: 'r-gp-101', columnId: 'c5', value: 'Occupied' },
-  { id: gid(), recordId: 'r-sv-A1', columnId: 'c1', value: 'A1' },
-  { id: gid(), recordId: 'r-sv-A1', columnId: 'c2', value: 'Alice Johnson' },
-  { id: gid(), recordId: 'r-sv-A1', columnId: 'c3', value: '1800' },
-  { id: gid(), recordId: 'r-sv-A1', columnId: 'c4', value: '1800' },
-  { id: gid(), recordId: 'r-sv-A1', columnId: 'c5', value: 'Occupied' }
-];
-
-const now = new Date();
-const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-const lastMonth = `${now.getFullYear()}-${String(now.getMonth()).padStart(2, '0')}`;
-
-const DUMMY_PAYMENTS: Payment[] = [
-  { id: gid(), recordId: 'r-gp-101', month: lastMonth, amount: 2500, status: PaymentStatus.PAID, type: 'RENT', dueDate: `${lastMonth}-05`, paidAt: `${lastMonth}-03T10:00:00Z`, paymentMode: 'Bank Transfer', paidTo: 'Company Account' },
-  { id: gid(), recordId: 'r-gp-101', month: currentMonth, amount: 2500, status: PaymentStatus.PAID, type: 'RENT', dueDate: `${currentMonth}-05`, paidAt: `${currentMonth}-02T09:30:00Z`, paymentMode: 'Bank Transfer', paidTo: 'Company Account' }
-];
-
 export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isReady, setIsReady] = useState(false);
   const [isCloudSyncing, setIsCloudSyncing] = useState(false);
@@ -88,21 +31,18 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   );
 
   const [user, setUser] = useState<User | null>(null);
-  const [users, setUsers] = useState<User[]>(DUMMY_USERS);
-  const [propertyTypes, setPropertyTypes] = useState<PropertyType[]>([DUMMY_PROPERTY_TYPE]);
-  const [properties, setProperties] = useState<Property[]>(DUMMY_PROPERTIES);
-  const [records, setRecords] = useState<PropertyRecord[]>(DUMMY_RECORDS);
-  const [recordValues, setRecordValues] = useState<RecordValue[]>(DUMMY_RECORD_VALUES);
-  const [payments, setPayments] = useState<Payment[]>(DUMMY_PAYMENTS);
+  const [users, setUsers] = useState<User[]>([]);
+  const [propertyTypes, setPropertyTypes] = useState<PropertyType[]>([]);
+  const [properties, setProperties] = useState<Property[]>([]);
+  const [records, setRecords] = useState<PropertyRecord[]>([]);
+  const [recordValues, setRecordValues] = useState<RecordValue[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  
+  // Initialize with sensible defaults, but these will be overwritten by Cloud/Local data
   const [config, setConfig] = useState<AppConfig>({
     paidToOptions: ['Company Account', 'Bank Account', 'Petty Cash', 'Owner Direct'],
     paymentModeOptions: ['Bank Transfer', 'Cash', 'Check', 'UPI/QR', 'Credit Card']
   });
-
-  const setMode = (mode: 'cloud' | 'local') => {
-    setStorageMode(mode);
-    localStorage.setItem('rentmaster_storage_mode', mode);
-  };
 
   const updateClientId = (id: string) => {
     const cleanId = id.trim();
@@ -220,32 +160,49 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const data = response.result.valueRanges;
       const parse = (index: number) => data[index]?.values?.slice(1) || [];
 
+      // Tab 0: Users
       const parsedUsers = parse(0).map((r: any) => ({
         id: r[0], username: r[1], name: r[2], role: r[3] as UserRole, passwordHash: r[4], createdAt: r[5]
       })).filter(u => u.username);
-      if (parsedUsers.length) setUsers(parsedUsers);
+      setUsers(parsedUsers);
 
+      // Tab 1: PropertyTypes
       const parsedTypes = parse(1).map((r: any) => ({ 
         id: r[0], name: r[1], columns: JSON.parse(r[2] || '[]'), defaultDueDateDay: parseInt(r[3] || '5') 
       })).filter(t => t.name);
+      setPropertyTypes(parsedTypes);
       
+      // Tab 2: Properties
       const parsedProps = parse(2).map((r: any) => ({ 
         id: r[0], name: r[1], propertyTypeId: r[2], address: r[3], createdAt: r[4], isVisibleToManager: r[5] === 'true' 
       })).filter(p => p.name);
-
-      if (parsedTypes.length) setPropertyTypes(parsedTypes);
-      if (parsedProps.length) setProperties(parsedProps);
+      setProperties(parsedProps);
       
+      // Tab 3: Records
       const pRecords = parse(3).map(r => ({ id: r[0], propertyId: r[1], createdAt: r[2], updatedAt: r[3] })).filter(r => r.id);
+      setRecords(pRecords);
+
+      // Tab 4: RecordValues
       const pVals = parse(4).map(r => ({ id: r[0], recordId: r[1], columnId: r[2], value: r[3] })).filter(r => r.id);
+      setRecordValues(pVals);
+
+      // Tab 5: Payments
       const pPays = parse(5).map(r => ({ 
         id: r[0], recordId: r[1], month: r[2], amount: parseFloat(r[3] || '0'), status: r[4], 
         type: r[5], dueDate: r[6], paidAt: r[7], paidTo: r[8], paymentMode: r[9], isRefunded: r[10] === 'true' 
       })).filter(r => r.id);
+      setPayments(pPays);
 
-      if (pRecords.length) setRecords(pRecords);
-      if (pVals.length) setRecordValues(pVals);
-      if (pPays.length) setPayments(pPays);
+      // Tab 6: Config (Persisted Application Settings)
+      const pConfig = parse(6);
+      if (pConfig.length > 0) {
+        const cloudConfig: AppConfig = {
+          paidToOptions: JSON.parse(pConfig[0][0] || '[]'),
+          paymentModeOptions: JSON.parse(pConfig[0][1] || '[]')
+        };
+        if (cloudConfig.paidToOptions.length) setConfig(cloudConfig);
+      }
+
       setCloudError(null);
     } catch (e: any) {
       console.error("Cloud load failed", e);
@@ -264,7 +221,8 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         { tab: "Properties", rows: [["ID", "Name", "TypeID", "Address", "Created", "Visible"], ...properties.map(p => [p.id, p.name, p.propertyTypeId, p.address, p.createdAt, p.isVisibleToManager])] },
         { tab: "Records", rows: [["ID", "PropID", "Created", "Updated"], ...records.map(r => [r.id, r.propertyId, r.createdAt, r.updatedAt])] },
         { tab: "RecordValues", rows: [["ID", "RecordID", "ColID", "Value"], ...recordValues.map(v => [v.id, v.recordId, v.columnId, v.value])] },
-        { tab: "Payments", rows: [["ID", "RecID", "Month", "Amount", "Status", "Type", "Due", "PaidAt", "PaidTo", "Mode", "Refunded"], ...payments.map(p => [p.id, p.recordId, p.month, p.amount, p.status, p.type, p.dueDate, p.paidAt, p.paidTo, p.paymentMode, p.isRefunded])] }
+        { tab: "Payments", rows: [["ID", "RecID", "Month", "Amount", "Status", "Type", "Due", "PaidAt", "PaidTo", "Mode", "Refunded"], ...payments.map(p => [p.id, p.recordId, p.month, p.amount, p.status, p.type, p.dueDate, p.paidAt, p.paidTo, p.paymentMode, p.isRefunded])] },
+        { tab: "Config", rows: [["PaidToJSON", "ModesJSON"], [JSON.stringify(config.paidToOptions), JSON.stringify(config.paymentModeOptions)]] }
       ];
 
       for (const item of batchData) {
@@ -291,7 +249,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const timer = setTimeout(() => syncAll(), 2500);
       return () => clearTimeout(timer);
     }
-  }, [propertyTypes, properties, records, recordValues, payments, users, spreadsheetId, googleUser, storageMode]);
+  }, [propertyTypes, properties, records, recordValues, payments, users, config, spreadsheetId, googleUser, storageMode]);
 
   useEffect(() => {
     const saved = localStorage.getItem('rentmaster_local_cache');
@@ -304,6 +262,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (parsed.records) setRecords(parsed.records);
         if (parsed.recordValues) setRecordValues(parsed.recordValues);
         if (parsed.payments) setPayments(parsed.payments);
+        if (parsed.config) setConfig(parsed.config);
       } catch (e) {}
     }
     setIsReady(true);
@@ -311,17 +270,12 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   useEffect(() => {
     if (storageMode === 'local') {
-      localStorage.setItem('rentmaster_local_cache', JSON.stringify({ users, propertyTypes, properties, records, recordValues, payments }));
+      localStorage.setItem('rentmaster_local_cache', JSON.stringify({ users, propertyTypes, properties, records, recordValues, payments, config }));
     }
-  }, [users, propertyTypes, properties, records, recordValues, payments, storageMode]);
+  }, [users, propertyTypes, properties, records, recordValues, payments, config, storageMode]);
 
   const login = async (username: string, password: string) => {
     const lowerUser = username.toLowerCase();
-    const dummyMatch = DUMMY_USERS.find(u => u.username === lowerUser && u.passwordHash === password);
-    if (dummyMatch) {
-      setUser(dummyMatch);
-      return true;
-    }
     const foundUser = users.find(u => u.username.toLowerCase() === lowerUser && u.passwordHash === password);
     if (foundUser) {
       setUser(foundUser);
@@ -333,9 +287,11 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const logout = () => {
     setUser(null);
     setGoogleUser(null);
-    // CRITICAL: We NO LONGER remove spreadsheetId or googleClientId here.
-    // They stay in localStorage so the next user (e.g. Manager) has the context.
   };
+
+  const addUser = (newUser: User) => setUsers(prev => [...prev, newUser]);
+  const deleteUser = (id: string) => setUsers(prev => prev.filter(u => u.id !== id));
+  const updateUser = (updated: User) => setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
 
   const addPropertyType = (type: PropertyType) => setPropertyTypes(prev => [...prev, type]);
   const updatePropertyType = (type: PropertyType) => setPropertyTypes(prev => prev.map(t => t.id === type.id ? type : t));
@@ -385,8 +341,8 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const value = {
     isReady, user, users, propertyTypes, properties, records, recordValues, payments, config,
-    isCloudSyncing, cloudError, googleUser, spreadsheetId, googleClientId, storageMode, setMode, updateClientId, authenticate,
-    login, logout, addPropertyType, updatePropertyType, deletePropertyType, addProperty,
+    isCloudSyncing, cloudError, googleUser, spreadsheetId, googleClientId, storageMode, updateClientId, authenticate,
+    login, logout, addUser, deleteUser, updateUser, addPropertyType, updatePropertyType, deletePropertyType, addProperty,
     togglePropertyVisibility, deleteProperty, addRecord, updateRecord, deleteRecord,
     togglePayment, refundDeposit, updateConfig
   };
