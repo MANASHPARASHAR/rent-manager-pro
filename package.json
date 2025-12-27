@@ -6,7 +6,7 @@
   "private": true,
   "scripts": {
     "start": "npx serve .",
-    "build": "echo 'Build complete: No compilation required for ESM structure'",
+    "build": "mkdir -p public && cp index.html index.tsx types.ts App.tsx public/ && cp -r components store public/ 2>/dev/null || true",
     "deploy": "vercel --prod"
   },
   "dependencies": {
