@@ -29,7 +29,7 @@ const Login: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
 
   // Hardened Initialization Logic:
-  // Setup mode ONLY if everything is empty.
+  // Setup mode ONLY if everything is completely fresh.
   const isInitializing = useMemo(() => {
     if (store.isBooting) return false;
     const previouslyInitialized = localStorage.getItem('rentmaster_initialized') === 'true';
@@ -38,12 +38,18 @@ const Login: React.FC = () => {
     return store.users.length === 0;
   }, [store.isBooting, store.users.length, store.googleClientId, store.spreadsheetId]);
 
-  // Determine if we need to show a "Cloud Authorization Required" state.
-  // We ONLY show this if the user list is empty (can't login) but we know we're in Cloud mode.
-  // If we have cached users, we show the Login Form instead.
+  // Determine if we need to block with "Cloud Authorization Required"
+  // We ONLY block if users list is 0 AND a Client ID exists AND we aren't authorized yet.
+  // If users are in cache (length > 0), we skip this and go straight to Login Form.
   const isCloudAuthRequired = useMemo(() => {
-    return !!store.googleClientId && store.users.length === 0 && !store.googleUser && store.storageMode === 'cloud';
-  }, [store.googleClientId, store.users.length, store.googleUser, store.storageMode]);
+    if (store.isBooting) return false;
+    const hasClientId = !!store.googleClientId;
+    const hasNoUsers = store.users.length === 0;
+    const isNotAuthorized = !store.googleUser;
+    const isCloudMode = store.storageMode === 'cloud';
+    
+    return hasClientId && hasNoUsers && isNotAuthorized && isCloudMode;
+  }, [store.isBooting, store.googleClientId, store.users.length, store.googleUser, store.storageMode]);
 
   if (store.isBooting) {
     return (
@@ -127,7 +133,7 @@ const Login: React.FC = () => {
                 ? "No users detected. Create the master Super-Admin account to begin your journey." 
                 : isCloudAuthRequired 
                 ? "This workspace is linked to a Google Sheet but the user cache is empty. Authorize to download your team directory."
-                : "Enter your credentials to manage your rental portfolio. Data is synchronized across your team."}
+                : "Enter your credentials to manage your rental portfolio. Your session remains authorized in the background."}
             </p>
           </div>
 
@@ -249,8 +255,7 @@ const Login: React.FC = () => {
              <div className="flex items-center gap-2">
                 <div className={`w-2 h-2 rounded-full ${store.googleUser ? 'bg-emerald-500' : 'bg-slate-600'}`}></div>
                 <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">
-                  Mode: {store.storageMode} 
-                  {!store.googleUser && " (Offline Sync)"}
+                  Cloud Status: {store.googleUser ? "Authorized" : "Disconnected"}
                 </span>
              </div>
              {isInitializing && (

@@ -1,5 +1,5 @@
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { 
   PropertyType, 
   Property, 
@@ -43,6 +43,9 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     paidToOptions: ['Company Account', 'Bank Account', 'Petty Cash', 'Owner Direct'],
     paymentModeOptions: ['Bank Transfer', 'Cash', 'Check', 'UPI/QR', 'Credit Card']
   });
+
+  // Ref to track if we've successfully loaded the initial cache to prevent overwriting with empty data
+  const hasLoadedInitialCache = useRef(false);
 
   const updateClientId = (id: string) => {
     const cleanId = id.trim();
@@ -245,7 +248,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [propertyTypes, properties, records, recordValues, payments, users, config, spreadsheetId, googleUser, storageMode]);
 
   useEffect(() => {
-    // Load local cache immediately to allow login even if offline/not authorized yet
+    // Initial Cache Loading
     const saved = localStorage.getItem('rentmaster_local_cache');
     if (saved) {
       try {
@@ -257,9 +260,13 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (parsed.recordValues) setRecordValues(parsed.recordValues);
         if (parsed.payments) setPayments(parsed.payments);
         if (parsed.config) setConfig(parsed.config);
+        hasLoadedInitialCache.current = true;
       } catch (e) {
         console.error("Cache load failed", e);
       }
+    } else {
+      // If no cache exists, we still mark it as "handled" to allow future saves
+      hasLoadedInitialCache.current = true;
     }
     
     const timer = setTimeout(() => {
@@ -267,12 +274,17 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setIsBooting(false);
     }, 800);
     return () => clearTimeout(timer);
-  }, []); // Run once on mount
+  }, []);
 
   useEffect(() => {
-    // Always persist to local cache for emergency pre-auth access
-    localStorage.setItem('rentmaster_local_cache', JSON.stringify({ users, propertyTypes, properties, records, recordValues, payments, config }));
-  }, [users, propertyTypes, properties, records, recordValues, payments, config]);
+    // Persistent Cache Saving: 
+    // ONLY save if we have successfully initialized, preventing empty overwrites
+    if (isReady && hasLoadedInitialCache.current) {
+      localStorage.setItem('rentmaster_local_cache', JSON.stringify({ 
+        users, propertyTypes, properties, records, recordValues, payments, config 
+      }));
+    }
+  }, [users, propertyTypes, properties, records, recordValues, payments, config, isReady]);
 
   const login = async (username: string, password: string) => {
     const lowerUser = username.toLowerCase();
@@ -286,9 +298,9 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const logout = () => {
     setUser(null);
-    // Don't clear googleUser here if you want to stay "Authorized" but "Logged out"
-    // However, usually we clear it for security.
-    setGoogleUser(null);
+    // CRITICAL: We NO LONGER clear googleUser on logout.
+    // This allows the session to persist for the Admin if they are still on the same machine.
+    // setGoogleUser(null); // Removed to maintain cloud link across internal logouts
   };
 
   const addUser = (newUser: User) => {
