@@ -171,9 +171,18 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 </div>
                 <button 
                    onClick={handleConnect}
-                   className={`w-full py-2.5 ${store.googleClientId ? 'bg-indigo-600 shadow-lg shadow-indigo-600/20' : 'bg-slate-700/50'} text-white rounded-xl text-[9px] font-black uppercase tracking-widest active:scale-95 transition-all`}
+                   disabled={!isAdmin}
+                   className={`w-full py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${
+                     !isAdmin 
+                       ? 'bg-slate-800/50 text-slate-500 cursor-not-allowed border border-white/5' 
+                       : store.googleClientId 
+                         ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20 active:scale-95' 
+                         : 'bg-slate-700/50 text-white hover:bg-slate-700 active:scale-95'
+                   }`}
                 >
-                   {store.googleClientId ? (store.googleUser ? 'Verified' : 'Authorize') : 'Connect'}
+                   {!isAdmin 
+                     ? (store.spreadsheetId ? 'Cloud Active' : 'Local Only') 
+                     : (store.googleClientId ? (store.googleUser ? 'Verified' : 'Authorize') : 'Connect')}
                 </button>
              </div>
           </div>
