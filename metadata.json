@@ -1,5 +1,12 @@
 {
-  "name": "Dynamic RentMaster Pro",
-  "description": "A fully customizable rental management system with dynamic property schemas, automated rent calculations, and comprehensive administrative controls.",
-  "requestFramePermissions": []
+  "name": "RentMaster Pro",
+  "description": "A high-performance rental management system powered by Google Sheets and Firebase.",
+  "requestFramePermissions": [],
+  "deployment": {
+    "platform": "firebase",
+    "requiredRoles": [
+      "hosting"
+    ],
+    "githubAction": true
+  }
 }
