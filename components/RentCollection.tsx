@@ -461,7 +461,7 @@ const RentCollection: React.FC = () => {
         </div>
       )}
 
-      <header className="flex flex-col lg:flex-row lg:items-end justify-between gap-10 bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm relative overflow-hidden">
+      <header className="flex flex-col xl:flex-row xl:items-end justify-between gap-10 bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm relative overflow-hidden">
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-2">
              <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl"><Wallet className="w-4 h-4" /></div>
@@ -471,32 +471,34 @@ const RentCollection: React.FC = () => {
           <p className="text-slate-500 mt-2 font-medium">Monitoring real-time settlements across all assets.</p>
         </div>
         
-        <div className="flex flex-col md:flex-row items-center gap-4">
-          {isAdmin && (
-             <button 
-                onClick={() => setShowSettings(true)}
-                className="p-4 bg-white border border-slate-200 text-slate-400 rounded-2xl hover:text-indigo-600 hover:border-indigo-200 transition-all shadow-sm active:scale-95 flex items-center gap-2"
-                title="Manage Ledger Settings"
-             >
-                <Settings className="w-5 h-5" />
-             </button>
-          )}
-
-          <div className="bg-slate-100 p-1.5 rounded-2xl flex items-center shadow-inner">
-             {['monthly', 'annual', 'custom'].map((type) => (
+        <div className="flex flex-col items-center xl:items-end gap-6">
+          <div className="flex flex-wrap items-center justify-center xl:justify-end gap-4">
+            {isAdmin && (
                <button 
-                key={type}
-                onClick={() => setFilterType(type as FilterType)}
-                className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${filterType === type ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}
+                  onClick={() => setShowSettings(true)}
+                  className="p-4 bg-white border border-slate-200 text-slate-400 rounded-2xl hover:text-indigo-600 hover:border-indigo-200 transition-all shadow-sm active:scale-95 flex items-center gap-2"
+                  title="Manage Ledger Settings"
                >
-                 {type}
+                  <Settings className="w-5 h-5" />
                </button>
-             ))}
+            )}
+
+            <div className="bg-slate-100 p-1.5 rounded-2xl flex items-center shadow-inner overflow-hidden">
+               {['monthly', 'annual', 'custom'].map((type) => (
+                 <button 
+                  key={type}
+                  onClick={() => setFilterType(type as FilterType)}
+                  className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${filterType === type ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}
+                 >
+                   {type}
+                 </button>
+               ))}
+            </div>
           </div>
 
-          <div className="bg-white border border-slate-100 px-4 py-2 rounded-2xl flex items-center gap-2 min-h-[50px] shadow-sm">
+          <div className="flex flex-col items-center xl:items-end gap-4 w-full">
             {filterType === 'monthly' && (
-              <div className="flex items-center gap-2 whitespace-nowrap">
+              <div className="bg-white border border-slate-100 px-4 py-2 rounded-2xl flex items-center gap-2 min-h-[50px] shadow-sm whitespace-nowrap">
                 <button onClick={() => navigateMonth(-1)} className="p-1 hover:text-indigo-600 transition-colors active:scale-90"><ChevronLeft className="w-4 h-4" /></button>
                 <label 
                    className="flex items-center gap-2 cursor-pointer group/date"
@@ -511,7 +513,7 @@ const RentCollection: React.FC = () => {
               </div>
             )}
             {filterType === 'annual' && (
-               <div className="flex items-center gap-2 whitespace-nowrap">
+               <div className="bg-white border border-slate-100 px-4 py-2 rounded-2xl flex items-center gap-2 min-h-[50px] shadow-sm whitespace-nowrap">
                  <button onClick={() => navigateYear(-1)} className="p-1 hover:text-indigo-600 transition-colors active:scale-90"><ChevronLeft className="w-4 h-4" /></button>
                  <div className="flex items-center gap-2">
                    <TrendingUp className="w-4 h-4 text-indigo-500" />
@@ -525,14 +527,36 @@ const RentCollection: React.FC = () => {
                  <button onClick={() => navigateYear(1)} className="p-1 hover:text-indigo-600 transition-colors active:scale-90"><ChevronRight className="w-4 h-4" /></button>
                </div>
             )}
+            {filterType === 'custom' && (
+               <div className="bg-white border border-slate-100 px-6 py-2 rounded-2xl flex items-center gap-4 min-h-[50px] shadow-sm animate-in slide-in-from-top-2">
+                 <CalendarDays className="w-4 h-4 text-indigo-500" />
+                 <div className="flex items-center gap-3">
+                    <label 
+                       className="flex items-center gap-2 cursor-pointer group/date px-3 py-1 bg-slate-50 rounded-lg border border-transparent hover:border-indigo-100 transition-all"
+                       onClick={(e) => { try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(e) {} }}
+                    >
+                       <span className="text-[8px] font-black uppercase text-slate-400">Start</span>
+                       <input type="date" className="bg-transparent border-none text-[10px] font-black uppercase text-slate-900 outline-none cursor-pointer" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                    </label>
+                    <div className="text-slate-300">→</div>
+                    <label 
+                       className="flex items-center gap-2 cursor-pointer group/date px-3 py-1 bg-slate-50 rounded-lg border border-transparent hover:border-indigo-100 transition-all"
+                       onClick={(e) => { try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(e) {} }}
+                    >
+                       <span className="text-[8px] font-black uppercase text-slate-400">End</span>
+                       <input type="date" className="bg-transparent border-none text-[10px] font-black uppercase text-slate-900 outline-none cursor-pointer" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                    </label>
+                 </div>
+               </div>
+            )}
           </div>
         </div>
 
-        <div className="flex flex-col items-center lg:items-end gap-2 w-full lg:w-auto relative">
+        <div className="flex flex-col items-center xl:items-end gap-2 w-full xl:w-64 relative shrink-0">
            <div className="flex items-center gap-2 text-[11px] font-black text-slate-400 uppercase tracking-widest">
               <Target className="w-4 h-4 text-indigo-500" /> Goal: <span className="text-indigo-600 font-black">{Math.round(stats.progress)}%</span>
            </div>
-           <div className="w-full sm:w-64 h-2.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200/50 shadow-inner">
+           <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200/50 shadow-inner">
               <div 
                 className="h-full bg-indigo-600 rounded-full transition-all duration-1000" 
                 style={{ width: `${Math.min(100, stats.progress)}%` }}
