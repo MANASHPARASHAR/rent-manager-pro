@@ -245,8 +245,9 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [propertyTypes, properties, records, recordValues, payments, users, config, spreadsheetId, googleUser, storageMode]);
 
   useEffect(() => {
+    // Load local cache immediately to allow login even if offline/not authorized yet
     const saved = localStorage.getItem('rentmaster_local_cache');
-    if (saved && storageMode === 'local') {
+    if (saved) {
       try {
         const parsed = JSON.parse(saved);
         if (parsed.users) setUsers(parsed.users);
@@ -256,22 +257,22 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (parsed.recordValues) setRecordValues(parsed.recordValues);
         if (parsed.payments) setPayments(parsed.payments);
         if (parsed.config) setConfig(parsed.config);
-      } catch (e) {}
+      } catch (e) {
+        console.error("Cache load failed", e);
+      }
     }
     
-    // Safety delay to allow components to react to initial empty states vs loaded states
     const timer = setTimeout(() => {
       setIsReady(true);
       setIsBooting(false);
     }, 800);
     return () => clearTimeout(timer);
-  }, [storageMode]);
+  }, []); // Run once on mount
 
   useEffect(() => {
-    if (storageMode === 'local') {
-      localStorage.setItem('rentmaster_local_cache', JSON.stringify({ users, propertyTypes, properties, records, recordValues, payments, config }));
-    }
-  }, [users, propertyTypes, properties, records, recordValues, payments, config, storageMode]);
+    // Always persist to local cache for emergency pre-auth access
+    localStorage.setItem('rentmaster_local_cache', JSON.stringify({ users, propertyTypes, properties, records, recordValues, payments, config }));
+  }, [users, propertyTypes, properties, records, recordValues, payments, config]);
 
   const login = async (username: string, password: string) => {
     const lowerUser = username.toLowerCase();
@@ -285,6 +286,8 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const logout = () => {
     setUser(null);
+    // Don't clear googleUser here if you want to stay "Authorized" but "Logged out"
+    // However, usually we clear it for security.
     setGoogleUser(null);
   };
 

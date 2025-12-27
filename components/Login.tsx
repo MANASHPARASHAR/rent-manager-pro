@@ -29,26 +29,21 @@ const Login: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
 
   // Hardened Initialization Logic:
-  // We only allow "Setup" mode if the store is fully ready, 
-  // and we have confirmed there is NO existing Google Client ID AND NO users in memory.
+  // Setup mode ONLY if everything is empty.
   const isInitializing = useMemo(() => {
     if (store.isBooting) return false;
-    
-    // If a system has been initialized on this browser before, we never show Setup.
     const previouslyInitialized = localStorage.getItem('rentmaster_initialized') === 'true';
     if (previouslyInitialized) return false;
-
-    // If cloud settings are present, we assume it's NOT a fresh install.
     if (store.googleClientId || store.spreadsheetId) return false;
-
-    // Finally check user count
     return store.users.length === 0;
   }, [store.isBooting, store.users.length, store.googleClientId, store.spreadsheetId]);
 
-  // Determine if we need to show a "Cloud Authorization Required" state
+  // Determine if we need to show a "Cloud Authorization Required" state.
+  // We ONLY show this if the user list is empty (can't login) but we know we're in Cloud mode.
+  // If we have cached users, we show the Login Form instead.
   const isCloudAuthRequired = useMemo(() => {
-    return !!store.googleClientId && !store.googleUser && store.storageMode === 'cloud';
-  }, [store.googleClientId, store.googleUser, store.storageMode]);
+    return !!store.googleClientId && store.users.length === 0 && !store.googleUser && store.storageMode === 'cloud';
+  }, [store.googleClientId, store.users.length, store.googleUser, store.storageMode]);
 
   if (store.isBooting) {
     return (
@@ -85,7 +80,6 @@ const Login: React.FC = () => {
           createdAt: new Date().toISOString()
         };
         store.addUser(newUser);
-        // Automatically log in the first admin
         setTimeout(() => store.login(newUser.username, newUser.passwordHash), 500);
       } else {
         const success = await store.login(username.trim(), password);
@@ -125,15 +119,15 @@ const Login: React.FC = () => {
             </div>
             
             <h1 className="text-5xl font-black leading-tight mb-6 tracking-tighter uppercase">
-              {isInitializing ? "Initialize your Workspace" : isCloudAuthRequired ? "Cloud Link Required" : "Manage your assets precision."}
+              {isInitializing ? "Initialize your Workspace" : isCloudAuthRequired ? "Cloud Link Required" : "Secure Entry Portal"}
             </h1>
             
             <p className="text-indigo-100/70 text-lg font-medium max-w-md leading-relaxed">
               {isInitializing 
                 ? "No users detected. Create the master Super-Admin account to begin your journey." 
                 : isCloudAuthRequired 
-                ? "This workspace is linked to a Google Sheet. Authorize to download your team directory."
-                : "The world's most dynamic rental management engine. Customize schemas and scale effortlessly."}
+                ? "This workspace is linked to a Google Sheet but the user cache is empty. Authorize to download your team directory."
+                : "Enter your credentials to manage your rental portfolio. Data is synchronized across your team."}
             </p>
           </div>
 
@@ -150,7 +144,7 @@ const Login: React.FC = () => {
         <div className="p-8 lg:p-16 flex flex-col justify-center bg-slate-900/40">
           <div className="mb-10">
             <h2 className="text-3xl font-black text-white tracking-tight mb-2 uppercase">
-              {isInitializing ? "System Setup" : isCloudAuthRequired ? "Connect to Sheets" : "Welcome Back"}
+              {isInitializing ? "System Setup" : isCloudAuthRequired ? "Connect to Sheets" : "Identify User"}
             </h2>
             <p className="text-slate-400 font-medium">
               {isInitializing ? "Set up the primary administrator account." : isCloudAuthRequired ? "Authorize your Google session to proceed." : "Please enter your workspace credentials."}
@@ -173,7 +167,7 @@ const Login: React.FC = () => {
                        <span className="text-xs font-black uppercase tracking-widest">Workspace Origin: Google Cloud</span>
                     </div>
                     <p className="text-slate-400 text-xs font-medium">
-                       We detected a linked database. Your existing users (Admin/Manager) are stored on your Google Sheet. Authorize to continue.
+                       We detected a linked database but the local user cache is empty. To recover your team list, authorize cloud access.
                     </p>
                  </div>
                  <button 
@@ -242,7 +236,7 @@ const Login: React.FC = () => {
                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                   ) : (
                     <>
-                      {isInitializing ? "Create Super-Admin" : "Authenticate Access"} 
+                      {isInitializing ? "Create Super-Admin" : "Identify Account"} 
                       {isInitializing ? <UserPlus className="w-5 h-5" /> : <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />}
                     </>
                   )}
@@ -254,7 +248,10 @@ const Login: React.FC = () => {
           <div className="mt-8 p-4 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-between">
              <div className="flex items-center gap-2">
                 <div className={`w-2 h-2 rounded-full ${store.googleUser ? 'bg-emerald-500' : 'bg-slate-600'}`}></div>
-                <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">System Status: {store.storageMode}</span>
+                <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">
+                  Mode: {store.storageMode} 
+                  {!store.googleUser && " (Offline Sync)"}
+                </span>
              </div>
              {isInitializing && (
                <div className="flex items-center gap-1.5 text-indigo-400">
