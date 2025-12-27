@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Building, 
   ArrowRight, 
@@ -11,7 +11,8 @@ import {
   Zap,
   CheckCircle2,
   Fingerprint,
-  UserPlus
+  UserPlus,
+  Loader2
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { UserRole } from '../types';
@@ -24,8 +25,40 @@ const Login: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // If there are no users, we are in "Initialization Mode"
-  const isInitializing = store.users.length === 0;
+  // Hardened Initialization Logic:
+  // We only allow "Setup" mode if the store is fully ready, 
+  // and we have confirmed there is NO existing Google Client ID AND NO users in memory.
+  const isInitializing = useMemo(() => {
+    if (store.isBooting) return false;
+    
+    // If a system has been initialized on this browser before, we never show Setup.
+    const previouslyInitialized = localStorage.getItem('rentmaster_initialized') === 'true';
+    if (previouslyInitialized) return false;
+
+    // If cloud settings are present, we assume it's NOT a fresh install.
+    if (store.googleClientId || store.spreadsheetId) return false;
+
+    return store.users.length === 0;
+  }, [store.isBooting, store.users.length, store.googleClientId, store.spreadsheetId]);
+
+  if (store.isBooting) {
+    return (
+      <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center p-4 relative overflow-hidden font-sans">
+        <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] bg-indigo-600/20 rounded-full blur-[160px] pointer-events-none"></div>
+        <div className="relative z-10 text-center space-y-8 animate-in fade-in zoom-in duration-700">
+           <div className="bg-white/5 p-6 rounded-[2.5rem] backdrop-blur-3xl border border-white/10 inline-block">
+              <Building className="w-16 h-16 text-indigo-500 animate-pulse" />
+           </div>
+           <div className="space-y-3">
+              <h2 className="text-2xl font-black text-white uppercase tracking-tighter">RentMaster Pro</h2>
+              <div className="flex items-center justify-center gap-3 text-slate-500 text-[10px] font-black uppercase tracking-[0.3em]">
+                 <Loader2 className="w-4 h-4 animate-spin text-indigo-500" /> Verifying Workspace
+              </div>
+           </div>
+        </div>
+      </div>
+    );
+  }
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();

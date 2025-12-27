@@ -21,6 +21,7 @@ const SHEET_TABS = ["Users", "PropertyTypes", "Properties", "Records", "RecordVa
 
 export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isReady, setIsReady] = useState(false);
+  const [isBooting, setIsBooting] = useState(true);
   const [isCloudSyncing, setIsCloudSyncing] = useState(false);
   const [cloudError, setCloudError] = useState<string | null>(null);
   const [googleUser, setGoogleUser] = useState<any>(null);
@@ -38,7 +39,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [recordValues, setRecordValues] = useState<RecordValue[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   
-  // Initialize with sensible defaults, but these will be overwritten by Cloud/Local data
   const [config, setConfig] = useState<AppConfig>({
     paidToOptions: ['Company Account', 'Bank Account', 'Petty Cash', 'Owner Direct'],
     paymentModeOptions: ['Bank Transfer', 'Cash', 'Check', 'UPI/QR', 'Credit Card']
@@ -160,40 +160,33 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const data = response.result.valueRanges;
       const parse = (index: number) => data[index]?.values?.slice(1) || [];
 
-      // Tab 0: Users
       const parsedUsers = parse(0).map((r: any) => ({
         id: r[0], username: r[1], name: r[2], role: r[3] as UserRole, passwordHash: r[4], createdAt: r[5]
       })).filter(u => u.username);
       setUsers(parsedUsers);
 
-      // Tab 1: PropertyTypes
       const parsedTypes = parse(1).map((r: any) => ({ 
         id: r[0], name: r[1], columns: JSON.parse(r[2] || '[]'), defaultDueDateDay: parseInt(r[3] || '5') 
       })).filter(t => t.name);
       setPropertyTypes(parsedTypes);
       
-      // Tab 2: Properties
       const parsedProps = parse(2).map((r: any) => ({ 
         id: r[0], name: r[1], propertyTypeId: r[2], address: r[3], createdAt: r[4], isVisibleToManager: r[5] === 'true' 
       })).filter(p => p.name);
       setProperties(parsedProps);
       
-      // Tab 3: Records
       const pRecords = parse(3).map(r => ({ id: r[0], propertyId: r[1], createdAt: r[2], updatedAt: r[3] })).filter(r => r.id);
       setRecords(pRecords);
 
-      // Tab 4: RecordValues
       const pVals = parse(4).map(r => ({ id: r[0], recordId: r[1], columnId: r[2], value: r[3] })).filter(r => r.id);
       setRecordValues(pVals);
 
-      // Tab 5: Payments
       const pPays = parse(5).map(r => ({ 
         id: r[0], recordId: r[1], month: r[2], amount: parseFloat(r[3] || '0'), status: r[4], 
         type: r[5], dueDate: r[6], paidAt: r[7], paidTo: r[8], paymentMode: r[9], isRefunded: r[10] === 'true' 
       })).filter(r => r.id);
       setPayments(pPays);
 
-      // Tab 6: Config (Persisted Application Settings)
       const pConfig = parse(6);
       if (pConfig.length > 0) {
         const cloudConfig: AppConfig = {
@@ -265,7 +258,13 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (parsed.config) setConfig(parsed.config);
       } catch (e) {}
     }
-    setIsReady(true);
+    
+    // Safety delay to allow components to react to initial empty states vs loaded states
+    const timer = setTimeout(() => {
+      setIsReady(true);
+      setIsBooting(false);
+    }, 800);
+    return () => clearTimeout(timer);
   }, [storageMode]);
 
   useEffect(() => {
@@ -289,7 +288,11 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setGoogleUser(null);
   };
 
-  const addUser = (newUser: User) => setUsers(prev => [...prev, newUser]);
+  const addUser = (newUser: User) => {
+    setUsers(prev => [...prev, newUser]);
+    localStorage.setItem('rentmaster_initialized', 'true');
+  };
+
   const deleteUser = (id: string) => setUsers(prev => prev.filter(u => u.id !== id));
   const updateUser = (updated: User) => setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
 
@@ -340,7 +343,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const updateConfig = (newConfig: Partial<AppConfig>) => setConfig(prev => ({ ...prev, ...newConfig }));
 
   const value = {
-    isReady, user, users, propertyTypes, properties, records, recordValues, payments, config,
+    isReady, isBooting, user, users, propertyTypes, properties, records, recordValues, payments, config,
     isCloudSyncing, cloudError, googleUser, spreadsheetId, googleClientId, storageMode, updateClientId, authenticate,
     login, logout, addUser, deleteUser, updateUser, addPropertyType, updatePropertyType, deletePropertyType, addProperty,
     togglePropertyVisibility, deleteProperty, addRecord, updateRecord, deleteRecord,
