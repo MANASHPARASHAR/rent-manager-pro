@@ -19,10 +19,8 @@ const RentalContext = createContext<any>(null);
 const DATABASE_FILENAME = "RentMaster_Pro_Database";
 const SHEET_TABS = ["Users", "PropertyTypes", "Properties", "Records", "RecordValues", "Payments", "Config"];
 
-// Helper to generate IDs
 const gid = () => Math.random().toString(36).substring(2, 11);
 
-// DUMMY DATA GENERATION
 const DUMMY_USERS: User[] = [
   { id: 'u-admin', username: 'admin', name: 'System Admin', role: UserRole.ADMIN, passwordHash: 'admin123', createdAt: new Date().toISOString() },
   { id: 'u-manager', username: 'manager', name: 'Site Manager', role: UserRole.MANAGER, passwordHash: 'manager123', createdAt: new Date().toISOString() }
@@ -46,7 +44,6 @@ const DUMMY_PROPERTIES: Property[] = [
   { id: 'p-2', name: 'Seaside Villas', propertyTypeId: 'pt-std', address: '456 Ocean Ave, Miami', createdAt: new Date().toISOString(), isVisibleToManager: true }
 ];
 
-// Generate units for Grand Plaza
 const gpUnits = ['101', '102', '201', '202'].map(num => ({ id: `r-gp-${num}`, propertyId: 'p-1' }));
 const svUnits = ['A1', 'A2', 'B1'].map(num => ({ id: `r-sv-${num}`, propertyId: 'p-2' }));
 
@@ -58,19 +55,11 @@ const DUMMY_RECORDS: PropertyRecord[] = [...gpUnits, ...svUnits].map(u => ({
 }));
 
 const DUMMY_RECORD_VALUES: RecordValue[] = [
-  // Grand Plaza 101
   { id: gid(), recordId: 'r-gp-101', columnId: 'c1', value: '101' },
   { id: gid(), recordId: 'r-gp-101', columnId: 'c2', value: 'John Doe' },
   { id: gid(), recordId: 'r-gp-101', columnId: 'c3', value: '2500' },
   { id: gid(), recordId: 'r-gp-101', columnId: 'c4', value: '2500' },
   { id: gid(), recordId: 'r-gp-101', columnId: 'c5', value: 'Occupied' },
-  // Grand Plaza 102
-  { id: gid(), recordId: 'r-gp-102', columnId: 'c1', value: '102' },
-  { id: gid(), recordId: 'r-gp-102', columnId: 'c2', value: 'Jane Smith' },
-  { id: gid(), recordId: 'r-gp-102', columnId: 'c3', value: '2500' },
-  { id: gid(), recordId: 'r-gp-102', columnId: 'c4', value: '2500' },
-  { id: gid(), recordId: 'r-gp-102', columnId: 'c5', value: 'Occupied' },
-  // Seaside Villas A1
   { id: gid(), recordId: 'r-sv-A1', columnId: 'c1', value: 'A1' },
   { id: gid(), recordId: 'r-sv-A1', columnId: 'c2', value: 'Alice Johnson' },
   { id: gid(), recordId: 'r-sv-A1', columnId: 'c3', value: '1800' },
@@ -83,19 +72,14 @@ const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart
 const lastMonth = `${now.getFullYear()}-${String(now.getMonth()).padStart(2, '0')}`;
 
 const DUMMY_PAYMENTS: Payment[] = [
-  // Rent for last month
   { id: gid(), recordId: 'r-gp-101', month: lastMonth, amount: 2500, status: PaymentStatus.PAID, type: 'RENT', dueDate: `${lastMonth}-05`, paidAt: `${lastMonth}-03T10:00:00Z`, paymentMode: 'Bank Transfer', paidTo: 'Company Account' },
-  { id: gid(), recordId: 'r-gp-102', month: lastMonth, amount: 2500, status: PaymentStatus.PAID, type: 'RENT', dueDate: `${lastMonth}-05`, paidAt: `${lastMonth}-04T12:00:00Z`, paymentMode: 'UPI/QR', paidTo: 'Petty Cash' },
-  // Rent for this month (partial collection)
-  { id: gid(), recordId: 'r-gp-101', month: currentMonth, amount: 2500, status: PaymentStatus.PAID, type: 'RENT', dueDate: `${currentMonth}-05`, paidAt: `${currentMonth}-02T09:30:00Z`, paymentMode: 'Bank Transfer', paidTo: 'Company Account' },
-  // Deposits
-  { id: gid(), recordId: 'r-gp-101', month: 'ONE_TIME', amount: 2500, status: PaymentStatus.PAID, type: 'DEPOSIT', dueDate: 'N/A', paidAt: `${lastMonth}-01T08:00:00Z`, paymentMode: 'Check', paidTo: 'Company Account' },
-  { id: gid(), recordId: 'r-sv-A1', month: 'ONE_TIME', amount: 1800, status: PaymentStatus.PAID, type: 'DEPOSIT', dueDate: 'N/A', paidAt: `${lastMonth}-10T14:20:00Z`, paymentMode: 'Cash', paidTo: 'Owner Direct' }
+  { id: gid(), recordId: 'r-gp-101', month: currentMonth, amount: 2500, status: PaymentStatus.PAID, type: 'RENT', dueDate: `${currentMonth}-05`, paidAt: `${currentMonth}-02T09:30:00Z`, paymentMode: 'Bank Transfer', paidTo: 'Company Account' }
 ];
 
 export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isReady, setIsReady] = useState(false);
   const [isCloudSyncing, setIsCloudSyncing] = useState(false);
+  const [cloudError, setCloudError] = useState<string | null>(null);
   const [googleUser, setGoogleUser] = useState<any>(null);
   const [spreadsheetId, setSpreadsheetId] = useState<string | null>(() => localStorage.getItem('rentmaster_active_sheet_id'));
   const [googleClientId, setGoogleClientId] = useState<string>(() => localStorage.getItem('rentmaster_google_client_id') || '');
@@ -126,8 +110,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     localStorage.setItem('rentmaster_google_client_id', cleanId);
   };
 
-  // --- GOOGLE API INTEGRATION ---
-
   const initGoogleClient = useCallback(async () => {
     return new Promise((resolve) => {
       const checkGapi = () => {
@@ -141,10 +123,8 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                   "https://sheets.googleapis.com/$discovery/rest?version=v4"
                 ],
               });
-              console.log("GAPI Initialized");
               resolve(true);
             } catch (e) {
-              console.error("GAPI init failed", e);
               resolve(false);
             }
           });
@@ -172,17 +152,18 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               callback: async (response: any) => {
                 if (response.access_token) {
                   setGoogleUser(response);
+                  setCloudError(null);
                   await bootstrapDatabase();
                   resolve(true);
                 } else {
-                  console.error("Auth response error", response);
+                  setCloudError("Access denied by Google.");
                   resolve(false);
                 }
               },
             });
             client.requestAccessToken({ prompt: 'consent' });
           } catch (e) {
-            console.error("Auth initiation failed", e);
+            setCloudError("Authorization initiation failed.");
             resolve(false);
           }
         } else {
@@ -197,9 +178,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setIsCloudSyncing(true);
     try {
       const gapi = (window as any).gapi;
-      if (!gapi?.client?.drive) {
-        await initGoogleClient();
-      }
+      if (!gapi?.client?.drive) await initGoogleClient();
       
       const searchResponse = await gapi.client.drive.files.list({
         q: `name = '${DATABASE_FILENAME}' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false`,
@@ -222,8 +201,9 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setSpreadsheetId(dbId);
       localStorage.setItem('rentmaster_active_sheet_id', dbId);
       await loadAllData(dbId);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Cloud boot error", error);
+      setCloudError(error?.result?.error?.message || "Failed to initialize Cloud Sheet.");
     } finally {
       setIsCloudSyncing(false);
     }
@@ -240,55 +220,36 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const data = response.result.valueRanges;
       const parse = (index: number) => data[index]?.values?.slice(1) || [];
 
-      // Parse Users
       const parsedUsers = parse(0).map((r: any) => ({
-        id: r[0],
-        username: r[1],
-        name: r[2],
-        role: r[3] as UserRole,
-        passwordHash: r[4],
-        createdAt: r[5]
-      }));
+        id: r[0], username: r[1], name: r[2], role: r[3] as UserRole, passwordHash: r[4], createdAt: r[5]
+      })).filter(u => u.username);
       if (parsedUsers.length) setUsers(parsedUsers);
 
       const parsedTypes = parse(1).map((r: any) => ({ 
-        id: r[0], 
-        name: r[1], 
-        columns: JSON.parse(r[2] || '[]'), 
-        defaultDueDateDay: parseInt(r[3] || '5') 
-      }));
+        id: r[0], name: r[1], columns: JSON.parse(r[2] || '[]'), defaultDueDateDay: parseInt(r[3] || '5') 
+      })).filter(t => t.name);
+      
       const parsedProps = parse(2).map((r: any) => ({ 
-        id: r[0], 
-        name: r[1], 
-        propertyTypeId: r[2], 
-        address: r[3], 
-        createdAt: r[4], 
-        isVisibleToManager: r[5] === 'true' 
-      }));
-      const parsedRecords = parse(3).map((r: any) => ({ 
-        id: r[0], 
-        propertyId: r[1], 
-        createdAt: r[2], 
-        updatedAt: r[3] 
-      }));
-      const parsedVals = parse(4).map((r: any) => ({ 
-        id: r[0], 
-        recordId: r[1], 
-        columnId: r[2], 
-        value: r[3] 
-      }));
-      const parsedPays = parse(5).map((r: any) => ({ 
-        id: r[0], recordId: r[1], month: r[2], amount: parseFloat(r[3] || '0'), status: r[4], 
-        type: r[5], dueDate: r[6], paidAt: r[7], paidTo: r[8], paymentMode: r[9], isRefunded: r[10] === 'true' 
-      }));
+        id: r[0], name: r[1], propertyTypeId: r[2], address: r[3], createdAt: r[4], isVisibleToManager: r[5] === 'true' 
+      })).filter(p => p.name);
 
       if (parsedTypes.length) setPropertyTypes(parsedTypes);
       if (parsedProps.length) setProperties(parsedProps);
-      if (parsedRecords.length) setRecords(parsedRecords);
-      if (parsedVals.length) setRecordValues(parsedVals);
-      if (parsedPays.length) setPayments(parsedPays);
-    } catch (e) {
+      
+      const pRecords = parse(3).map(r => ({ id: r[0], propertyId: r[1], createdAt: r[2], updatedAt: r[3] })).filter(r => r.id);
+      const pVals = parse(4).map(r => ({ id: r[0], recordId: r[1], columnId: r[2], value: r[3] })).filter(r => r.id);
+      const pPays = parse(5).map(r => ({ 
+        id: r[0], recordId: r[1], month: r[2], amount: parseFloat(r[3] || '0'), status: r[4], 
+        type: r[5], dueDate: r[6], paidAt: r[7], paidTo: r[8], paymentMode: r[9], isRefunded: r[10] === 'true' 
+      })).filter(r => r.id);
+
+      if (pRecords.length) setRecords(pRecords);
+      if (pVals.length) setRecordValues(pVals);
+      if (pPays.length) setPayments(pPays);
+      setCloudError(null);
+    } catch (e: any) {
       console.error("Cloud load failed", e);
+      setCloudError(e?.result?.error?.message || "Cloud data loading failed.");
     }
   };
 
@@ -314,26 +275,23 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           resource: { values: item.rows }
         });
       }
-    } catch (e) {
+      setCloudError(null);
+    } catch (e: any) {
       console.error("Batch sync failed", e);
+      setCloudError("Sync Error: " + (e?.result?.error?.message || "Unknown error"));
     } finally {
       setIsCloudSyncing(false);
     }
   };
 
-  useEffect(() => {
-    initGoogleClient();
-  }, [initGoogleClient]);
+  useEffect(() => { initGoogleClient(); }, [initGoogleClient]);
 
-  // Debounced Auto-Sync
   useEffect(() => {
     if (spreadsheetId && googleUser && storageMode === 'cloud') {
       const timer = setTimeout(() => syncAll(), 2500);
       return () => clearTimeout(timer);
     }
   }, [propertyTypes, properties, records, recordValues, payments, users, spreadsheetId, googleUser, storageMode]);
-
-  // --- CACHE FALLBACK ---
 
   useEffect(() => {
     const saved = localStorage.getItem('rentmaster_local_cache');
@@ -346,25 +304,25 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (parsed.records) setRecords(parsed.records);
         if (parsed.recordValues) setRecordValues(parsed.recordValues);
         if (parsed.payments) setPayments(parsed.payments);
-      } catch (e) { console.error("Cache load failed", e); }
+      } catch (e) {}
     }
     setIsReady(true);
   }, [storageMode]);
 
   useEffect(() => {
     if (storageMode === 'local') {
-      const data = { users, propertyTypes, properties, records, recordValues, payments };
-      localStorage.setItem('rentmaster_local_cache', JSON.stringify(data));
+      localStorage.setItem('rentmaster_local_cache', JSON.stringify({ users, propertyTypes, properties, records, recordValues, payments }));
     }
   }, [users, propertyTypes, properties, records, recordValues, payments, storageMode]);
 
-  // --- AUTH & LOGIN ---
-
   const login = async (username: string, password: string) => {
-    // CRITICAL: Merge DUMMY_USERS into searchable pool to ensure manager/admin creds always work
-    const allUsers = [...users, ...DUMMY_USERS];
-    
-    const foundUser = allUsers.find(u => u.username === username && u.passwordHash === password);
+    const lowerUser = username.toLowerCase();
+    const dummyMatch = DUMMY_USERS.find(u => u.username === lowerUser && u.passwordHash === password);
+    if (dummyMatch) {
+      setUser(dummyMatch);
+      return true;
+    }
+    const foundUser = users.find(u => u.username.toLowerCase() === lowerUser && u.passwordHash === password);
     if (foundUser) {
       setUser(foundUser);
       return true;
@@ -375,8 +333,8 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const logout = () => {
     setUser(null);
     setGoogleUser(null);
-    setSpreadsheetId(null);
-    localStorage.removeItem('rentmaster_active_sheet_id');
+    // CRITICAL: We NO LONGER remove spreadsheetId or googleClientId here.
+    // They stay in localStorage so the next user (e.g. Manager) has the context.
   };
 
   const addPropertyType = (type: PropertyType) => setPropertyTypes(prev => [...prev, type]);
@@ -412,9 +370,8 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (existing) {
       setPayments(prev => prev.filter(p => p.id !== existing.id));
     } else {
-      const id = 'pay' + Date.now();
       setPayments(prev => [...prev, {
-        id, recordId, month, amount, status: PaymentStatus.PAID, type: paymentType,
+        id: 'pay' + Date.now(), recordId, month, amount, status: PaymentStatus.PAID, type: paymentType,
         dueDate, paidAt: new Date().toISOString(), ...extra
       }]);
     }
@@ -428,7 +385,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const value = {
     isReady, user, users, propertyTypes, properties, records, recordValues, payments, config,
-    isCloudSyncing, googleUser, spreadsheetId, googleClientId, storageMode, setMode, updateClientId, authenticate,
+    isCloudSyncing, cloudError, googleUser, spreadsheetId, googleClientId, storageMode, setMode, updateClientId, authenticate,
     login, logout, addPropertyType, updatePropertyType, deletePropertyType, addProperty,
     togglePropertyVisibility, deleteProperty, addRecord, updateRecord, deleteRecord,
     togglePayment, refundDeposit, updateConfig

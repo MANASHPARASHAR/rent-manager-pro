@@ -14,7 +14,8 @@ import {
   ArrowRight,
   ChevronRight,
   ShieldCheck,
-  UserCheck
+  UserCheck,
+  Fingerprint
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
@@ -117,44 +118,57 @@ const Dashboard: React.FC = () => {
   }, [store, currentMonthKey, visibleProperties]);
 
   const roleColors = {
-    [UserRole.ADMIN]: 'bg-indigo-600 border-indigo-500 text-white',
-    [UserRole.MANAGER]: 'bg-emerald-600 border-emerald-500 text-white',
-    [UserRole.VIEWER]: 'bg-slate-700 border-slate-600 text-white',
+    [UserRole.ADMIN]: 'bg-indigo-600 text-white',
+    [UserRole.MANAGER]: 'bg-emerald-600 text-white',
+    [UserRole.VIEWER]: 'bg-slate-700 text-white',
   };
 
-  const roleIcon = {
-    [UserRole.ADMIN]: ShieldCheck,
-    [UserRole.MANAGER]: UserCheck,
-    [UserRole.VIEWER]: User,
-  };
-
-  const RoleIcon = user ? roleIcon[user.role] : User;
+  const RoleIcon = user?.role === UserRole.ADMIN ? ShieldCheck : user?.role === UserRole.MANAGER ? UserCheck : User;
 
   return (
     <div className="space-y-10 pb-20 max-w-[1400px] mx-auto animate-in fade-in duration-500">
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+      <header className="flex flex-col xl:flex-row xl:items-end justify-between gap-10">
         <div>
-          <div className="flex items-center gap-3 mb-2">
-            <div className="flex items-center gap-2 text-indigo-600 font-bold">
-              <Zap className="w-4 h-4" />
-              <span className="text-[10px] uppercase tracking-widest font-black">Settlement Pulse</span>
-            </div>
-            {user && (
-              <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full border text-[9px] font-black uppercase tracking-widest shadow-sm ${roleColors[user.role]}`}>
-                <RoleIcon className="w-3 h-3" />
-                {user.role} Account
-              </div>
-            )}
+          <div className="flex items-center gap-2 text-indigo-600 font-bold mb-3">
+            <Zap className="w-4 h-4" />
+            <span className="text-[10px] uppercase tracking-[0.2em] font-black">Settlement Pulse</span>
           </div>
-          <h1 className="text-3xl md:text-5xl font-black text-slate-900 tracking-tight uppercase">Operational Overview</h1>
-          <p className="text-slate-500 mt-1 font-medium text-sm md:text-base">Quick metrics for {stats.totalProperties} properties under management.</p>
+          
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6">
+             <h1 className="text-4xl md:text-5xl lg:text-6xl font-black text-slate-900 tracking-tighter uppercase leading-none">
+               Portfolio <br className="hidden md:block" /> Intelligence
+             </h1>
+             
+             {user && (
+               <div className="flex items-center gap-4 p-5 bg-white border border-slate-100 rounded-[2rem] shadow-sm animate-in slide-in-from-left-4 duration-700">
+                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg ${roleColors[user.role]}`}>
+                     <RoleIcon className="w-7 h-7" />
+                  </div>
+                  <div>
+                     <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Welcome, User</p>
+                     <h2 className="text-xl font-black text-slate-900 tracking-tight leading-none mb-1">{user.name}</h2>
+                     <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border border-slate-100 ${user.role === UserRole.ADMIN ? 'text-indigo-600 bg-indigo-50' : 'text-emerald-600 bg-emerald-50'}`}>
+                        <Fingerprint className="w-2.5 h-2.5" />
+                        {user.role} Privilege
+                     </span>
+                  </div>
+               </div>
+             )}
+          </div>
+          
+          <p className="text-slate-500 mt-6 font-medium text-base lg:text-lg max-w-xl">
+             Real-time oversight for <span className="text-slate-900 font-black">{stats.totalProperties} properties</span> currently under your command.
+          </p>
         </div>
-        <button 
-          onClick={() => navigate('/reports')}
-          className="bg-slate-900 text-white px-8 py-4 rounded-2xl flex items-center gap-3 hover:bg-slate-800 transition-all font-black uppercase text-[10px] tracking-widest shadow-xl shadow-slate-200"
-        >
-          View Full Analytics <ChevronRight className="w-4 h-4" />
-        </button>
+        
+        <div className="flex flex-wrap gap-4">
+          <button 
+            onClick={() => navigate('/reports')}
+            className="group bg-slate-950 text-white px-8 py-5 rounded-2xl flex items-center gap-3 hover:bg-slate-800 transition-all font-black uppercase text-[10px] tracking-widest shadow-2xl shadow-slate-200"
+          >
+            Analytics Engine <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+          </button>
+        </div>
       </header>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -164,7 +178,7 @@ const Dashboard: React.FC = () => {
           { label: 'Portfolio Cap', val: `$${stats.monthlyRentExpected.toLocaleString()}`, sub: 'Monthly target', icon: Target, color: 'bg-slate-950' },
           { label: 'Yield Rate', val: `${Math.round(stats.collectionRate)}%`, sub: 'Payment efficiency', icon: TrendingUp, color: 'bg-amber-500' },
         ].map((item, i) => (
-          <div key={i} className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm hover:translate-y-[-2px] transition-all">
+          <div key={i} className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm hover:translate-y-[-2px] transition-all duration-300">
             <div className="flex justify-between items-start mb-6">
               <div className={`${item.color} p-4 rounded-2xl text-white shadow-lg`}>
                 <item.icon className="w-6 h-6" />

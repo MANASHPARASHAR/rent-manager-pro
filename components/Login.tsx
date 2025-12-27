@@ -29,7 +29,7 @@ const Login: React.FC = () => {
     setError(null);
 
     try {
-      const success = await store.login(username, password);
+      const success = await store.login(username.trim(), password);
       if (!success) {
         setError('Verification failed. Invalid credentials.');
       }
@@ -38,6 +38,11 @@ const Login: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const onInputChange = (setter: (v: string) => void, value: string) => {
+    setter(value);
+    if (error) setError(null);
   };
 
   return (
@@ -111,7 +116,7 @@ const Login: React.FC = () => {
                   className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-4 text-white outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white/10 transition-all font-semibold"
                   placeholder="Username"
                   value={username}
-                  onChange={e => setUsername(e.target.value)}
+                  onChange={e => onInputChange(setUsername, e.target.value)}
                 />
               </div>
             </div>
@@ -126,7 +131,7 @@ const Login: React.FC = () => {
                   className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-4 text-white outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white/10 transition-all font-semibold"
                   placeholder="••••••••"
                   value={password}
-                  onChange={e => setPassword(e.target.value)}
+                  onChange={e => onInputChange(setPassword, e.target.value)}
                 />
               </div>
             </div>

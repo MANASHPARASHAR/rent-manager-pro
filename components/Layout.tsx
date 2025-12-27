@@ -28,7 +28,9 @@ import {
   PieChart,
   ShieldAlert,
   Key,
-  LogOut
+  LogOut,
+  AlertTriangle,
+  Info
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { UserRole } from '../types';
@@ -69,6 +71,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   ];
 
   const handleConnect = async () => {
+    if (!isAdmin) return;
     if (!store.googleClientId) setIsSetupOpen(true);
     else await store.authenticate();
   };
@@ -88,8 +91,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   return (
     <div className="min-h-screen bg-slate-50 flex font-sans antialiased text-slate-900 overflow-x-hidden">
-      {/* Cloud Integration Modal */}
-      {isSetupOpen && (
+      {/* Cloud Integration Modal (ADMIN ONLY) */}
+      {isSetupOpen && isAdmin && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xl animate-in fade-in duration-300">
            <div className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl border border-white/20 overflow-hidden flex flex-col max-h-[90vh]">
               <div className="p-8 bg-slate-900 text-white relative shrink-0">
@@ -108,25 +111,17 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               </div>
               
               <div className="p-8 space-y-6 overflow-y-auto custom-scrollbar">
-                 {isInIframe && (
-                   <div className="p-6 bg-amber-50 border-2 border-amber-200 rounded-3xl space-y-3 animate-pulse">
-                      <div className="flex items-center gap-3 text-amber-700">
-                         <Monitor className="w-6 h-6 shrink-0" />
-                         <h4 className="font-black uppercase text-xs text-amber-900">Security Restriction</h4>
-                      </div>
-                      <p className="text-[10px] font-bold text-amber-600 leading-relaxed uppercase">
-                        Google Auth will fail in an iframe. Open this app in a <strong>New Tab</strong> to use Google Sync.
-                      </p>
-                   </div>
-                 )}
+                 <div className="p-5 bg-indigo-50 border border-indigo-100 rounded-3xl flex items-start gap-4">
+                    <Info className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
+                    <p className="text-[10px] font-bold text-indigo-900 uppercase leading-relaxed tracking-tight">
+                       <strong>Senior Note:</strong> Your deployment URL is constant. You only need to add it to the Google Cloud Console <strong>once</strong>. It will not change after login, logout, or refresh.
+                    </p>
+                 </div>
 
                  <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2 text-[10px] font-black text-indigo-600 uppercase tracking-widest">
                        <ListChecks className="w-4 h-4" /> Setup Instructions
                     </div>
-                    <button onClick={() => setShowTroubleshoot(!showTroubleshoot)} className="text-[9px] font-black text-rose-500 uppercase flex items-center gap-1">
-                       <Bug className="w-3 h-3" /> Fix "Error 400"
-                    </button>
                  </div>
 
                  <div className="space-y-3">
@@ -150,13 +145,16 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                  </div>
 
                  <div className="p-6 bg-emerald-50 border border-emerald-100 rounded-3xl space-y-4">
-                    <label className="text-[10px] font-black text-emerald-700 uppercase tracking-widest flex items-center gap-2"><Globe className="w-3.5 h-3.5" /> Your JavaScript Origin</label>
+                    <div className="flex justify-between items-center">
+                       <label className="text-[10px] font-black text-emerald-700 uppercase tracking-widest flex items-center gap-2"><Globe className="w-3.5 h-3.5" /> Authorized JavaScript Origin</label>
+                    </div>
                     <div className="relative">
                        <div className="bg-white border border-emerald-200 p-4 rounded-2xl text-[10px] font-mono text-emerald-800 break-all">{currentOrigin}</div>
                        <button onClick={copyOrigin} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-emerald-100 hover:bg-emerald-600 hover:text-white rounded-xl transition-all">
                          {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                        </button>
                     </div>
+                    <p className="text-[9px] font-black text-emerald-600/60 uppercase tracking-tighter text-center">Copy this URL and paste it into "Authorized JavaScript Origins" in your Google Console.</p>
                  </div>
 
                  <div className="space-y-4">
@@ -202,12 +200,19 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                  </div>
                  {store.isCloudSyncing && <RefreshCw className="w-3 h-3 text-indigo-400 animate-spin" />}
               </div>
-              <button 
-                 onClick={handleConnect}
-                 className={`w-full py-2 ${store.googleClientId ? 'bg-indigo-600' : 'bg-slate-700'} text-white rounded-xl text-[9px] font-black uppercase tracking-widest hover:opacity-80 transition-all`}
-              >
-                 {store.googleClientId ? (store.googleUser ? 'Connected' : 'Authorize') : 'Link Sheets'}
-              </button>
+              
+              {isAdmin ? (
+                <button 
+                   onClick={handleConnect}
+                   className={`w-full py-2 ${store.googleClientId ? 'bg-indigo-600' : 'bg-slate-700'} text-white rounded-xl text-[9px] font-black uppercase tracking-widest hover:opacity-80 transition-all`}
+                >
+                   {store.googleClientId ? (store.googleUser ? 'Connected' : 'Authorize') : 'Link Sheets'}
+                </button>
+              ) : (
+                <div className="w-full py-2 bg-slate-800 text-slate-500 rounded-xl text-[8px] font-black uppercase tracking-widest text-center border border-white/5">
+                   {store.googleUser ? 'Sync Active' : 'Cloud Locked'}
+                </div>
+              )}
            </div>
         </div>
 
@@ -239,6 +244,25 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       </aside>
 
       <main className="flex-1 overflow-x-hidden min-h-screen flex flex-col">
+        {store.cloudError && (
+          <div className="bg-rose-600 text-white p-4 flex items-center justify-between gap-4 animate-pulse sticky top-0 z-[110] shadow-xl">
+             <div className="flex items-center gap-3">
+                <AlertTriangle className="w-6 h-6 shrink-0" />
+                <div>
+                   <p className="text-xs font-black uppercase tracking-widest">Cloud Sync Emergency</p>
+                   <p className="text-[10px] font-bold opacity-90 uppercase leading-none mt-1">
+                      {store.cloudError}. {isAdmin ? 'Check your Google Cloud settings immediately.' : 'Report this to the Administrator immediately to prevent data loss.'}
+                   </p>
+                </div>
+             </div>
+             {isAdmin && (
+               <button onClick={handleConnect} className="px-4 py-2 bg-white text-rose-600 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-rose-50 transition-colors shrink-0">
+                  Attempt Recovery
+               </button>
+             )}
+          </div>
+        )}
+
         <div className="lg:hidden p-4 bg-white border-b border-slate-100 flex items-center justify-between sticky top-0 z-30 shadow-sm">
             <div className="flex items-center gap-2">
               <div className="bg-indigo-600 p-2 rounded-xl text-white"><Building className="w-5 h-5" /></div>
