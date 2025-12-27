@@ -46,11 +46,19 @@ const Reports: React.FC = () => {
       recordIds.includes(p.recordId) && p.status === PaymentStatus.PAID
     );
 
-    // Apply Filters (Matching RentCollection logic)
+    // Apply Filters (Optimized for One-Time vs Monthly payments)
     if (filterType === 'monthly') {
-      filteredPayments = filteredPayments.filter(p => p.month === selectedMonth);
+      filteredPayments = filteredPayments.filter(p => {
+        if (p.type === 'RENT') return p.month === selectedMonth;
+        // For Deposits, check the actual payment date
+        return p.paidAt?.startsWith(selectedMonth);
+      });
     } else if (filterType === 'annual') {
-      filteredPayments = filteredPayments.filter(p => p.month.startsWith(selectedYear) || (p.type === 'DEPOSIT' && p.paidAt?.startsWith(selectedYear)));
+      filteredPayments = filteredPayments.filter(p => {
+        if (p.type === 'RENT') return p.month.startsWith(selectedYear);
+        // For Deposits, check the actual payment date
+        return p.paidAt?.startsWith(selectedYear);
+      });
     } else if (filterType === 'custom') {
       const start = new Date(startDate); start.setHours(0,0,0,0);
       const end = new Date(endDate); end.setHours(23,59,59,999);
@@ -148,7 +156,6 @@ const Reports: React.FC = () => {
 
   return (
     <div className="space-y-10 animate-in fade-in duration-700 pb-20 max-w-[1400px] mx-auto">
-      {/* Header & Advanced Filters */}
       <header className="flex flex-col xl:flex-row xl:items-end justify-between gap-8 bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
         <div>
           <div className="flex items-center gap-2 text-indigo-600 font-bold mb-1">
@@ -243,7 +250,6 @@ const Reports: React.FC = () => {
         </div>
       </header>
 
-      {/* Stats Quick View */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {[
           { label: 'Total Settled', val: activeModality === 'RENT' ? analyticsData.totalRent : analyticsData.totalDeposits, sub: 'Confirmed transactions', icon: Wallet, color: 'text-indigo-600', bg: 'bg-indigo-50' },
@@ -267,7 +273,6 @@ const Reports: React.FC = () => {
         ))}
       </div>
 
-      {/* Detailed Analysis Section */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-12 bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm flex flex-col">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
@@ -295,7 +300,6 @@ const Reports: React.FC = () => {
           </div>
         </div>
 
-        {/* New Insight: Channel Attribution Matrix */}
         <div className="lg:col-span-12 bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm">
            <div className="flex items-center gap-3 mb-10">
               <div className="p-3 bg-indigo-600 text-white rounded-2xl shadow-lg"><Layers className="w-6 h-6" /></div>
@@ -305,7 +309,6 @@ const Reports: React.FC = () => {
               </div>
            </div>
 
-           {/* Scrollable grid for many recipients */}
            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-h-[800px] overflow-y-auto pr-2 custom-scrollbar">
               {Object.entries(analyticsData.attributionMatrix).map(([recipient, modes], idx) => (
                  <div key={recipient} className="bg-slate-50 border border-slate-100 p-8 rounded-[2.5rem] flex flex-col hover:bg-white hover:shadow-xl transition-all duration-300">
@@ -419,7 +422,6 @@ const Reports: React.FC = () => {
         </div>
       </div>
 
-      {/* Property Revenue Table (Vector analysis) with Scroll functionality */}
       <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden">
         <div className="flex items-center justify-between mb-10">
           <div>
@@ -431,7 +433,6 @@ const Reports: React.FC = () => {
           </button>
         </div>
 
-        {/* Added max-height and custom-scrollbar to table container */}
         <div className="overflow-x-auto -mx-10 px-10 max-h-[500px] overflow-y-auto custom-scrollbar">
            <table className="w-full text-left">
               <thead className="sticky top-0 bg-white z-10 shadow-sm">
