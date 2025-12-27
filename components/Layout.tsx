@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -9,35 +9,26 @@ import {
   X,
   Building,
   CreditCard,
-  Shield,
-  User,
-  Eye,
-  LogOut,
-  ChevronLeft,
-  ChevronRight,
   Cloud,
   CloudOff,
   RefreshCw,
   Database,
-  Info,
   ExternalLink,
   Lock,
   ListChecks,
   Globe,
   Copy,
   Check,
-  AlertTriangle,
-  HelpCircle,
-  Zap,
-  ShieldAlert,
-  ShieldCheck,
-  ChevronDown,
-  ChevronUp,
-  CircleCheck,
-  Key,
-  HardDrive,
+  ChevronLeft,
+  ChevronRight,
+  Monitor,
   Bug,
-  Monitor
+  ChevronUp,
+  ChevronDown,
+  PieChart,
+  ShieldAlert,
+  Key,
+  LogOut
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { UserRole } from '../types';
@@ -60,7 +51,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const currentOrigin = window.location.origin;
 
   useEffect(() => {
-    // Detect if running inside an iframe (common in AI editor preview panes)
     setIsInIframe(window.self !== window.top);
   }, []);
 
@@ -68,39 +58,19 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/properties', label: 'Properties', icon: Building2 },
     { path: '/collection', label: 'Collection', icon: CreditCard },
+    { path: '/reports', label: 'Analytics', icon: PieChart },
     ...(isAdmin ? [{ path: '/types', label: 'Schemas', icon: Settings }] : []),
   ];
 
   const steps = [
-    {
-      id: 1,
-      title: "Enable API Access",
-      icon: Database,
-      desc: "Enable 'Google Sheets API' & 'Google Drive API' in your Cloud Library.",
-      link: "https://console.cloud.google.com/apis/library"
-    },
-    {
-      id: 2,
-      title: "Grant Permissions",
-      icon: ShieldAlert,
-      desc: "Add your email to 'Test Users' on the Consent Screen. Required for testing phase.",
-      link: "https://console.cloud.google.com/apis/oauthconsent"
-    },
-    {
-      id: 3,
-      title: "Link Client ID",
-      icon: Key,
-      desc: "Create 'OAuth Web Application' credentials. Paste the resulting Client ID below.",
-      link: "https://console.cloud.google.com/apis/credentials"
-    }
+    { id: 1, title: "Enable API Access", icon: Database, desc: "Enable 'Google Sheets API' & 'Google Drive API' in your Cloud Library.", link: "https://console.cloud.google.com/apis/library" },
+    { id: 2, title: "Grant Permissions", icon: ShieldAlert, desc: "Add your email to 'Test Users' on the Consent Screen. Required for testing phase.", link: "https://console.cloud.google.com/apis/oauthconsent" },
+    { id: 3, title: "Link Client ID", icon: Key, desc: "Create 'OAuth Web Application' credentials. Paste the resulting Client ID below.", link: "https://console.cloud.google.com/apis/credentials" }
   ];
 
   const handleConnect = async () => {
-    if (!store.googleClientId) {
-      setIsSetupOpen(true);
-    } else {
-      await store.authenticate();
-    }
+    if (!store.googleClientId) setIsSetupOpen(true);
+    else await store.authenticate();
   };
 
   const handleSaveSetup = async () => {
@@ -121,7 +91,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       {/* Cloud Integration Modal */}
       {isSetupOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xl animate-in fade-in duration-300">
-           <div className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl border border-white/20 overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[90vh]">
+           <div className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl border border-white/20 overflow-hidden flex flex-col max-h-[90vh]">
               <div className="p-8 bg-slate-900 text-white relative shrink-0">
                  <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -138,16 +108,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               </div>
               
               <div className="p-8 space-y-6 overflow-y-auto custom-scrollbar">
-                 {/* CRITICAL IFRAME WARNING */}
                  {isInIframe && (
                    <div className="p-6 bg-amber-50 border-2 border-amber-200 rounded-3xl space-y-3 animate-pulse">
                       <div className="flex items-center gap-3 text-amber-700">
                          <Monitor className="w-6 h-6 shrink-0" />
-                         <h4 className="font-black uppercase text-xs">Security Restriction Detected</h4>
+                         <h4 className="font-black uppercase text-xs text-amber-900">Security Restriction</h4>
                       </div>
                       <p className="text-[10px] font-bold text-amber-600 leading-relaxed uppercase">
-                        You are viewing this app in a <strong>Preview Pane</strong>. Google Auth will <strong>always fail</strong> in an iframe. 
-                        Please click the "Open in New Tab" button in your editor to use Google Sync.
+                        Google Auth will fail in an iframe. Open this app in a <strong>New Tab</strong> to use Google Sync.
                       </p>
                    </div>
                  )}
@@ -156,22 +124,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                     <div className="flex items-center gap-2 text-[10px] font-black text-indigo-600 uppercase tracking-widest">
                        <ListChecks className="w-4 h-4" /> Setup Instructions
                     </div>
-                    <button onClick={() => setShowTroubleshoot(!showTroubleshoot)} className="text-[9px] font-black text-rose-500 uppercase hover:underline flex items-center gap-1">
+                    <button onClick={() => setShowTroubleshoot(!showTroubleshoot)} className="text-[9px] font-black text-rose-500 uppercase flex items-center gap-1">
                        <Bug className="w-3 h-3" /> Fix "Error 400"
                     </button>
                  </div>
-
-                 {showTroubleshoot && (
-                    <div className="p-5 bg-rose-50 border border-rose-100 rounded-2xl space-y-2 animate-in slide-in-from-top-2">
-                       <h5 className="text-[10px] font-black text-rose-700 uppercase">Eliminating Authentication Errors:</h5>
-                       <ul className="text-[9px] font-bold text-rose-600/80 space-y-1.5 list-disc ml-4">
-                          <li>In Google Console, go to <strong>Credentials</strong> &gt; <strong>OAuth Client</strong>.</li>
-                          <li>Add <code>{currentOrigin}</code> exactly to <strong>Authorized JavaScript origins</strong>.</li>
-                          <li>Ensure there is <strong>NO trailing slash</strong> at the end of the URL (e.g. <code>.com</code> not <code>.com/</code>).</li>
-                          <li>Go to <strong>OAuth Consent Screen</strong> and add your email to <strong>Test Users</strong>.</li>
-                       </ul>
-                    </div>
-                 )}
 
                  <div className="space-y-3">
                     {steps.map((step) => (
@@ -201,12 +157,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                          {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                        </button>
                     </div>
-                    <p className="text-[9px] font-bold text-emerald-600/50 uppercase text-center italic">Mismatch = Error 400 invalid_request</p>
                  </div>
 
                  <div className="space-y-4">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">OAuth Client ID</label>
-                    <div className="relative group">
+                    <div className="relative">
                        <Lock className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
                        <input 
                           className="w-full bg-slate-50 border border-slate-200 rounded-2xl pl-14 pr-6 py-5 text-sm font-bold text-slate-900 outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all"
@@ -215,13 +170,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                           onChange={e => setTempClientId(e.target.value)}
                        />
                     </div>
-                    <button 
-                      disabled={isInIframe}
-                      onClick={handleSaveSetup} 
-                      className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl hover:bg-indigo-700 transition-all active:scale-95 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed"
-                    >
-                      {isInIframe ? 'Open in New Tab to Sync' : 'Link & Sync Google Sheets'}
-                    </button>
+                    <button onClick={handleSaveSetup} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl hover:bg-indigo-700 transition-all">Link & Sync Google Sheets</button>
                  </div>
               </div>
            </div>
@@ -229,10 +178,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       )}
 
       {/* Sidebar UI */}
-      {isSidebarOpen && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-40 lg:hidden transition-all duration-300" onClick={() => setIsSidebarOpen(false)} />
-      )}
-
       <aside className={`fixed inset-y-0 left-0 z-50 bg-slate-950 text-white transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] transform border-r border-white/5 shadow-2xl ${isSidebarOpen ? 'w-72 translate-x-0' : 'w-20 -translate-x-full lg:translate-x-0'} lg:sticky lg:h-screen`}>
         <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className={`absolute -right-4 top-10 bg-indigo-600 text-white p-1.5 rounded-full shadow-2xl hover:bg-indigo-500 transition-all z-[60] hidden lg:flex items-center justify-center border-4 border-slate-50 ${!isSidebarOpen && 'rotate-180'}`}>
           <ChevronLeft className="w-4 h-4" />
@@ -240,10 +185,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
         <div className={`p-8 flex items-center justify-between transition-opacity duration-300 ${isSidebarOpen ? 'opacity-100' : 'opacity-0 lg:hidden'}`}>
           <div className="flex items-center gap-3">
-            <div className="bg-indigo-600 p-2.5 rounded-2xl shadow-xl shadow-indigo-600/30"><Building className="w-6 h-6 text-white" /></div>
+            <div className="bg-indigo-600 p-2.5 rounded-2xl"><Building className="w-6 h-6 text-white" /></div>
             <div>
               <span className="text-xl font-black tracking-tighter uppercase leading-none block">Master</span>
-              <span className="text-[9px] font-black text-indigo-400 uppercase tracking-[0.2em] block">Rental Pro</span>
+              <span className="text-[9px] font-black text-indigo-400 uppercase tracking-widest block">Rental Pro</span>
             </div>
           </div>
         </div>
@@ -253,13 +198,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               <div className="flex items-center justify-between mb-3">
                  <div className="flex items-center gap-2">
                     {store.spreadsheetId ? <Cloud className="w-4 h-4 text-emerald-400" /> : <CloudOff className="w-4 h-4 text-slate-500" />}
-                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Database Engine</span>
+                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Cloud Status</span>
                  </div>
                  {store.isCloudSyncing && <RefreshCw className="w-3 h-3 text-indigo-400 animate-spin" />}
               </div>
               <button 
                  onClick={handleConnect}
-                 className={`w-full py-2 ${store.googleClientId ? 'bg-indigo-600' : 'bg-slate-700'} text-white rounded-xl text-[9px] font-black uppercase tracking-widest hover:opacity-80 transition-all shadow-lg`}
+                 className={`w-full py-2 ${store.googleClientId ? 'bg-indigo-600' : 'bg-slate-700'} text-white rounded-xl text-[9px] font-black uppercase tracking-widest hover:opacity-80 transition-all`}
               >
                  {store.googleClientId ? (store.googleUser ? 'Connected' : 'Authorize') : 'Link Sheets'}
               </button>
@@ -301,7 +246,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             </div>
             <button onClick={() => setIsSidebarOpen(true)} className="p-2.5 bg-slate-950 text-white rounded-xl shadow-lg active:scale-95 transition-all"><Menu className="w-5 h-5" /></button>
         </div>
-        <div className="p-4 md:p-8 lg:p-12 max-w-[1400px] mx-auto w-full animate-in fade-in slide-in-from-bottom-2 duration-700">
+        <div className="p-4 md:p-8 lg:p-12 max-w-[1400px] mx-auto w-full">
           {children}
         </div>
       </main>

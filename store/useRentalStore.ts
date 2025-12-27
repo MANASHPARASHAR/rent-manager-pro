@@ -19,6 +19,80 @@ const RentalContext = createContext<any>(null);
 const DATABASE_FILENAME = "RentMaster_Pro_Database";
 const SHEET_TABS = ["Users", "PropertyTypes", "Properties", "Records", "RecordValues", "Payments", "Config"];
 
+// Helper to generate IDs
+const gid = () => Math.random().toString(36).substring(2, 11);
+
+// DUMMY DATA GENERATION
+const DUMMY_USERS: User[] = [
+  { id: 'u-admin', username: 'admin', name: 'System Admin', role: UserRole.ADMIN, passwordHash: 'admin123', createdAt: new Date().toISOString() },
+  { id: 'u-manager', username: 'manager', name: 'Site Manager', role: UserRole.MANAGER, passwordHash: 'manager123', createdAt: new Date().toISOString() }
+];
+
+const DUMMY_PROPERTY_TYPE: PropertyType = {
+  id: 'pt-std',
+  name: 'Standard Apartment',
+  defaultDueDateDay: 5,
+  columns: [
+    { id: 'c1', name: 'Unit #', type: ColumnType.TEXT, required: true, isRentCalculatable: false, order: 0 },
+    { id: 'c2', name: 'Tenant Name', type: ColumnType.TEXT, required: true, isRentCalculatable: false, order: 1 },
+    { id: 'c3', name: 'Monthly Rent', type: ColumnType.CURRENCY, required: true, isRentCalculatable: true, order: 2 },
+    { id: 'c4', name: 'Security Deposit', type: ColumnType.SECURITY_DEPOSIT, required: true, isRentCalculatable: false, order: 3 },
+    { id: 'c5', name: 'Status', type: ColumnType.DROPDOWN, required: true, isRentCalculatable: false, options: ['Occupied', 'Vacant'], order: 4 }
+  ]
+};
+
+const DUMMY_PROPERTIES: Property[] = [
+  { id: 'p-1', name: 'Grand Plaza', propertyTypeId: 'pt-std', address: '123 Main St, New York', createdAt: new Date().toISOString(), isVisibleToManager: true },
+  { id: 'p-2', name: 'Seaside Villas', propertyTypeId: 'pt-std', address: '456 Ocean Ave, Miami', createdAt: new Date().toISOString(), isVisibleToManager: true }
+];
+
+// Generate units for Grand Plaza
+const gpUnits = ['101', '102', '201', '202'].map(num => ({ id: `r-gp-${num}`, propertyId: 'p-1' }));
+const svUnits = ['A1', 'A2', 'B1'].map(num => ({ id: `r-sv-${num}`, propertyId: 'p-2' }));
+
+const DUMMY_RECORDS: PropertyRecord[] = [...gpUnits, ...svUnits].map(u => ({
+  id: u.id,
+  propertyId: u.propertyId,
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString()
+}));
+
+const DUMMY_RECORD_VALUES: RecordValue[] = [
+  // Grand Plaza 101
+  { id: gid(), recordId: 'r-gp-101', columnId: 'c1', value: '101' },
+  { id: gid(), recordId: 'r-gp-101', columnId: 'c2', value: 'John Doe' },
+  { id: gid(), recordId: 'r-gp-101', columnId: 'c3', value: '2500' },
+  { id: gid(), recordId: 'r-gp-101', columnId: 'c4', value: '2500' },
+  { id: gid(), recordId: 'r-gp-101', columnId: 'c5', value: 'Occupied' },
+  // Grand Plaza 102
+  { id: gid(), recordId: 'r-gp-102', columnId: 'c1', value: '102' },
+  { id: gid(), recordId: 'r-gp-102', columnId: 'c2', value: 'Jane Smith' },
+  { id: gid(), recordId: 'r-gp-102', columnId: 'c3', value: '2500' },
+  { id: gid(), recordId: 'r-gp-102', columnId: 'c4', value: '2500' },
+  { id: gid(), recordId: 'r-gp-102', columnId: 'c5', value: 'Occupied' },
+  // Seaside Villas A1
+  { id: gid(), recordId: 'r-sv-A1', columnId: 'c1', value: 'A1' },
+  { id: gid(), recordId: 'r-sv-A1', columnId: 'c2', value: 'Alice Johnson' },
+  { id: gid(), recordId: 'r-sv-A1', columnId: 'c3', value: '1800' },
+  { id: gid(), recordId: 'r-sv-A1', columnId: 'c4', value: '1800' },
+  { id: gid(), recordId: 'r-sv-A1', columnId: 'c5', value: 'Occupied' }
+];
+
+const now = new Date();
+const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+const lastMonth = `${now.getFullYear()}-${String(now.getMonth()).padStart(2, '0')}`;
+
+const DUMMY_PAYMENTS: Payment[] = [
+  // Rent for last month
+  { id: gid(), recordId: 'r-gp-101', month: lastMonth, amount: 2500, status: PaymentStatus.PAID, type: 'RENT', dueDate: `${lastMonth}-05`, paidAt: `${lastMonth}-03T10:00:00Z`, paymentMode: 'Bank Transfer', paidTo: 'Company Account' },
+  { id: gid(), recordId: 'r-gp-102', month: lastMonth, amount: 2500, status: PaymentStatus.PAID, type: 'RENT', dueDate: `${lastMonth}-05`, paidAt: `${lastMonth}-04T12:00:00Z`, paymentMode: 'UPI/QR', paidTo: 'Petty Cash' },
+  // Rent for this month (partial collection)
+  { id: gid(), recordId: 'r-gp-101', month: currentMonth, amount: 2500, status: PaymentStatus.PAID, type: 'RENT', dueDate: `${currentMonth}-05`, paidAt: `${currentMonth}-02T09:30:00Z`, paymentMode: 'Bank Transfer', paidTo: 'Company Account' },
+  // Deposits
+  { id: gid(), recordId: 'r-gp-101', month: 'ONE_TIME', amount: 2500, status: PaymentStatus.PAID, type: 'DEPOSIT', dueDate: 'N/A', paidAt: `${lastMonth}-01T08:00:00Z`, paymentMode: 'Check', paidTo: 'Company Account' },
+  { id: gid(), recordId: 'r-sv-A1', month: 'ONE_TIME', amount: 1800, status: PaymentStatus.PAID, type: 'DEPOSIT', dueDate: 'N/A', paidAt: `${lastMonth}-10T14:20:00Z`, paymentMode: 'Cash', paidTo: 'Owner Direct' }
+];
+
 export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isReady, setIsReady] = useState(false);
   const [isCloudSyncing, setIsCloudSyncing] = useState(false);
@@ -30,12 +104,12 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   );
 
   const [user, setUser] = useState<User | null>(null);
-  const [users, setUsers] = useState<User[]>([]);
-  const [propertyTypes, setPropertyTypes] = useState<PropertyType[]>([]);
-  const [properties, setProperties] = useState<Property[]>([]);
-  const [records, setRecords] = useState<PropertyRecord[]>([]);
-  const [recordValues, setRecordValues] = useState<RecordValue[]>([]);
-  const [payments, setPayments] = useState<Payment[]>([]);
+  const [users, setUsers] = useState<User[]>(DUMMY_USERS);
+  const [propertyTypes, setPropertyTypes] = useState<PropertyType[]>([DUMMY_PROPERTY_TYPE]);
+  const [properties, setProperties] = useState<Property[]>(DUMMY_PROPERTIES);
+  const [records, setRecords] = useState<PropertyRecord[]>(DUMMY_RECORDS);
+  const [recordValues, setRecordValues] = useState<RecordValue[]>(DUMMY_RECORD_VALUES);
+  const [payments, setPayments] = useState<Payment[]>(DUMMY_PAYMENTS);
   const [config, setConfig] = useState<AppConfig>({
     paidToOptions: ['Company Account', 'Bank Account', 'Petty Cash', 'Owner Direct'],
     paymentModeOptions: ['Bank Transfer', 'Cash', 'Check', 'UPI/QR', 'Credit Card']
@@ -166,6 +240,17 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const data = response.result.valueRanges;
       const parse = (index: number) => data[index]?.values?.slice(1) || [];
 
+      // Parse Users
+      const parsedUsers = parse(0).map((r: any) => ({
+        id: r[0],
+        username: r[1],
+        name: r[2],
+        role: r[3] as UserRole,
+        passwordHash: r[4],
+        createdAt: r[5]
+      }));
+      if (parsedUsers.length) setUsers(parsedUsers);
+
       const parsedTypes = parse(1).map((r: any) => ({ 
         id: r[0], 
         name: r[1], 
@@ -213,6 +298,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     try {
       const gapi = (window as any).gapi;
       const batchData = [
+        { tab: "Users", rows: [["ID", "Username", "Name", "Role", "PassHash", "Created"], ...users.map(u => [u.id, u.username, u.name, u.role, u.passwordHash, u.createdAt])] },
         { tab: "PropertyTypes", rows: [["ID", "Name", "ColumnsJSON", "DueDay"], ...propertyTypes.map(t => [t.id, t.name, JSON.stringify(t.columns), t.defaultDueDateDay])] },
         { tab: "Properties", rows: [["ID", "Name", "TypeID", "Address", "Created", "Visible"], ...properties.map(p => [p.id, p.name, p.propertyTypeId, p.address, p.createdAt, p.isVisibleToManager])] },
         { tab: "Records", rows: [["ID", "PropID", "Created", "Updated"], ...records.map(r => [r.id, r.propertyId, r.createdAt, r.updatedAt])] },
@@ -245,7 +331,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const timer = setTimeout(() => syncAll(), 2500);
       return () => clearTimeout(timer);
     }
-  }, [propertyTypes, properties, records, recordValues, payments, spreadsheetId, googleUser, storageMode]);
+  }, [propertyTypes, properties, records, recordValues, payments, users, spreadsheetId, googleUser, storageMode]);
 
   // --- CACHE FALLBACK ---
 
@@ -254,6 +340,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (saved && storageMode === 'local') {
       try {
         const parsed = JSON.parse(saved);
+        if (parsed.users) setUsers(parsed.users);
         if (parsed.propertyTypes) setPropertyTypes(parsed.propertyTypes);
         if (parsed.properties) setProperties(parsed.properties);
         if (parsed.records) setRecords(parsed.records);
@@ -266,23 +353,18 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   useEffect(() => {
     if (storageMode === 'local') {
-      const data = { propertyTypes, properties, records, recordValues, payments };
+      const data = { users, propertyTypes, properties, records, recordValues, payments };
       localStorage.setItem('rentmaster_local_cache', JSON.stringify(data));
     }
-  }, [propertyTypes, properties, records, recordValues, payments, storageMode]);
+  }, [users, propertyTypes, properties, records, recordValues, payments, storageMode]);
 
   // --- AUTH & LOGIN ---
 
   const login = async (username: string, password: string) => {
-    const targetUsers: User[] = users.length > 0 ? users : [{ 
-      id: 'u-admin', 
-      username: 'admin', 
-      name: 'Admin', 
-      role: UserRole.ADMIN, 
-      passwordHash: 'admin123',
-      createdAt: new Date().toISOString()
-    }];
-    const foundUser = targetUsers.find(u => u.username === username && u.passwordHash === password);
+    // CRITICAL: Merge DUMMY_USERS into searchable pool to ensure manager/admin creds always work
+    const allUsers = [...users, ...DUMMY_USERS];
+    
+    const foundUser = allUsers.find(u => u.username === username && u.passwordHash === password);
     if (foundUser) {
       setUser(foundUser);
       return true;

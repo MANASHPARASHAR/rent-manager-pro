@@ -7,6 +7,7 @@ import PropertyManagement from './components/PropertyManagement';
 import PropertyTypeManager from './components/PropertyTypeManager';
 import PropertyDetails from './components/PropertyDetails';
 import RentCollection from './components/RentCollection';
+import Reports from './components/Reports';
 import Login from './components/Login';
 import { useRentalStore, RentalProvider } from './store/useRentalStore';
 
@@ -25,6 +26,7 @@ const AppContent: React.FC = () => {
           <Route path="/properties" element={<PropertyManagement />} />
           <Route path="/properties/:id" element={<PropertyDetails />} />
           <Route path="/collection" element={<RentCollection />} />
+          <Route path="/reports" element={<Reports />} />
           <Route path="/types" element={<PropertyTypeManager />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

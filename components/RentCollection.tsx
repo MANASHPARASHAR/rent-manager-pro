@@ -29,7 +29,8 @@ import {
   Plus,
   Undo2,
   Settings,
-  Trash2
+  Trash2,
+  ShieldAlert
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { PaymentStatus, UserRole, ColumnType, ColumnDefinition, Payment } from '../types';
@@ -213,9 +214,25 @@ const RentCollection: React.FC = () => {
       collected: actualCollected,
       pending: Math.max(0, expected - actualCollected),
       progress: expected > 0 ? (actualCollected / expected) * 100 : 0,
-      heldAssets
+      heldAssets,
+      rangeMultiplier
     };
   }, [recordsWithRent, store.payments, filterType, selectedMonth, selectedYear, startDate, endDate, visiblePropertyIds]);
+
+  const pendingByProperty = useMemo(() => {
+    const map: Record<string, { name: string, amount: number, count: number }> = {};
+    
+    recordsWithRent.forEach(r => {
+      if (r.status !== 'PAID') {
+        const propId = r.propertyId;
+        const propName = r.property?.name || 'Unknown';
+        if (!map[propId]) map[propId] = { name: propName, amount: 0, count: 0 };
+        map[propId].amount += (r.rentAmount * stats.rangeMultiplier);
+        map[propId].count += 1;
+      }
+    });
+    return Object.values(map).sort((a, b) => b.amount - a.amount);
+  }, [recordsWithRent, stats.rangeMultiplier]);
 
   const handleAction = (record: any, type: 'RENT' | 'DEPOSIT') => {
     if (type === 'RENT' && record.isRentPaid && filterType === 'monthly') {
@@ -396,9 +413,9 @@ const RentCollection: React.FC = () => {
                  </div>
                  <button onClick={() => setHistoryRecord(null)} className="p-2 hover:bg-white rounded-full transition-colors"><X className="w-6 h-6 text-gray-400" /></button>
               </div>
-              <div className="p-0 max-h-[60vh] overflow-auto">
+              <div className="p-0 max-h-[60vh] overflow-auto custom-scrollbar">
                  <table className="w-full text-left">
-                    <thead className="bg-gray-50 border-b border-gray-100 sticky top-0">
+                    <thead className="bg-gray-50 border-b border-gray-100 sticky top-0 z-10">
                        <tr>
                           <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Type / Date</th>
                           <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Mode</th>
@@ -452,7 +469,7 @@ const RentCollection: React.FC = () => {
                  </div>
                  <button onClick={() => setEditingUnit(null)} className="p-2 hover:bg-white rounded-full transition-colors"><X className="w-6 h-6 text-gray-400" /></button>
               </div>
-              <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-6 max-h-[60vh] overflow-auto">
+              <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-6 max-h-[60vh] overflow-auto custom-scrollbar">
                  {editingUnit.propertyType.columns.map((col: ColumnDefinition) => (
                     <div key={col.id} className="space-y-1.5">
                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">{col.name} {col.required && <span className="text-red-500">*</span>}</label>
@@ -511,7 +528,7 @@ const RentCollection: React.FC = () => {
                     />
                     <button onClick={addPaidToOption} className="p-3 bg-indigo-600 text-white rounded-2xl shadow-lg hover:bg-indigo-700 transition-all"><Plus className="w-5 h-5" /></button>
                  </div>
-                 <div className="space-y-2">
+                 <div className="space-y-2 max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
                     {store.config.paidToOptions.map((opt: string) => (
                        <div key={opt} className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl border border-gray-100 group">
                           <span className="text-sm font-bold text-gray-700">{opt}</span>
@@ -534,7 +551,7 @@ const RentCollection: React.FC = () => {
                     />
                     <button onClick={addPaymentModeOption} className="p-3 bg-indigo-600 text-white rounded-2xl shadow-lg hover:bg-indigo-700 transition-all"><Plus className="w-5 h-5" /></button>
                  </div>
-                 <div className="space-y-2">
+                 <div className="space-y-2 max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
                     {store.config.paymentModeOptions.map((opt: string) => (
                        <div key={opt} className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl border border-gray-100 group">
                           <span className="text-sm font-bold text-gray-700">{opt}</span>
@@ -602,7 +619,7 @@ const RentCollection: React.FC = () => {
                 <div className="flex items-center gap-3">
                   <TrendingUp className="w-4 h-4 text-indigo-500" />
                   <select 
-                    className="bg-transparent border-none text-xs font-black uppercase text-gray-900 outline-none cursor-pointer appearance-none pr-8"
+                    className="bg-transparent border-none text-xs font-black uppercase text-slate-900 outline-none cursor-pointer appearance-none pr-8"
                     value={selectedYear}
                     onChange={(e) => setSelectedYear(e.target.value)}
                   >
@@ -661,6 +678,34 @@ const RentCollection: React.FC = () => {
         </div>
       </div>
 
+      {/* Deficit Exposure Summary with Scroll functionality */}
+      {pendingByProperty.length > 0 && (
+        <div className="bg-rose-50 border border-rose-100 p-8 rounded-[2.5rem] animate-in slide-in-from-bottom-4">
+           <div className="flex items-center gap-3 mb-6">
+              <div className="bg-rose-500 p-2 rounded-xl text-white shadow-lg shadow-rose-200">
+                 <ShieldAlert className="w-5 h-5" />
+              </div>
+              <div>
+                 <h2 className="text-xl font-black text-rose-900 uppercase tracking-tight">Deficit Exposure</h2>
+                 <p className="text-[10px] font-bold text-rose-400 uppercase tracking-widest">Outstanding liabilities by property</p>
+              </div>
+           </div>
+           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+              {pendingByProperty.map((item, idx) => (
+                 <div key={idx} className="bg-white/80 backdrop-blur-sm p-5 rounded-2xl border border-rose-100 shadow-sm flex items-center justify-between">
+                    <div>
+                       <p className="text-[9px] font-black text-rose-400 uppercase tracking-widest mb-1 truncate max-w-[120px]">{item.name}</p>
+                       <p className="text-xl font-black text-rose-900">${item.amount.toLocaleString()}</p>
+                    </div>
+                    <div className="bg-rose-100 text-rose-600 px-3 py-1 rounded-lg text-[10px] font-black uppercase">
+                       {item.count} Units
+                    </div>
+                 </div>
+              ))}
+           </div>
+        </div>
+      )}
+
       <div className="bg-white rounded-[2.5rem] border border-gray-100 shadow-xl overflow-hidden">
         <div className="p-8 border-b border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="relative w-full md:w-80">
@@ -672,9 +717,11 @@ const RentCollection: React.FC = () => {
              {visibleProperties.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </div>
-        <div className="overflow-x-auto">
+
+        {/* Added max-height and custom-scrollbar to main ledger table container */}
+        <div className="overflow-x-auto max-h-[600px] overflow-y-auto custom-scrollbar">
           <table className="w-full text-left">
-            <thead>
+            <thead className="sticky top-0 z-10 bg-white">
               <tr className="bg-gray-50 border-b border-gray-100">
                 <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Unit / Tenant</th>
                 <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Base Rent</th>
@@ -747,7 +794,7 @@ const RentCollection: React.FC = () => {
 
       {collectingRecord && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-lg animate-in fade-in duration-300">
-           <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
+           <div className="bg-white w-full max-md rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
               <div className="p-8 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
                  <h3 className="text-xl font-black text-gray-900 uppercase">Settlement Portal</h3>
                  <button onClick={() => setCollectingRecord(null)} className="p-2 hover:bg-white rounded-full transition-colors"><X className="w-6 h-6 text-gray-400" /></button>

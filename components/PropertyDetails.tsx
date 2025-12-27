@@ -313,9 +313,10 @@ const PropertyDetails: React.FC = () => {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        {/* Added max-height and custom-scrollbar to units management table container */}
+        <div className="overflow-x-auto max-h-[600px] overflow-y-auto custom-scrollbar">
           <table className="w-full text-left">
-            <thead>
+            <thead className="sticky top-0 z-10 bg-white">
               <tr className="bg-gray-50 border-b border-gray-100">
                 {columns.map(col => <th key={col.id} className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest whitespace-nowrap">{col.name} {col.required && <span className="text-red-500">*</span>}</th>)}
                 {canEdit && <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Actions</th>}
