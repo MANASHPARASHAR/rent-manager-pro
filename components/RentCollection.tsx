@@ -28,7 +28,8 @@ import {
   User,
   PlusCircle,
   CreditCard,
-  Landmark
+  Landmark,
+  ArrowDownRight
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { PaymentStatus, UserRole, ColumnType, ColumnDefinition, Payment } from '../types';
@@ -109,8 +110,9 @@ const RentCollection: React.FC = () => {
       const end = new Date(endDate); end.setHours(23,59,59,999);
       return payments.some(p => {
         if (!p.paidAt) return false;
-        const paidDate = new Date(p.paidAt);
-        return paidDate >= start && paidDate <= end;
+        // Fix: Renamed paidDate to pd to resolve "Cannot find name 'pd'" error on the next line.
+        const pd = new Date(p.paidAt);
+        return pd >= start && pd <= end;
       });
     }
   };
@@ -206,13 +208,24 @@ const RentCollection: React.FC = () => {
 
     const heldAssets = store.payments.filter((p: any) => p.type === 'DEPOSIT' && p.status === PaymentStatus.PAID && !p.isRefunded).reduce((sum: number, p: any) => sum + p.amount, 0);
     
+    const pendingByProperty: Record<string, { name: string, amount: number }> = {};
+    recordsWithRent.forEach(r => {
+      if (!r.isRentPaid) {
+        if (!pendingByProperty[r.propertyId]) {
+          pendingByProperty[r.propertyId] = { name: r.property?.name || 'Unknown', amount: 0 };
+        }
+        pendingByProperty[r.propertyId].amount += r.rentAmount * rangeMultiplier;
+      }
+    });
+
     return {
       expected,
       collected: actualCollected,
       pending: Math.max(0, expected - actualCollected),
       progress: expected > 0 ? (actualCollected / expected) * 100 : 0,
       heldAssets,
-      rangeMultiplier
+      rangeMultiplier,
+      pendingByProperty: Object.values(pendingByProperty).sort((a, b) => b.amount - a.amount)
     };
   }, [recordsWithRent, store.payments, filterType, selectedMonth, selectedYear, startDate, endDate, visiblePropertyIds]);
 
@@ -499,7 +512,9 @@ const RentCollection: React.FC = () => {
                  <div className="flex items-center gap-2">
                    <TrendingUp className="w-4 h-4 text-indigo-500" />
                    <select className="bg-transparent border-none text-[10px] font-black uppercase text-slate-900 outline-none cursor-pointer appearance-none pr-6" value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)}>
-                     {availableYears.map(year => <option key={year} value={year.toString()}>{year}</option>)}
+                     {availableYears.map(year => (
+                       <option key={year} value={year.toString()}>{year}</option>
+                     ))}
                    </select>
                    <ChevronDown className="w-3 h-3 text-slate-400 -ml-6 pointer-events-none" />
                  </div>
@@ -537,6 +552,42 @@ const RentCollection: React.FC = () => {
              <p className="text-3xl font-black text-slate-950 tracking-tight">${item.val.toLocaleString()}</p>
           </div>
         ))}
+      </div>
+
+      {/* Arrears Breakdown Section */}
+      <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
+        <div className="flex items-center gap-3 mb-8">
+          <div className="p-3 bg-rose-50 text-rose-600 rounded-2xl shadow-sm">
+            <ArrowDownRight className="w-6 h-6" />
+          </div>
+          <div>
+            <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">Deficit Breakdown</h2>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Uncollected rent by asset</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {stats.pendingByProperty.length > 0 ? stats.pendingByProperty.map((item, i) => (
+            <div key={i} className="bg-rose-50/30 border border-rose-100/50 p-6 rounded-[2rem] flex flex-col justify-between hover:bg-rose-50/50 transition-all group">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-black text-rose-500 uppercase tracking-widest opacity-60">Asset</span>
+                  <Building2 className="w-4 h-4 text-rose-300 group-hover:text-rose-400 transition-colors" />
+                </div>
+                <p className="text-xs font-black text-slate-800 uppercase tracking-tight leading-tight truncate">{item.name}</p>
+              </div>
+              <div className="mt-4 flex items-end justify-between">
+                <div className="text-lg font-black text-rose-600 tracking-tight">${item.amount.toLocaleString()}</div>
+                <div className="text-[9px] font-black text-rose-400 uppercase tracking-widest mb-1">Pending</div>
+              </div>
+            </div>
+          )) : (
+            <div className="col-span-full py-12 text-center opacity-40">
+              <CheckCircle2 className="w-12 h-12 mx-auto mb-4 text-emerald-500" />
+              <p className="text-[10px] font-black uppercase tracking-widest">Global Collections Settled</p>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-xl overflow-hidden">
