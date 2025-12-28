@@ -22,19 +22,21 @@ const CLOUD_TOKEN_KEY = 'rentmaster_cloud_token_persistent_v1';
 const TOMBSTONES_KEY = 'rentmaster_global_deletion_tombstones';
 const LOCAL_CACHE_KEY = 'rentmaster_local_cache';
 
-// Helper to load initial state from localStorage synchronously to avoid "empty state" overwrites
-const getInitialData = (key: string, defaultValue: any) => {
+// Synchronous helper to fetch data from disk before React even starts
+const getDiskData = () => {
   const saved = localStorage.getItem(LOCAL_CACHE_KEY);
-  if (!saved) return defaultValue;
+  if (!saved) return null;
   try {
-    const parsed = JSON.parse(saved);
-    return parsed[key] !== undefined ? parsed[key] : defaultValue;
+    return JSON.parse(saved);
   } catch (e) {
-    return defaultValue;
+    return null;
   }
 };
 
 export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // 1. Initial Load from Disk (Synchronous)
+  const initialData = useRef(getDiskData());
+
   // Persistence state
   const [spreadsheetId, setSpreadsheetId] = useState<string | null>(() => localStorage.getItem('rentmaster_active_sheet_id'));
   const [spreadsheetName, setSpreadsheetName] = useState<string | null>(() => localStorage.getItem('rentmaster_active_sheet_name'));
@@ -44,17 +46,17 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return saved ? JSON.parse(saved) : null;
   });
 
-  // App Data - Initialized directly from Local Storage to prevent Genesis-mode flicker
-  const [users, setUsers] = useState<User[]>(() => getInitialData('users', []));
-  const [propertyTypes, setPropertyTypes] = useState<PropertyType[]>(() => getInitialData('propertyTypes', []));
-  const [properties, setProperties] = useState<Property[]>(() => getInitialData('properties', []));
-  const [records, setRecords] = useState<PropertyRecord[]>(() => getInitialData('records', []));
-  const [recordValues, setRecordValues] = useState<RecordValue[]>(() => getInitialData('recordValues', []));
-  const [payments, setPayments] = useState<Payment[]>(() => getInitialData('payments', []));
-  const [config, setConfig] = useState<AppConfig>(() => getInitialData('config', {
+  // App Data - Guaranteed to be populated from disk on first tick
+  const [users, setUsers] = useState<User[]>(() => initialData.current?.users || []);
+  const [propertyTypes, setPropertyTypes] = useState<PropertyType[]>(() => initialData.current?.propertyTypes || []);
+  const [properties, setProperties] = useState<Property[]>(() => initialData.current?.properties || []);
+  const [records, setRecords] = useState<PropertyRecord[]>(() => initialData.current?.records || []);
+  const [recordValues, setRecordValues] = useState<RecordValue[]>(() => initialData.current?.recordValues || []);
+  const [payments, setPayments] = useState<Payment[]>(() => initialData.current?.payments || []);
+  const [config, setConfig] = useState<AppConfig>(() => initialData.current?.config || {
     paidToOptions: ['Company Account', 'Bank Account', 'Petty Cash', 'Owner Direct'],
     paymentModeOptions: ['Bank Transfer', 'Cash', 'Check', 'UPI/QR', 'Credit Card']
-  }));
+  });
 
   const [tombstones, setTombstones] = useState<Set<string>>(() => {
     const saved = localStorage.getItem(TOMBSTONES_KEY);
@@ -72,15 +74,14 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const tokenClientRef = useRef<any>(null);
   const isInitializingFirstUser = useRef(false);
 
-  // Sync Ref for mutation stability - CRITICAL: This is updated synchronously by mutation functions
+  // Sync Ref - Holds the absolute latest truth to prevent React's async state from lagging behind disk writes
   const stateRef = useRef({ users, propertyTypes, properties, records, recordValues, payments, config });
   
-  // Keep the ref in sync with React state for any external triggers
   useEffect(() => {
     stateRef.current = { users, propertyTypes, properties, records, recordValues, payments, config };
   }, [users, propertyTypes, properties, records, recordValues, payments, config]);
 
-  // Synchronous Persistence Helper
+  // Synchronous Persistence Helper - Never writes empty state unless explicitly told to
   const writeLocalCache = useCallback((overrides: any = {}) => {
     const s = stateRef.current;
     const dataToSave = {
@@ -92,10 +93,17 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       payments: overrides.payments !== undefined ? overrides.payments : s.payments,
       config: overrides.config !== undefined ? overrides.config : s.config
     };
+    
+    // Safety Guard: Don't nuke the local storage with an empty object if we haven't confirmed setup
+    if (dataToSave.users.length === 0 && !isInitializingFirstUser.current && initialData.current?.users?.length > 0) {
+      console.warn("Prevented accidental cache clearing.");
+      return;
+    }
+
     localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(dataToSave));
   }, []);
 
-  // Update tombstone disk storage
+  // Sync Tombstones to disk
   useEffect(() => {
     localStorage.setItem(TOMBSTONES_KEY, JSON.stringify(Array.from(tombstones)));
   }, [tombstones]);
@@ -357,8 +365,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const login = async (username: string, password: string) => {
     const lowerUser = username.toLowerCase();
-    const currentTombstones = new Set(JSON.parse(localStorage.getItem(TOMBSTONES_KEY) || '[]'));
-    const foundUser = users.find(u => u.username.toLowerCase() === lowerUser && u.passwordHash === password && !currentTombstones.has(u.id));
+    const foundUser = users.find(u => u.username.toLowerCase() === lowerUser && u.passwordHash === password && !tombstones.has(u.id));
     if (foundUser) {
       setUser(foundUser);
       return true;
@@ -380,17 +387,9 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (isFirstUser) isInitializingFirstUser.current = true;
     
     const nextUsers = [...users, newUser];
-    
-    // 1. Update ref synchronously to prevent state race conditions
     stateRef.current.users = nextUsers;
-    
-    // 2. Persist to localStorage immediately
     writeLocalCache({ users: nextUsers });
-    
-    // 3. Update React State
     setUsers(nextUsers);
-    
-    // 4. Manual sync trigger
     syncAll(true, { users: nextUsers });
     
     if (autoLogin) { 
