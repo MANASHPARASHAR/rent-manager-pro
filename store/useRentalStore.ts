@@ -19,6 +19,7 @@ const RentalContext = createContext<any>(null);
 const DATABASE_FILENAME = "RentMaster_Pro_Database";
 const SHEET_TABS = ["Users", "PropertyTypes", "Properties", "Records", "RecordValues", "Payments", "Config"];
 const CLOUD_TOKEN_KEY = 'rentmaster_cloud_token_persistent_v1';
+const TOMBSTONES_KEY = 'rentmaster_deleted_user_tombstones';
 
 export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isReady, setIsReady] = useState(false);
@@ -50,6 +51,16 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     paymentModeOptions: ['Bank Transfer', 'Cash', 'Check', 'UPI/QR', 'Credit Card']
   });
 
+  // Tracking for deleted IDs to prevent "ghost" users from re-appearing during sync lag
+  const [tombstones, setTombstones] = useState<Set<string>>(() => {
+    const saved = localStorage.getItem(TOMBSTONES_KEY);
+    return saved ? new Set(JSON.parse(saved)) : new Set();
+  });
+
+  useEffect(() => {
+    localStorage.setItem(TOMBSTONES_KEY, JSON.stringify(Array.from(tombstones)));
+  }, [tombstones]);
+
   const hasLoadedInitialCache = useRef(false);
   const lastSyncHash = useRef('');
   const isInitializingFirstUser = useRef(false);
@@ -57,12 +68,12 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // SESSION GUARD
   useEffect(() => {
     if (user && users.length > 0 && !isInitializingFirstUser.current) {
-      const stillExists = users.some(u => u.id === user.id || u.username.toLowerCase() === user.username.toLowerCase());
-      if (!stillExists) {
+      const stillExists = users.some(u => u.id === user.id);
+      if (!stillExists || tombstones.has(user.id)) {
         setUser(null);
       }
     }
-  }, [users, user]);
+  }, [users, user, tombstones]);
 
   const updateClientId = (id: string) => {
     const cleanId = id.trim();
@@ -108,9 +119,13 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const data = response.result.valueRanges;
       const parse = (index: number) => data[index]?.values?.slice(1) || [];
 
-      const parsedUsers = parse(0).map((r: any) => ({
-        id: r[0], username: r[1], name: r[2], role: r[3] as UserRole, passwordHash: r[4], createdAt: r[5]
-      })).filter(u => u.username);
+      // Load users and filter against local tombstones to ensure deleted users don't reappear
+      const currentTombstones = new Set(JSON.parse(localStorage.getItem(TOMBSTONES_KEY) || '[]'));
+      const parsedUsers = parse(0)
+        .map((r: any) => ({
+          id: r[0], username: r[1], name: r[2], role: r[3] as UserRole, passwordHash: r[4], createdAt: r[5]
+        }))
+        .filter(u => u.username && !currentTombstones.has(u.id));
       
       setUsers(parsedUsers);
 
@@ -255,6 +270,14 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           resource: { values: item.rows }
         });
       }
+      
+      // Clear tombstones for users that were just successfully pushed as "removed"
+      setTombstones(prev => {
+        const next = new Set(prev);
+        activeUsers.forEach(u => next.delete(u.id));
+        return next;
+      });
+
       lastSyncHash.current = currentHash;
       setCloudError(null);
     } catch (e: any) {
@@ -288,7 +311,9 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (parsed.users) setUsers(parsed.users);
+        const currentTombstones = new Set(JSON.parse(localStorage.getItem(TOMBSTONES_KEY) || '[]'));
+        
+        if (parsed.users) setUsers(parsed.users.filter((u: any) => !currentTombstones.has(u.id)));
         if (parsed.propertyTypes) setPropertyTypes(parsed.propertyTypes);
         if (parsed.properties) setProperties(parsed.properties);
         if (parsed.records) setRecords(parsed.records);
@@ -320,7 +345,13 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       try { await loadAllData(spreadsheetId); } catch(e) {}
     }
 
-    const foundUser = users.find(u => u.username.toLowerCase() === lowerUser && u.passwordHash === password);
+    const currentTombstones = new Set(JSON.parse(localStorage.getItem(TOMBSTONES_KEY) || '[]'));
+    const foundUser = users.find(u => 
+      u.username.toLowerCase() === lowerUser && 
+      u.passwordHash === password &&
+      !currentTombstones.has(u.id)
+    );
+
     if (foundUser) {
       setUser(foundUser);
       isInitializingFirstUser.current = false;
@@ -333,22 +364,42 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const addUser = async (newUser: User, autoLogin: boolean = false) => {
     if (users.length === 0) isInitializingFirstUser.current = true;
+    
+    // Clear any potential tombstone if we are re-adding an ID (unlikely but safe)
+    setTombstones(prev => {
+      const next = new Set(prev);
+      next.delete(newUser.id);
+      return next;
+    });
+
     setUsers(prev => {
       const next = [...prev, newUser];
       updateLocalCacheManually(next);
       return next;
     });
+
     localStorage.setItem('rentmaster_initialized', 'true');
     if (autoLogin) { setUser(newUser); isInitializingFirstUser.current = false; }
-    if (spreadsheetId && authSession) { await syncAll(true, [...users, newUser]); }
+    
+    if (spreadsheetId && authSession) { 
+      // Important: use functional update logic to get most recent state for sync
+      await syncAll(true, [...users, newUser]); 
+    }
   };
 
   const deleteUser = async (id: string) => {
-    const updated = users.filter(u => u.id !== id);
-    setUsers(updated);
-    updateLocalCacheManually(updated);
+    // Add to tombstones immediately to block any re-login or restoration
+    setTombstones(prev => new Set(prev).add(id));
+
+    setUsers(prev => {
+      const next = prev.filter(u => u.id !== id);
+      updateLocalCacheManually(next);
+      return next;
+    });
+
     if (spreadsheetId && authSession) {
-      await syncAll(true, updated);
+      const nextUsers = users.filter(u => u.id !== id);
+      await syncAll(true, nextUsers);
     }
   };
 
