@@ -27,7 +27,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isBooting, setIsBooting] = useState(true);
   const [isCloudSyncing, setIsCloudSyncing] = useState(false);
   const [cloudError, setCloudError] = useState<string | null>(null);
-  const [spreadsheetName, setSpreadsheetName] = useState<string | null>(null);
+  const [spreadsheetName, setSpreadsheetName] = useState<string | null>(() => localStorage.getItem('rentmaster_active_sheet_name'));
   
   const [authSession, setAuthSession] = useState<any>(() => {
     const saved = localStorage.getItem(CLOUD_TOKEN_KEY);
@@ -60,6 +60,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const lastSyncHash = useRef('');
   const isInitializingFirstUser = useRef(false);
+  const tokenClientRef = useRef<any>(null);
 
   // Synchronous Local Storage Persistence
   const writeLocalCache = useCallback((overrides: any = {}) => {
@@ -75,17 +76,28 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(cache));
   }, [users, propertyTypes, properties, records, recordValues, payments, config]);
 
+  // Load from cache utility for relogin
+  const reloadFromCache = useCallback(() => {
+    const saved = localStorage.getItem(LOCAL_CACHE_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        const currentTombstones = new Set(JSON.parse(localStorage.getItem(TOMBSTONES_KEY) || '[]'));
+        if (parsed.users) setUsers(parsed.users.filter((u: any) => !currentTombstones.has(u.id)));
+        if (parsed.propertyTypes) setPropertyTypes(parsed.propertyTypes.filter((t: any) => !currentTombstones.has(t.id)));
+        if (parsed.properties) setProperties(parsed.properties.filter((p: any) => !currentTombstones.has(p.id)));
+        if (parsed.records) setRecords(parsed.records.filter((r: any) => !currentTombstones.has(r.id)));
+        if (parsed.recordValues) setRecordValues(parsed.recordValues.filter((v: any) => !currentTombstones.has(v.recordId)));
+        if (parsed.payments) setPayments(parsed.payments.filter((p: any) => !currentTombstones.has(p.recordId)));
+        if (parsed.config) setConfig(parsed.config);
+      } catch (e) {}
+    }
+  }, []);
+
   // Sync Tombstones to disk immediately on change
   useEffect(() => {
     localStorage.setItem(TOMBSTONES_KEY, JSON.stringify(Array.from(tombstones)));
   }, [tombstones]);
-
-  // Effect to keep local cache in sync with state in real-time
-  useEffect(() => {
-    if (isReady && !isBooting) {
-      writeLocalCache();
-    }
-  }, [users, propertyTypes, properties, records, recordValues, payments, config, isReady, isBooting, writeLocalCache]);
 
   // Session guard to handle deleted users
   useEffect(() => {
@@ -107,7 +119,8 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return new Promise((resolve) => {
       const checkGapi = () => {
         const gapi = (window as any).gapi;
-        if (gapi) {
+        const google = (window as any).google;
+        if (gapi && google?.accounts?.oauth2) {
           gapi.load('client', async () => {
             try {
               await gapi.client.init({
@@ -116,6 +129,21 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                   "https://sheets.googleapis.com/$discovery/rest?version=v4"
                 ],
               });
+              
+              // Persist token client for silent refresh
+              tokenClientRef.current = google.accounts.oauth2.initTokenClient({
+                client_id: authClientId.trim(),
+                scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly',
+                callback: (response: any) => {
+                  if (response.access_token) {
+                    setAuthSession(response);
+                    localStorage.setItem(CLOUD_TOKEN_KEY, JSON.stringify(response));
+                    gapi.client.setToken({ access_token: response.access_token });
+                    setCloudError(null);
+                  }
+                },
+              });
+
               if (authSession?.access_token) {
                 gapi.client.setToken({ access_token: authSession.access_token });
               }
@@ -126,14 +154,13 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       };
       checkGapi();
     });
-  }, [authSession]);
+  }, [authSession, authClientId]);
 
   const loadAllData = useCallback(async (id: string) => {
     const gapi = (window as any).gapi;
     if (!gapi?.client?.sheets || !authSession) return;
 
     try {
-      // Also fetch metadata to verify file name/existence
       const fileMeta = await gapi.client.drive.files.get({
         fileId: id,
         fields: 'name, trashed'
@@ -143,7 +170,10 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setCloudError("The linked spreadsheet is in the trash.");
         return;
       }
-      setSpreadsheetName(fileMeta.result.name);
+      
+      const name = fileMeta.result.name;
+      setSpreadsheetName(name);
+      localStorage.setItem('rentmaster_active_sheet_name', name);
 
       const response = await gapi.client.sheets.spreadsheets.values.batchGet({
         spreadsheetId: id,
@@ -173,7 +203,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       
       const pRecords = parse(3)
         .map(r => ({ id: r[0], propertyId: r[1], createdAt: r[2], updatedAt: r[3] }))
-        .filter(r => r.id && !currentTombstones.has(r.id) && !currentTombstones.has(r.propertyId));
+        .filter(r => r.id && !currentTombstones.has(r.id));
       setRecords(pRecords);
 
       const pVals = parse(4)
@@ -202,15 +232,14 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setCloudError(null);
     } catch (e: any) {
       if (e.status === 401) {
-        setAuthSession(null);
-        localStorage.removeItem(CLOUD_TOKEN_KEY);
-        setCloudError("Session expired. Please re-authorize.");
-      } else if (e.status === 404) {
-        setCloudError("Spreadsheet not found. Please check your Drive.");
-      } else if (e.status === 403) {
-        setCloudError("Access denied. Ensure API permissions are enabled.");
+        // Attempt silent refresh
+        if (tokenClientRef.current) {
+          tokenClientRef.current.requestAccessToken({ prompt: '' });
+        } else {
+          setCloudError("Session stale. Please sync from sidebar.");
+        }
       } else {
-        setCloudError("Cloud sync failed. Working from local cache.");
+        setCloudError("Offline mode. Working from local storage.");
       }
     }
   }, [authSession]);
@@ -244,13 +273,10 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       setSpreadsheetId(dbId);
       localStorage.setItem('rentmaster_active_sheet_id', dbId);
+      localStorage.setItem('rentmaster_active_sheet_name', DATABASE_FILENAME);
       await loadAllData(dbId);
     } catch (error: any) {
-      if (error.status === 401) {
-        setAuthSession(null);
-        localStorage.removeItem(CLOUD_TOKEN_KEY);
-      }
-      setCloudError(error?.result?.error?.message || "Cloud boot error.");
+      setCloudError("Cloud verify failed. Re-authenticate in settings.");
     } finally {
       setIsCloudSyncing(false);
     }
@@ -262,31 +288,27 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (!clientIdValue) return false;
 
     return new Promise((resolve) => {
-      const tryAuth = () => {
-        const google = (window as any).google;
-        if (google?.accounts?.oauth2) {
-          try {
-            const client = google.accounts.oauth2.initTokenClient({
-              client_id: clientIdValue,
-              scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly',
-              callback: async (response: any) => {
-                if (response.access_token) {
-                  setAuthSession(response);
-                  localStorage.setItem(CLOUD_TOKEN_KEY, JSON.stringify(response));
-                  setCloudError(null);
-                  await bootstrapDatabase();
-                  resolve(true);
-                } else {
-                  if (!silent) setCloudError("Access denied.");
-                  resolve(false);
-                }
-              },
-            });
-            client.requestAccessToken({ prompt: silent ? '' : 'consent' });
-          } catch (e) { resolve(false); }
-        } else { setTimeout(tryAuth, 100); }
-      };
-      tryAuth();
+      const google = (window as any).google;
+      if (google?.accounts?.oauth2) {
+        const client = google.accounts.oauth2.initTokenClient({
+          client_id: clientIdValue,
+          scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly',
+          callback: async (response: any) => {
+            if (response.access_token) {
+              setAuthSession(response);
+              localStorage.setItem(CLOUD_TOKEN_KEY, JSON.stringify(response));
+              setCloudError(null);
+              await bootstrapDatabase();
+              resolve(true);
+            } else {
+              if (!silent) setCloudError("Authorization required.");
+              resolve(false);
+            }
+          },
+        });
+        tokenClientRef.current = client;
+        client.requestAccessToken({ prompt: silent ? '' : 'consent' });
+      } else { resolve(false); }
     });
   }, [authClientId, bootstrapDatabase]);
 
@@ -326,15 +348,9 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           resource: { values: item.rows }
         });
       }
-      
       lastSyncHash.current = currentHash;
-      setCloudError(null);
     } catch (e: any) {
-      if (e.status === 401) {
-        setAuthSession(null);
-        localStorage.removeItem(CLOUD_TOKEN_KEY);
-      }
-      setCloudError("Cloud sync failure.");
+      setCloudError("Cloud sync suspended.");
     } finally {
       setIsCloudSyncing(false);
     }
@@ -354,34 +370,27 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [propertyTypes, properties, records, recordValues, payments, users, config, spreadsheetId, authSession, storageMode, syncAll]);
 
   useEffect(() => {
-    const saved = localStorage.getItem(LOCAL_CACHE_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        const currentTombstones = new Set(JSON.parse(localStorage.getItem(TOMBSTONES_KEY) || '[]'));
-        if (parsed.users) setUsers(parsed.users.filter((u: any) => !currentTombstones.has(u.id)));
-        if (parsed.propertyTypes) setPropertyTypes(parsed.propertyTypes.filter((t: any) => !currentTombstones.has(t.id)));
-        if (parsed.properties) setProperties(parsed.properties.filter((p: any) => !currentTombstones.has(p.id)));
-        if (parsed.records) setRecords(parsed.records.filter((r: any) => !currentTombstones.has(r.id)));
-        if (parsed.recordValues) setRecordValues(parsed.recordValues.filter((v: any) => !currentTombstones.has(v.recordId)));
-        if (parsed.payments) setPayments(parsed.payments.filter((p: any) => !currentTombstones.has(p.recordId)));
-        if (parsed.config) setConfig(parsed.config);
-      } catch (e) {}
-    }
+    reloadFromCache();
     const timer = setTimeout(() => {
       setIsReady(true);
       setIsBooting(false);
     }, 800);
     return () => clearTimeout(timer);
-  }, []);
+  }, [reloadFromCache]);
 
   const login = async (username: string, password: string, skipCloudRefresh = false) => {
     const lowerUser = username.toLowerCase();
+    
+    // First, ensure local data is fully restored for the login attempt
+    reloadFromCache();
+
     if (spreadsheetId && authSession && !skipCloudRefresh) {
       try { await loadAllData(spreadsheetId); } catch(e) {}
     }
+    
     const currentTombstones = new Set(JSON.parse(localStorage.getItem(TOMBSTONES_KEY) || '[]'));
     const foundUser = users.find(u => u.username.toLowerCase() === lowerUser && u.passwordHash === password && !currentTombstones.has(u.id));
+    
     if (foundUser) {
       setUser(foundUser);
       return true;
@@ -391,10 +400,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const logout = () => {
     setUser(null);
-    setProperties([]);
-    setRecords([]);
-    setRecordValues([]);
-    setPayments([]);
+    // Note: We intentionally DO NOT clear the data arrays here so they are available for the next relogin attempt instantly
   };
 
   const addUser = async (newUser: User, autoLogin: boolean = false) => {
@@ -484,11 +490,9 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return next;
     });
     
-    const recordsToDelete = records.filter(r => r.propertyId === id);
-    const deletedRecordIds = recordsToDelete.map(r => r.id);
-
     const nextProps = properties.filter(p => p.id !== id);
     const nextRecords = records.filter(r => r.propertyId !== id);
+    const deletedRecordIds = records.filter(r => r.propertyId === id).map(r => r.id);
     const nextValues = recordValues.filter(v => !deletedRecordIds.includes(v.recordId));
     const nextPayments = payments.filter(p => !deletedRecordIds.includes(p.recordId));
 
