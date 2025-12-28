@@ -45,14 +45,13 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   });
 
   const hasLoadedInitialCache = useRef(false);
+  const lastSyncHash = useRef('');
 
-  // SESSION GUARD: If a user is logged in, but they are no longer in the master users list
-  // (because they were deleted from the spreadsheet and a sync just happened), force logout.
+  // SESSION GUARD: Force logout if user is deleted from source
   useEffect(() => {
     if (user && users.length > 0) {
       const stillExists = users.some(u => u.id === user.id || u.username.toLowerCase() === user.username.toLowerCase());
       if (!stillExists) {
-        console.warn("Current user not found in master directory. Terminating session.");
         setUser(null);
       }
     }
@@ -78,13 +77,9 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                 ],
               });
               resolve(true);
-            } catch (e) {
-              resolve(false);
-            }
+            } catch (e) { resolve(false); }
           });
-        } else {
-          setTimeout(checkGapi, 100);
-        }
+        } else { setTimeout(checkGapi, 100); }
       };
       checkGapi();
     });
@@ -110,19 +105,14 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                   await bootstrapDatabase();
                   resolve(true);
                 } else {
-                  setCloudError("Access denied by Google.");
+                  setCloudError("Access denied.");
                   resolve(false);
                 }
               },
             });
             client.requestAccessToken({ prompt: 'consent' });
-          } catch (e) {
-            setCloudError("Authorization initiation failed.");
-            resolve(false);
-          }
-        } else {
-          setTimeout(tryAuth, 100);
-        }
+          } catch (e) { resolve(false); }
+        } else { setTimeout(tryAuth, 100); }
       };
       tryAuth();
     });
@@ -156,7 +146,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       localStorage.setItem('rentmaster_active_sheet_id', dbId);
       await loadAllData(dbId);
     } catch (error: any) {
-      setCloudError(error?.result?.error?.message || "Failed to initialize Cloud Sheet.");
+      setCloudError(error?.result?.error?.message || "Cloud boot error.");
     } finally {
       setIsCloudSyncing(false);
     }
@@ -179,7 +169,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         id: r[0], username: r[1], name: r[2], role: r[3] as UserRole, passwordHash: r[4], createdAt: r[5]
       })).filter(u => u.username);
       
-      // EXPLICIT OVERWRITE: This prevents "deleted" users from lingering in the state
       setUsers(parsedUsers);
 
       const parsedTypes = parse(1).map((r: any) => ({ 
@@ -212,15 +201,19 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         };
         if (cloudConfig.paidToOptions.length) setConfig(cloudConfig);
       }
-
       setCloudError(null);
     } catch (e: any) {
-      setCloudError(e?.result?.error?.message || "Cloud data loading failed.");
+      setCloudError("Cloud fetch failed.");
     }
   };
 
-  const syncAll = async () => {
+  const syncAll = async (force: boolean = false) => {
     if (!spreadsheetId || !googleUser) return;
+    
+    // Simple hash to avoid redundant syncing
+    const currentHash = JSON.stringify({ users, propertyTypes, properties, records, recordValues, payments, config });
+    if (!force && currentHash === lastSyncHash.current) return;
+    
     setIsCloudSyncing(true);
     try {
       const gapi = (window as any).gapi;
@@ -242,9 +235,10 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           resource: { values: item.rows }
         });
       }
+      lastSyncHash.current = currentHash;
       setCloudError(null);
     } catch (e: any) {
-      setCloudError("Sync Error: " + (e?.result?.error?.message || "Unknown error"));
+      setCloudError("Sync Failed.");
     } finally {
       setIsCloudSyncing(false);
     }
@@ -271,12 +265,9 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (parsed.recordValues) setRecordValues(parsed.recordValues);
         if (parsed.payments) setPayments(parsed.payments);
         if (parsed.config) setConfig(parsed.config);
-        hasLoadedInitialCache.current = true;
       } catch (e) {}
-    } else {
-      hasLoadedInitialCache.current = true;
     }
-    
+    hasLoadedInitialCache.current = true;
     const timer = setTimeout(() => {
       setIsReady(true);
       setIsBooting(false);
@@ -295,7 +286,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const login = async (username: string, password: string) => {
     const lowerUser = username.toLowerCase();
     
-    // If cloud is connected, try to refresh user list FIRST to catch deletions
+    // Before checking credentials, attempt to refresh from cloud if connected
     if (spreadsheetId && googleUser) {
       await loadAllData(spreadsheetId);
     }
@@ -308,13 +299,16 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return false;
   };
 
-  const logout = () => {
-    setUser(null);
-  };
+  const logout = () => setUser(null);
 
-  const addUser = (newUser: User) => {
+  const addUser = async (newUser: User) => {
     setUsers(prev => [...prev, newUser]);
     localStorage.setItem('rentmaster_initialized', 'true');
+    // If cloud is linked, sync this user IMMEDIATELY
+    if (spreadsheetId && googleUser) {
+      // Small timeout to let state settle
+      setTimeout(() => syncAll(true), 100);
+    }
   };
 
   const deleteUser = (id: string) => setUsers(prev => prev.filter(u => u.id !== id));

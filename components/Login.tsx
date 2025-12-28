@@ -28,37 +28,37 @@ const Login: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Determine if we need to block with "Cloud Authorization Required"
-  // We block if:
-  // 1. User list is empty (can't log in locally)
-  // 2. A Client ID is configured (so we know it's a cloud-linked app)
-  // 3. We are NOT yet authorized with Google (can't fetch the real list yet)
+  /**
+   * RE-ENGINEERED LOGIN LOGIC:
+   * Stage 1: Cloud Reconnect - Link to Google if users are empty but ClientID exists.
+   * Stage 2: System Setup - Authorized but the spreadsheet is truly empty.
+   * Stage 3: Standard Login - Users exist in directory.
+   */
+
   const isCloudAuthRequired = useMemo(() => {
     if (store.isBooting) return false;
-    const hasClientId = !!store.googleClientId;
-    const hasNoUsers = store.users.length === 0;
-    const isNotAuthorized = !store.googleUser;
-    const isCloudMode = store.storageMode === 'cloud';
     
-    return hasClientId && hasNoUsers && isNotAuthorized && isCloudMode;
-  }, [store.isBooting, store.googleClientId, store.users.length, store.googleUser, store.storageMode]);
+    const hasNoUsersInMemory = store.users.length === 0;
+    const hasClientIdConfigured = !!store.googleClientId;
+    const isCloudMode = store.storageMode === 'cloud';
+    const isNotAuthorizedYet = !store.googleUser;
+    
+    // We only require auth if we have no users to show AND a client ID is waiting to be linked.
+    return hasNoUsersInMemory && hasClientIdConfigured && isNotAuthorizedYet && isCloudMode;
+  }, [store.isBooting, store.users.length, store.googleClientId, store.googleUser, store.storageMode]);
 
-  // System is in "Initializing" mode if:
-  // 1. No users are found in cache or cloud
-  // 2. AND we are either NOT a cloud app OR we ARE authorized but still found 0 users (wiped spreadsheet)
   const isInitializing = useMemo(() => {
     if (store.isBooting) return false;
-    if (isCloudAuthRequired) return false; // Show auth screen first if needed
+    if (isCloudAuthRequired) return false; // Stage 1 takes priority
     
     const hasNoUsers = store.users.length === 0;
-    
-    // If we have no users, we only allow initialization if:
-    // a) It's a fresh local app (no client ID)
-    // b) It's a cloud app that is verified authorized but has 0 users (the spreadsheet was wiped)
-    const isFreshLocal = !store.googleClientId;
+    const isLocalMode = !store.googleClientId;
     const isWipedCloud = !!store.googleUser && hasNoUsers;
 
-    return hasNoUsers && (isFreshLocal || isWipedCloud);
+    // We initialize if:
+    // a) No Client ID exists and no users exist (pure local fresh install)
+    // b) Client ID exists, we ARE authorized, but spreadsheet returns 0 users (manual wipe)
+    return hasNoUsers && (isLocalMode || isWipedCloud);
   }, [store.isBooting, isCloudAuthRequired, store.users.length, store.googleUser, store.googleClientId]);
 
   if (store.isBooting) {
@@ -95,24 +95,33 @@ const Login: React.FC = () => {
           passwordHash: password,
           createdAt: new Date().toISOString()
         };
-        store.addUser(newUser);
-        // Add user, then log in
-        setTimeout(() => store.login(newUser.username, newUser.passwordHash), 800);
+        // addUser handles immediate sync to spreadsheet if cloud is linked
+        await store.addUser(newUser);
+        
+        // Brief delay for sync to complete before logging in
+        setTimeout(async () => {
+          const success = await store.login(newUser.username, newUser.passwordHash);
+          if (!success) {
+            setError("Setup complete, but login failed. Try identifying again.");
+            setIsLoading(false);
+          }
+        }, 1200);
       } else {
         const success = await store.login(username.trim(), password);
         if (!success) {
           setError('Verification failed. Invalid credentials.');
+          setIsLoading(false);
         }
       }
     } catch (err) {
       setError('An authentication error occurred.');
-    } finally {
       setIsLoading(false);
     }
   };
 
   const handleCloudAuthorize = async () => {
     setIsLoading(true);
+    setError(null);
     const success = await store.authenticate();
     if (!success) {
       setError("Cloud authentication failed. Please check your internet connection.");
@@ -141,10 +150,10 @@ const Login: React.FC = () => {
             
             <p className="text-indigo-100/70 text-lg font-medium max-w-md leading-relaxed">
               {isInitializing 
-                ? "The user directory is currently empty. Define the primary administrator to begin." 
+                ? "Your user directory is empty. Create the primary administrator account to define your workspace." 
                 : isCloudAuthRequired 
-                ? "This workspace is linked to a Google Sheet. Authorize to download your team directory."
-                : "Enter your credentials to manage your rental portfolio. Your session remains authorized in the background."}
+                ? "This instance is linked to Google Sheets. Authorize cloud access to sync your team directory."
+                : "Enter your credentials to manage your rental portfolio. Your cloud session is currently active."}
             </p>
           </div>
 
@@ -161,10 +170,10 @@ const Login: React.FC = () => {
         <div className="p-8 lg:p-16 flex flex-col justify-center bg-slate-900/40">
           <div className="mb-10">
             <h2 className="text-3xl font-black text-white tracking-tight mb-2 uppercase">
-              {isInitializing ? "Account Setup" : isCloudAuthRequired ? "Connect to Sheets" : "Identify User"}
+              {isInitializing ? "Account Setup" : isCloudAuthRequired ? "Cloud Connect" : "Identify User"}
             </h2>
             <p className="text-slate-400 font-medium">
-              {isInitializing ? "Set up the primary administrator account." : isCloudAuthRequired ? "Authorize your Google session to proceed." : "Please enter your workspace credentials."}
+              {isInitializing ? "Configure the master administrative account." : isCloudAuthRequired ? "Grant sheet permissions to fetch your data." : "Identify yourself to access the dashboard."}
             </p>
           </div>
 
@@ -181,10 +190,10 @@ const Login: React.FC = () => {
                  <div className="p-6 bg-indigo-600/10 border border-indigo-600/20 rounded-3xl space-y-4">
                     <div className="flex items-center gap-3 text-indigo-400">
                        <Cloud className="w-6 h-6" />
-                       <span className="text-xs font-black uppercase tracking-widest">Database: Connected</span>
+                       <span className="text-xs font-black uppercase tracking-widest">Database Linked</span>
                     </div>
-                    <p className="text-slate-400 text-xs font-medium">
-                       We detected a linked database but the local user cache is empty. To recover your team list, authorize cloud access.
+                    <p className="text-slate-400 text-xs font-medium leading-relaxed">
+                       We detected an existing Google Sheet integration but the local cache is empty. Authorize your account to recover the user directory.
                     </p>
                  </div>
                  <button 
@@ -192,14 +201,14 @@ const Login: React.FC = () => {
                     disabled={isLoading}
                     className="w-full bg-white text-slate-950 font-black uppercase tracking-widest py-5 rounded-2xl shadow-xl transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-3 group"
                  >
-                    {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Key className="w-5 h-5" /> Authorize Cloud Access</>}
+                    {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Key className="w-5 h-5" /> Authorize & Sync Cloud</>}
                  </button>
               </div>
             ) : (
               <form onSubmit={handleLogin} className="space-y-6">
                 {isInitializing && (
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Full Name</label>
+                  <div className="space-y-1.5 animate-in slide-in-from-top-2">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Full Display Name</label>
                     <div className="relative group">
                       <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-indigo-500 transition-colors" />
                       <input 
@@ -215,7 +224,7 @@ const Login: React.FC = () => {
                 )}
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Username</label>
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Username (Login)</label>
                   <div className="relative group">
                     <Fingerprint className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-indigo-500 transition-colors" />
                     <input 
@@ -247,13 +256,13 @@ const Login: React.FC = () => {
                 <button 
                   type="submit"
                   disabled={isLoading}
-                  className={`w-full ${isInitializing ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-indigo-600 hover:bg-indigo-500'} text-white font-black uppercase tracking-widest py-5 rounded-2xl shadow-xl transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-3 group`}
+                  className={`w-full ${isInitializing ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-500/20' : 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/20'} text-white font-black uppercase tracking-widest py-5 rounded-2xl shadow-xl transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-3 group`}
                 >
                   {isLoading ? (
                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                   ) : (
                     <>
-                      {isInitializing ? "Create Super-Admin" : "Identify Account"} 
+                      {isInitializing ? "Initialize Super-Admin" : "Identify Session"} 
                       {isInitializing ? <UserPlus className="w-5 h-5" /> : <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />}
                     </>
                   )}
@@ -266,13 +275,13 @@ const Login: React.FC = () => {
              <div className="flex items-center gap-2">
                 <div className={`w-2 h-2 rounded-full ${store.googleUser ? 'bg-emerald-500' : 'bg-slate-600'}`}></div>
                 <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">
-                  Cloud Status: {store.googleUser ? "Authorized" : "Disconnected"}
+                  Cloud Status: {store.googleUser ? "Sync Active" : "Offline / Unlinked"}
                 </span>
              </div>
              {isInitializing && (
                <div className="flex items-center gap-1.5 text-indigo-400">
                   <ShieldAlert className="w-3 h-3" />
-                  <span className="text-[8px] font-black uppercase">Initialization Mode</span>
+                  <span className="text-[8px] font-black uppercase">Genesis Mode</span>
                </div>
              )}
           </div>
