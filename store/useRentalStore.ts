@@ -347,8 +347,22 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (spreadsheetId && authSession) { await syncAll(true, updatedUsers); }
   };
 
-  const deleteUser = (id: string) => setUsers(prev => prev.filter(u => u.id !== id));
-  const updateUser = (updated: User) => setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
+  const deleteUser = async (id: string) => {
+    const updatedUsers = users.filter(u => u.id !== id);
+    setUsers(updatedUsers);
+    if (spreadsheetId && authSession) {
+      await syncAll(true, updatedUsers);
+    }
+  };
+
+  const updateUser = async (updated: User) => {
+    const updatedUsers = users.map(u => u.id === updated.id ? updated : u);
+    setUsers(updatedUsers);
+    if (spreadsheetId && authSession) {
+      await syncAll(true, updatedUsers);
+    }
+  };
+
   const addPropertyType = (type: PropertyType) => setPropertyTypes(prev => [...prev, type]);
   const updatePropertyType = (type: PropertyType) => setPropertyTypes(prev => prev.map(t => t.id === type.id ? type : t));
   const deletePropertyType = (id: string) => setPropertyTypes(prev => prev.filter(t => t.id !== id));

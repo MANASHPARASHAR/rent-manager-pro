@@ -11,7 +11,8 @@ import {
   Edit2,
   X,
   Lock,
-  ArrowLeft
+  ArrowLeft,
+  AlertTriangle
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { UserRole } from '../types';
@@ -20,6 +21,23 @@ const UserManagement: React.FC = () => {
   const store = useRentalStore();
   const [isAdding, setIsAdding] = useState(false);
   const [newUser, setNewUser] = useState({ name: '', username: '', password: '', role: UserRole.MANAGER });
+  
+  // Confirmation Modal State
+  const [confirmConfig, setConfirmConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    actionLabel: string;
+    isDanger?: boolean;
+    icon?: React.ReactNode;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+    actionLabel: 'Confirm'
+  });
 
   if (store.user?.role !== UserRole.ADMIN) {
     return (
@@ -47,6 +65,21 @@ const UserManagement: React.FC = () => {
     setNewUser({ name: '', username: '', password: '', role: UserRole.MANAGER });
   };
 
+  const handleDeleteRequest = (id: string, name: string) => {
+    setConfirmConfig({
+      isOpen: true,
+      isDanger: true,
+      title: "Remove Team Member",
+      message: `Are you sure you want to revoke access for "${name}"? This will immediately terminate their session and prevent future logins.`,
+      actionLabel: "Revoke Access",
+      icon: <Trash2 className="w-10 h-10" />,
+      onConfirm: async () => {
+        await store.deleteUser(id);
+        setConfirmConfig(prev => ({ ...prev, isOpen: false }));
+      }
+    });
+  };
+
   const roleLabels = {
     [UserRole.ADMIN]: { label: 'Admin', icon: ShieldCheck, color: 'text-indigo-600', bg: 'bg-indigo-50' },
     [UserRole.MANAGER]: { label: 'Manager', icon: UserCheck, color: 'text-emerald-600', bg: 'bg-emerald-50' },
@@ -55,6 +88,35 @@ const UserManagement: React.FC = () => {
 
   return (
     <div className="space-y-10 pb-20 max-w-5xl mx-auto animate-in fade-in duration-700">
+      {/* Confirmation Modal Overlay */}
+      {confirmConfig.isOpen && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl border border-white/20 overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className={`p-10 text-center ${confirmConfig.isDanger ? 'bg-red-50/50' : 'bg-indigo-50/50'}`}>
+              <div className={`w-20 h-20 rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-xl ${confirmConfig.isDanger ? 'bg-red-500 text-white shadow-red-500/20' : 'bg-indigo-600 text-white shadow-indigo-500/20'}`}>
+                {confirmConfig.icon}
+              </div>
+              <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tight mb-4">{confirmConfig.title}</h3>
+              <p className="text-slate-500 font-medium leading-relaxed">{confirmConfig.message}</p>
+            </div>
+            <div className="p-8 flex gap-4 bg-white">
+              <button 
+                onClick={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))}
+                className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-200 transition-all"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={confirmConfig.onConfirm}
+                className={`flex-1 py-4 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl transition-all active:scale-95 ${confirmConfig.isDanger ? 'bg-red-500 shadow-red-200 hover:bg-red-600' : 'bg-indigo-600 shadow-indigo-200 hover:bg-indigo-700'}`}
+              >
+                {confirmConfig.actionLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <header className="flex justify-between items-end">
         <div>
           <h1 className="text-4xl font-black text-slate-950 tracking-tighter uppercase leading-none">Team Control</h1>
@@ -117,7 +179,7 @@ const UserManagement: React.FC = () => {
                      <config.icon className="w-8 h-8" />
                   </div>
                   {!isOwnAccount && (
-                    <button onClick={() => store.deleteUser(u.id)} className="p-3 text-slate-300 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100">
+                    <button onClick={() => handleDeleteRequest(u.id, u.name)} className="p-3 text-slate-300 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100">
                        <Trash2 className="w-6 h-6" />
                     </button>
                   )}
