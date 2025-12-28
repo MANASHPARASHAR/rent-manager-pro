@@ -46,10 +46,11 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const hasLoadedInitialCache = useRef(false);
   const lastSyncHash = useRef('');
+  const isInitializingFirstUser = useRef(false);
 
   // SESSION GUARD: Force logout if user is deleted from source
   useEffect(() => {
-    if (user && users.length > 0) {
+    if (user && users.length > 0 && !isInitializingFirstUser.current) {
       const stillExists = users.some(u => u.id === user.id || u.username.toLowerCase() === user.username.toLowerCase());
       if (!stillExists) {
         setUser(null);
@@ -207,18 +208,18 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
-  const syncAll = async (force: boolean = false) => {
+  const syncAll = async (force: boolean = false, overrideUsers?: User[]) => {
     if (!spreadsheetId || !googleUser) return;
     
-    // Simple hash to avoid redundant syncing
-    const currentHash = JSON.stringify({ users, propertyTypes, properties, records, recordValues, payments, config });
+    const activeUsers = overrideUsers || users;
+    const currentHash = JSON.stringify({ users: activeUsers, propertyTypes, properties, records, recordValues, payments, config });
     if (!force && currentHash === lastSyncHash.current) return;
     
     setIsCloudSyncing(true);
     try {
       const gapi = (window as any).gapi;
       const batchData = [
-        { tab: "Users", rows: [["ID", "Username", "Name", "Role", "PassHash", "Created"], ...users.map(u => [u.id, u.username, u.name, u.role, u.passwordHash, u.createdAt])] },
+        { tab: "Users", rows: [["ID", "Username", "Name", "Role", "PassHash", "Created"], ...activeUsers.map(u => [u.id, u.username, u.name, u.role, u.passwordHash, u.createdAt])] },
         { tab: "PropertyTypes", rows: [["ID", "Name", "ColumnsJSON", "DueDay"], ...propertyTypes.map(t => [t.id, t.name, JSON.stringify(t.columns), t.defaultDueDateDay])] },
         { tab: "Properties", rows: [["ID", "Name", "TypeID", "Address", "Created", "Visible"], ...properties.map(p => [p.id, p.name, p.propertyTypeId, p.address, p.createdAt, p.isVisibleToManager])] },
         { tab: "Records", rows: [["ID", "PropID", "Created", "Updated"], ...records.map(r => [r.id, r.propertyId, r.createdAt, r.updatedAt])] },
@@ -247,7 +248,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   useEffect(() => { initGoogleClient(); }, [initGoogleClient]);
 
   useEffect(() => {
-    if (spreadsheetId && googleUser && storageMode === 'cloud') {
+    if (spreadsheetId && googleUser && storageMode === 'cloud' && !isInitializingFirstUser.current) {
       const timer = setTimeout(() => syncAll(), 2500);
       return () => clearTimeout(timer);
     }
@@ -283,17 +284,17 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [users, propertyTypes, properties, records, recordValues, payments, config, isReady]);
 
-  const login = async (username: string, password: string) => {
+  const login = async (username: string, password: string, skipCloudRefresh = false) => {
     const lowerUser = username.toLowerCase();
     
-    // Before checking credentials, attempt to refresh from cloud if connected
-    if (spreadsheetId && googleUser) {
+    if (spreadsheetId && googleUser && !skipCloudRefresh) {
       await loadAllData(spreadsheetId);
     }
 
     const foundUser = users.find(u => u.username.toLowerCase() === lowerUser && u.passwordHash === password);
     if (foundUser) {
       setUser(foundUser);
+      isInitializingFirstUser.current = false;
       return true;
     }
     return false;
@@ -301,13 +302,22 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const logout = () => setUser(null);
 
-  const addUser = async (newUser: User) => {
-    setUsers(prev => [...prev, newUser]);
+  const addUser = async (newUser: User, autoLogin: boolean = false) => {
+    if (users.length === 0) {
+      isInitializingFirstUser.current = true;
+    }
+    
+    const updatedUsers = [...users, newUser];
+    setUsers(updatedUsers);
     localStorage.setItem('rentmaster_initialized', 'true');
-    // If cloud is linked, sync this user IMMEDIATELY
+    
+    if (autoLogin) {
+      setUser(newUser);
+      isInitializingFirstUser.current = false;
+    }
+
     if (spreadsheetId && googleUser) {
-      // Small timeout to let state settle
-      setTimeout(() => syncAll(true), 100);
+      await syncAll(true, updatedUsers);
     }
   };
 

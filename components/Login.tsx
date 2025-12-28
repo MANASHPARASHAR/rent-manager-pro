@@ -48,20 +48,19 @@ const Login: React.FC = () => {
   }, [store.isBooting, store.users.length, store.googleClientId, store.googleUser, store.storageMode]);
 
   const isInitializing = useMemo(() => {
-    if (store.isBooting) return false;
-    if (isCloudAuthRequired) return false; // Stage 1 takes priority
+    // CRITICAL: We must NOT show initialization if we are still syncing from the cloud.
+    // If we have a Google user, we wait until cloud syncing finishes before assuming users.length === 0 means Genesis.
+    if (store.isBooting || store.isCloudSyncing) return false;
+    if (isCloudAuthRequired) return false; 
     
     const hasNoUsers = store.users.length === 0;
     const isLocalMode = !store.googleClientId;
     const isWipedCloud = !!store.googleUser && hasNoUsers;
 
-    // We initialize if:
-    // a) No Client ID exists and no users exist (pure local fresh install)
-    // b) Client ID exists, we ARE authorized, but spreadsheet returns 0 users (manual wipe)
     return hasNoUsers && (isLocalMode || isWipedCloud);
-  }, [store.isBooting, isCloudAuthRequired, store.users.length, store.googleUser, store.googleClientId]);
+  }, [store.isBooting, store.isCloudSyncing, isCloudAuthRequired, store.users.length, store.googleUser, store.googleClientId]);
 
-  if (store.isBooting) {
+  if (store.isBooting || (store.googleUser && store.isCloudSyncing && store.users.length === 0)) {
     return (
       <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center p-4 relative overflow-hidden font-sans">
         <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] bg-indigo-600/20 rounded-full blur-[160px] pointer-events-none"></div>
@@ -72,7 +71,8 @@ const Login: React.FC = () => {
            <div className="space-y-3">
               <h2 className="text-2xl font-black text-white uppercase tracking-tighter">RentMaster Pro</h2>
               <div className="flex items-center justify-center gap-3 text-slate-500 text-[10px] font-black uppercase tracking-[0.3em]">
-                 <Loader2 className="w-4 h-4 animate-spin text-indigo-500" /> Verifying Workspace
+                 <Loader2 className="w-4 h-4 animate-spin text-indigo-500" /> 
+                 {store.isCloudSyncing ? "Syncing Directory" : "Verifying Workspace"}
               </div>
            </div>
         </div>
@@ -95,17 +95,10 @@ const Login: React.FC = () => {
           passwordHash: password,
           createdAt: new Date().toISOString()
         };
-        // addUser handles immediate sync to spreadsheet if cloud is linked
-        await store.addUser(newUser);
         
-        // Brief delay for sync to complete before logging in
-        setTimeout(async () => {
-          const success = await store.login(newUser.username, newUser.passwordHash);
-          if (!success) {
-            setError("Setup complete, but login failed. Try identifying again.");
-            setIsLoading(false);
-          }
-        }, 1200);
+        // Use autoLogin: true to immediately set the session and avoid stale-state errors
+        await store.addUser(newUser, true);
+        // The component will naturally unmount as store.user is now set.
       } else {
         const success = await store.login(username.trim(), password);
         if (!success) {
