@@ -18,15 +18,23 @@ const RentalContext = createContext<any>(null);
 
 const DATABASE_FILENAME = "RentMaster_Pro_Database";
 const SHEET_TABS = ["Users", "PropertyTypes", "Properties", "Records", "RecordValues", "Payments", "Config"];
+const CLOUD_TOKEN_KEY = 'rentmaster_cloud_token_persistent_v1';
 
 export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isReady, setIsReady] = useState(false);
   const [isBooting, setIsBooting] = useState(true);
   const [isCloudSyncing, setIsCloudSyncing] = useState(false);
   const [cloudError, setCloudError] = useState<string | null>(null);
-  const [googleUser, setGoogleUser] = useState<any>(null);
+  
+  // Renamed from googleUser to authSession to avoid potential global collisions in certain environments
+  const [authSession, setAuthSession] = useState<any>(() => {
+    const saved = localStorage.getItem(CLOUD_TOKEN_KEY);
+    return saved ? JSON.parse(saved) : null;
+  });
+  
   const [spreadsheetId, setSpreadsheetId] = useState<string | null>(() => localStorage.getItem('rentmaster_active_sheet_id'));
-  const [googleClientId, setGoogleClientId] = useState<string>(() => localStorage.getItem('rentmaster_google_client_id') || '');
+  // Renamed from googleClientId to authClientId to avoid potential global collisions
+  const [authClientId, setAuthClientId] = useState<string>(() => localStorage.getItem('rentmaster_google_client_id') || '');
   const [storageMode, setStorageMode] = useState<'cloud' | 'local'>(() => 
     (localStorage.getItem('rentmaster_storage_mode') as 'cloud' | 'local') || 'cloud'
   );
@@ -48,7 +56,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const lastSyncHash = useRef('');
   const isInitializingFirstUser = useRef(false);
 
-  // SESSION GUARD: Force logout if user is deleted from source
+  // SESSION GUARD
   useEffect(() => {
     if (user && users.length > 0 && !isInitializingFirstUser.current) {
       const stillExists = users.some(u => u.id === user.id || u.username.toLowerCase() === user.username.toLowerCase());
@@ -60,10 +68,11 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const updateClientId = (id: string) => {
     const cleanId = id.trim();
-    setGoogleClientId(cleanId);
+    setAuthClientId(cleanId);
     localStorage.setItem('rentmaster_google_client_id', cleanId);
   };
 
+  // Wrapped in useCallback and updated dependency
   const initGoogleClient = useCallback(async () => {
     return new Promise((resolve) => {
       const checkGapi = () => {
@@ -77,6 +86,9 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                   "https://sheets.googleapis.com/$discovery/rest?version=v4"
                 ],
               });
+              if (authSession?.access_token) {
+                gapi.client.setToken({ access_token: authSession.access_token });
+              }
               resolve(true);
             } catch (e) { resolve(false); }
           });
@@ -84,78 +96,12 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       };
       checkGapi();
     });
-  }, []);
+  }, [authSession]);
 
-  const authenticate = async (providedId?: string) => {
-    const rawId = providedId || googleClientId;
-    const clientId = rawId.trim();
-    if (!clientId) return false;
-
-    return new Promise((resolve) => {
-      const tryAuth = () => {
-        const google = (window as any).google;
-        if (google?.accounts?.oauth2) {
-          try {
-            const client = google.accounts.oauth2.initTokenClient({
-              client_id: clientId,
-              scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file',
-              callback: async (response: any) => {
-                if (response.access_token) {
-                  setGoogleUser(response);
-                  setCloudError(null);
-                  await bootstrapDatabase();
-                  resolve(true);
-                } else {
-                  setCloudError("Access denied.");
-                  resolve(false);
-                }
-              },
-            });
-            client.requestAccessToken({ prompt: 'consent' });
-          } catch (e) { resolve(false); }
-        } else { setTimeout(tryAuth, 100); }
-      };
-      tryAuth();
-    });
-  };
-
-  const bootstrapDatabase = async () => {
-    setIsCloudSyncing(true);
-    try {
-      const gapi = (window as any).gapi;
-      if (!gapi?.client?.drive) await initGoogleClient();
-      
-      const searchResponse = await gapi.client.drive.files.list({
-        q: `name = '${DATABASE_FILENAME}' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false`,
-        fields: 'files(id, name)',
-      });
-
-      let dbId: string;
-      if (searchResponse.result.files && searchResponse.result.files.length > 0) {
-        dbId = searchResponse.result.files[0].id;
-      } else {
-        const createResponse = await gapi.client.sheets.spreadsheets.create({
-          resource: {
-            properties: { title: DATABASE_FILENAME },
-            sheets: SHEET_TABS.map(title => ({ properties: { title } }))
-          }
-        });
-        dbId = createResponse.result.spreadsheetId;
-      }
-
-      setSpreadsheetId(dbId);
-      localStorage.setItem('rentmaster_active_sheet_id', dbId);
-      await loadAllData(dbId);
-    } catch (error: any) {
-      setCloudError(error?.result?.error?.message || "Cloud boot error.");
-    } finally {
-      setIsCloudSyncing(false);
-    }
-  };
-
-  const loadAllData = async (id: string) => {
+  // Re-ordered loadAllData before functions that depend on it
+  const loadAllData = useCallback(async (id: string) => {
     const gapi = (window as any).gapi;
-    if (!gapi?.client?.sheets) return;
+    if (!gapi?.client?.sheets || !authSession) return;
 
     try {
       const response = await gapi.client.sheets.spreadsheets.values.batchGet({
@@ -204,12 +150,92 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
       setCloudError(null);
     } catch (e: any) {
+      if (e.status === 401) {
+        setAuthSession(null);
+        localStorage.removeItem(CLOUD_TOKEN_KEY);
+      }
       setCloudError("Cloud fetch failed.");
     }
-  };
+  }, [authSession]);
 
-  const syncAll = async (force: boolean = false, overrideUsers?: User[]) => {
-    if (!spreadsheetId || !googleUser) return;
+  // Wrapped in useCallback and updated dependency array
+  const bootstrapDatabase = useCallback(async () => {
+    if (!authSession) return;
+    setIsCloudSyncing(true);
+    try {
+      const gapi = (window as any).gapi;
+      if (!gapi?.client?.drive) await initGoogleClient();
+      
+      const searchResponse = await gapi.client.drive.files.list({
+        q: `name = '${DATABASE_FILENAME}' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false`,
+        fields: 'files(id, name)',
+      });
+
+      let dbId: string;
+      if (searchResponse.result.files && searchResponse.result.files.length > 0) {
+        dbId = searchResponse.result.files[0].id;
+      } else {
+        const createResponse = await gapi.client.sheets.spreadsheets.create({
+          resource: {
+            properties: { title: DATABASE_FILENAME },
+            sheets: SHEET_TABS.map(title => ({ properties: { title } }))
+          }
+        });
+        dbId = createResponse.result.spreadsheetId;
+      }
+
+      setSpreadsheetId(dbId);
+      localStorage.setItem('rentmaster_active_sheet_id', dbId);
+      await loadAllData(dbId);
+    } catch (error: any) {
+      if (error.status === 401) {
+        setAuthSession(null);
+        localStorage.removeItem(CLOUD_TOKEN_KEY);
+      }
+      setCloudError(error?.result?.error?.message || "Cloud boot error.");
+    } finally {
+      setIsCloudSyncing(false);
+    }
+  }, [authSession, initGoogleClient, loadAllData]);
+
+  // Fixed authenticate syntax error (was missing useCallback) and dependencies
+  const authenticate = useCallback(async (providedId?: string, silent: boolean = false) => {
+    const rawId = providedId || authClientId;
+    const clientIdValue = rawId.trim();
+    if (!clientIdValue) return false;
+
+    return new Promise((resolve) => {
+      const tryAuth = () => {
+        const google = (window as any).google;
+        if (google?.accounts?.oauth2) {
+          try {
+            const client = google.accounts.oauth2.initTokenClient({
+              client_id: clientIdValue,
+              scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file',
+              callback: async (response: any) => {
+                if (response.access_token) {
+                  setAuthSession(response);
+                  localStorage.setItem(CLOUD_TOKEN_KEY, JSON.stringify(response));
+                  setCloudError(null);
+                  await bootstrapDatabase();
+                  resolve(true);
+                } else {
+                  if (!silent) setCloudError("Access denied.");
+                  resolve(false);
+                }
+              },
+            });
+            client.requestAccessToken({ prompt: silent ? '' : 'consent' });
+          } catch (e) { resolve(false); }
+        } else { setTimeout(tryAuth, 100); }
+      };
+      tryAuth();
+    });
+  }, [authClientId, authSession, bootstrapDatabase]);
+
+  // Wrapped in useCallback and updated dependency array
+  const syncAll = useCallback(async (force: boolean = false, overrideUsers?: User[]) => {
+    if (!spreadsheetId || !authSession) return; 
     
     const activeUsers = overrideUsers || users;
     const currentHash = JSON.stringify({ users: activeUsers, propertyTypes, properties, records, recordValues, payments, config });
@@ -239,20 +265,30 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       lastSyncHash.current = currentHash;
       setCloudError(null);
     } catch (e: any) {
+      if (e.status === 401) {
+        setAuthSession(null);
+        localStorage.removeItem(CLOUD_TOKEN_KEY);
+      }
       setCloudError("Sync Failed.");
     } finally {
       setIsCloudSyncing(false);
     }
-  };
+  }, [spreadsheetId, authSession, users, propertyTypes, properties, records, recordValues, payments, config]);
 
-  useEffect(() => { initGoogleClient(); }, [initGoogleClient]);
+  useEffect(() => { 
+    initGoogleClient().then(() => {
+      if (authSession && spreadsheetId) {
+        bootstrapDatabase();
+      }
+    });
+  }, [initGoogleClient, authSession, spreadsheetId, bootstrapDatabase]);
 
   useEffect(() => {
-    if (spreadsheetId && googleUser && storageMode === 'cloud' && !isInitializingFirstUser.current) {
+    if (spreadsheetId && authSession && storageMode === 'cloud' && !isInitializingFirstUser.current) {
       const timer = setTimeout(() => syncAll(), 2500);
       return () => clearTimeout(timer);
     }
-  }, [propertyTypes, properties, records, recordValues, payments, users, config, spreadsheetId, googleUser, storageMode]);
+  }, [propertyTypes, properties, records, recordValues, payments, users, config, spreadsheetId, authSession, storageMode, syncAll]);
 
   useEffect(() => {
     const saved = localStorage.getItem('rentmaster_local_cache');
@@ -287,8 +323,8 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const login = async (username: string, password: string, skipCloudRefresh = false) => {
     const lowerUser = username.toLowerCase();
     
-    if (spreadsheetId && googleUser && !skipCloudRefresh) {
-      await loadAllData(spreadsheetId);
+    if (spreadsheetId && authSession && !skipCloudRefresh) {
+      try { await loadAllData(spreadsheetId); } catch(e) {}
     }
 
     const foundUser = users.find(u => u.username.toLowerCase() === lowerUser && u.passwordHash === password);
@@ -303,27 +339,16 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const logout = () => setUser(null);
 
   const addUser = async (newUser: User, autoLogin: boolean = false) => {
-    if (users.length === 0) {
-      isInitializingFirstUser.current = true;
-    }
-    
+    if (users.length === 0) isInitializingFirstUser.current = true;
     const updatedUsers = [...users, newUser];
     setUsers(updatedUsers);
     localStorage.setItem('rentmaster_initialized', 'true');
-    
-    if (autoLogin) {
-      setUser(newUser);
-      isInitializingFirstUser.current = false;
-    }
-
-    if (spreadsheetId && googleUser) {
-      await syncAll(true, updatedUsers);
-    }
+    if (autoLogin) { setUser(newUser); isInitializingFirstUser.current = false; }
+    if (spreadsheetId && authSession) { await syncAll(true, updatedUsers); }
   };
 
   const deleteUser = (id: string) => setUsers(prev => prev.filter(u => u.id !== id));
   const updateUser = (updated: User) => setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
-
   const addPropertyType = (type: PropertyType) => setPropertyTypes(prev => [...prev, type]);
   const updatePropertyType = (type: PropertyType) => setPropertyTypes(prev => prev.map(t => t.id === type.id ? type : t));
   const deletePropertyType = (id: string) => setPropertyTypes(prev => prev.filter(t => t.id !== id));
@@ -336,22 +361,18 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setRecordValues(prev => prev.filter(v => !unitsToDelete.includes(v.recordId)));
     setPayments(prev => prev.filter(p => !unitsToDelete.includes(p.recordId)));
   };
-
   const addRecord = (record: PropertyRecord, values: RecordValue[]) => {
     setRecords(prev => [...prev, record]);
     setRecordValues(prev => [...prev, ...values]);
   };
-
   const updateRecord = (recordId: string, values: RecordValue[]) => {
     setRecordValues(prev => [...prev.filter(v => v.recordId !== recordId), ...values]);
   };
-
   const deleteRecord = (id: string) => {
     setRecords(prev => prev.filter(r => r.id !== id));
     setRecordValues(prev => prev.filter(v => v.recordId !== id));
     setPayments(prev => prev.filter(p => p.recordId !== id));
   };
-
   const togglePayment = (recordId: string, month: string, amount: number, dueDate: string, extra: Partial<Payment> = {}, paymentType: PaymentType = 'RENT') => {
     const existing = payments.find(p => p.recordId === recordId && p.month === month && p.type === paymentType);
     if (existing) {
@@ -363,16 +384,14 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }]);
     }
   };
-
   const refundDeposit = (recordId: string) => {
     setPayments(prev => prev.map(p => p.recordId === recordId && p.type === 'DEPOSIT' ? { ...p, isRefunded: true } : p));
   };
-
   const updateConfig = (newConfig: Partial<AppConfig>) => setConfig(prev => ({ ...prev, ...newConfig }));
 
   const value = {
     isReady, isBooting, user, users, propertyTypes, properties, records, recordValues, payments, config,
-    isCloudSyncing, cloudError, googleUser, spreadsheetId, googleClientId, storageMode, updateClientId, authenticate,
+    isCloudSyncing, cloudError, googleUser: authSession, spreadsheetId, googleClientId: authClientId, updateClientId, authenticate,
     login, logout, addUser, deleteUser, updateUser, addPropertyType, updatePropertyType, deletePropertyType, addProperty,
     togglePropertyVisibility, deleteProperty, addRecord, updateRecord, deleteRecord,
     togglePayment, refundDeposit, updateConfig

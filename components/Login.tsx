@@ -30,37 +30,39 @@ const Login: React.FC = () => {
 
   /**
    * RE-ENGINEERED LOGIN LOGIC:
-   * Stage 1: Cloud Reconnect - Link to Google if users are empty but ClientID exists.
-   * Stage 2: System Setup - Authorized but the spreadsheet is truly empty.
-   * Stage 3: Standard Login - Users exist in directory.
+   * 1. Priority: Local Entry. If store.users.length > 0, show the Login form immediately.
+   * 2. Secondary: Cloud Link. Only if users are 0 AND ClientID is set.
+   * 3. Tertiary: Genesis Mode. Only if no ClientID and no Users.
    */
+
+  const hasLocalUsers = store.users.length > 0;
 
   const isCloudAuthRequired = useMemo(() => {
     if (store.isBooting) return false;
     
-    const hasNoUsersInMemory = store.users.length === 0;
+    // If we have local users, WE DO NOT block with cloud auth.
+    // Cloud auth can happen inside the dashboard via the sidebar.
+    if (hasLocalUsers) return false;
+    
     const hasClientIdConfigured = !!store.googleClientId;
     const isCloudMode = store.storageMode === 'cloud';
     const isNotAuthorizedYet = !store.googleUser;
     
-    // We only require auth if we have no users to show AND a client ID is waiting to be linked.
-    return hasNoUsersInMemory && hasClientIdConfigured && isNotAuthorizedYet && isCloudMode;
-  }, [store.isBooting, store.users.length, store.googleClientId, store.googleUser, store.storageMode]);
+    return !hasLocalUsers && hasClientIdConfigured && isNotAuthorizedYet && isCloudMode;
+  }, [store.isBooting, hasLocalUsers, store.googleClientId, store.googleUser, store.storageMode]);
 
   const isInitializing = useMemo(() => {
-    // CRITICAL: We must NOT show initialization if we are still syncing from the cloud.
-    // If we have a Google user, we wait until cloud syncing finishes before assuming users.length === 0 means Genesis.
     if (store.isBooting || store.isCloudSyncing) return false;
-    if (isCloudAuthRequired) return false; 
+    if (hasLocalUsers) return false; // Not initializing if we have users
+    if (isCloudAuthRequired) return false; // Stage 1 takes priority
     
-    const hasNoUsers = store.users.length === 0;
     const isLocalMode = !store.googleClientId;
-    const isWipedCloud = !!store.googleUser && hasNoUsers;
+    const isWipedCloud = !!store.googleUser && !hasLocalUsers;
 
-    return hasNoUsers && (isLocalMode || isWipedCloud);
-  }, [store.isBooting, store.isCloudSyncing, isCloudAuthRequired, store.users.length, store.googleUser, store.googleClientId]);
+    return !hasLocalUsers && (isLocalMode || isWipedCloud);
+  }, [store.isBooting, store.isCloudSyncing, hasLocalUsers, isCloudAuthRequired, store.googleUser, store.googleClientId]);
 
-  if (store.isBooting || (store.googleUser && store.isCloudSyncing && store.users.length === 0)) {
+  if (store.isBooting || (store.googleUser && store.isCloudSyncing && !hasLocalUsers)) {
     return (
       <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center p-4 relative overflow-hidden font-sans">
         <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] bg-indigo-600/20 rounded-full blur-[160px] pointer-events-none"></div>
@@ -95,10 +97,7 @@ const Login: React.FC = () => {
           passwordHash: password,
           createdAt: new Date().toISOString()
         };
-        
-        // Use autoLogin: true to immediately set the session and avoid stale-state errors
         await store.addUser(newUser, true);
-        // The component will naturally unmount as store.user is now set.
       } else {
         const success = await store.login(username.trim(), password);
         if (!success) {
@@ -145,8 +144,8 @@ const Login: React.FC = () => {
               {isInitializing 
                 ? "Your user directory is empty. Create the primary administrator account to define your workspace." 
                 : isCloudAuthRequired 
-                ? "This instance is linked to Google Sheets. Authorize cloud access to sync your team directory."
-                : "Enter your credentials to manage your rental portfolio. Your cloud session is currently active."}
+                ? "This instance is linked to Google Sheets but your local session has no user directory. Authorize to recover data."
+                : "Enter your credentials to manage your rental portfolio. Your session directory is available."}
             </p>
           </div>
 
