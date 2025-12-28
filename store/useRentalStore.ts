@@ -44,8 +44,19 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     paymentModeOptions: ['Bank Transfer', 'Cash', 'Check', 'UPI/QR', 'Credit Card']
   });
 
-  // Ref to track if we've successfully loaded the initial cache to prevent overwriting with empty data
   const hasLoadedInitialCache = useRef(false);
+
+  // SESSION GUARD: If a user is logged in, but they are no longer in the master users list
+  // (because they were deleted from the spreadsheet and a sync just happened), force logout.
+  useEffect(() => {
+    if (user && users.length > 0) {
+      const stillExists = users.some(u => u.id === user.id || u.username.toLowerCase() === user.username.toLowerCase());
+      if (!stillExists) {
+        console.warn("Current user not found in master directory. Terminating session.");
+        setUser(null);
+      }
+    }
+  }, [users, user]);
 
   const updateClientId = (id: string) => {
     const cleanId = id.trim();
@@ -145,7 +156,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       localStorage.setItem('rentmaster_active_sheet_id', dbId);
       await loadAllData(dbId);
     } catch (error: any) {
-      console.error("Cloud boot error", error);
       setCloudError(error?.result?.error?.message || "Failed to initialize Cloud Sheet.");
     } finally {
       setIsCloudSyncing(false);
@@ -154,6 +164,8 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const loadAllData = async (id: string) => {
     const gapi = (window as any).gapi;
+    if (!gapi?.client?.sheets) return;
+
     try {
       const response = await gapi.client.sheets.spreadsheets.values.batchGet({
         spreadsheetId: id,
@@ -166,6 +178,8 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const parsedUsers = parse(0).map((r: any) => ({
         id: r[0], username: r[1], name: r[2], role: r[3] as UserRole, passwordHash: r[4], createdAt: r[5]
       })).filter(u => u.username);
+      
+      // EXPLICIT OVERWRITE: This prevents "deleted" users from lingering in the state
       setUsers(parsedUsers);
 
       const parsedTypes = parse(1).map((r: any) => ({ 
@@ -201,7 +215,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       setCloudError(null);
     } catch (e: any) {
-      console.error("Cloud load failed", e);
       setCloudError(e?.result?.error?.message || "Cloud data loading failed.");
     }
   };
@@ -231,7 +244,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
       setCloudError(null);
     } catch (e: any) {
-      console.error("Batch sync failed", e);
       setCloudError("Sync Error: " + (e?.result?.error?.message || "Unknown error"));
     } finally {
       setIsCloudSyncing(false);
@@ -248,7 +260,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [propertyTypes, properties, records, recordValues, payments, users, config, spreadsheetId, googleUser, storageMode]);
 
   useEffect(() => {
-    // Initial Cache Loading
     const saved = localStorage.getItem('rentmaster_local_cache');
     if (saved) {
       try {
@@ -261,11 +272,8 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (parsed.payments) setPayments(parsed.payments);
         if (parsed.config) setConfig(parsed.config);
         hasLoadedInitialCache.current = true;
-      } catch (e) {
-        console.error("Cache load failed", e);
-      }
+      } catch (e) {}
     } else {
-      // If no cache exists, we still mark it as "handled" to allow future saves
       hasLoadedInitialCache.current = true;
     }
     
@@ -277,8 +285,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, []);
 
   useEffect(() => {
-    // Persistent Cache Saving: 
-    // ONLY save if we have successfully initialized, preventing empty overwrites
     if (isReady && hasLoadedInitialCache.current) {
       localStorage.setItem('rentmaster_local_cache', JSON.stringify({ 
         users, propertyTypes, properties, records, recordValues, payments, config 
@@ -288,6 +294,12 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const login = async (username: string, password: string) => {
     const lowerUser = username.toLowerCase();
+    
+    // If cloud is connected, try to refresh user list FIRST to catch deletions
+    if (spreadsheetId && googleUser) {
+      await loadAllData(spreadsheetId);
+    }
+
     const foundUser = users.find(u => u.username.toLowerCase() === lowerUser && u.passwordHash === password);
     if (foundUser) {
       setUser(foundUser);
@@ -298,9 +310,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const logout = () => {
     setUser(null);
-    // CRITICAL: We NO LONGER clear googleUser on logout.
-    // This allows the session to persist for the Admin if they are still on the same machine.
-    // setGoogleUser(null); // Removed to maintain cloud link across internal logouts
   };
 
   const addUser = (newUser: User) => {

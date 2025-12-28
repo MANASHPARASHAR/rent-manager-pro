@@ -28,19 +28,11 @@ const Login: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Hardened Initialization Logic:
-  // Setup mode ONLY if everything is completely fresh.
-  const isInitializing = useMemo(() => {
-    if (store.isBooting) return false;
-    const previouslyInitialized = localStorage.getItem('rentmaster_initialized') === 'true';
-    if (previouslyInitialized) return false;
-    if (store.googleClientId || store.spreadsheetId) return false;
-    return store.users.length === 0;
-  }, [store.isBooting, store.users.length, store.googleClientId, store.spreadsheetId]);
-
   // Determine if we need to block with "Cloud Authorization Required"
-  // We ONLY block if users list is 0 AND a Client ID exists AND we aren't authorized yet.
-  // If users are in cache (length > 0), we skip this and go straight to Login Form.
+  // We block if:
+  // 1. User list is empty (can't log in locally)
+  // 2. A Client ID is configured (so we know it's a cloud-linked app)
+  // 3. We are NOT yet authorized with Google (can't fetch the real list yet)
   const isCloudAuthRequired = useMemo(() => {
     if (store.isBooting) return false;
     const hasClientId = !!store.googleClientId;
@@ -50,6 +42,24 @@ const Login: React.FC = () => {
     
     return hasClientId && hasNoUsers && isNotAuthorized && isCloudMode;
   }, [store.isBooting, store.googleClientId, store.users.length, store.googleUser, store.storageMode]);
+
+  // System is in "Initializing" mode if:
+  // 1. No users are found in cache or cloud
+  // 2. AND we are either NOT a cloud app OR we ARE authorized but still found 0 users (wiped spreadsheet)
+  const isInitializing = useMemo(() => {
+    if (store.isBooting) return false;
+    if (isCloudAuthRequired) return false; // Show auth screen first if needed
+    
+    const hasNoUsers = store.users.length === 0;
+    
+    // If we have no users, we only allow initialization if:
+    // a) It's a fresh local app (no client ID)
+    // b) It's a cloud app that is verified authorized but has 0 users (the spreadsheet was wiped)
+    const isFreshLocal = !store.googleClientId;
+    const isWipedCloud = !!store.googleUser && hasNoUsers;
+
+    return hasNoUsers && (isFreshLocal || isWipedCloud);
+  }, [store.isBooting, isCloudAuthRequired, store.users.length, store.googleUser, store.googleClientId]);
 
   if (store.isBooting) {
     return (
@@ -86,7 +96,8 @@ const Login: React.FC = () => {
           createdAt: new Date().toISOString()
         };
         store.addUser(newUser);
-        setTimeout(() => store.login(newUser.username, newUser.passwordHash), 500);
+        // Add user, then log in
+        setTimeout(() => store.login(newUser.username, newUser.passwordHash), 800);
       } else {
         const success = await store.login(username.trim(), password);
         if (!success) {
@@ -125,14 +136,14 @@ const Login: React.FC = () => {
             </div>
             
             <h1 className="text-5xl font-black leading-tight mb-6 tracking-tighter uppercase">
-              {isInitializing ? "Initialize your Workspace" : isCloudAuthRequired ? "Cloud Link Required" : "Secure Entry Portal"}
+              {isInitializing ? "Initialize Workspace" : isCloudAuthRequired ? "Cloud Link Required" : "Secure Entry Portal"}
             </h1>
             
             <p className="text-indigo-100/70 text-lg font-medium max-w-md leading-relaxed">
               {isInitializing 
-                ? "No users detected. Create the master Super-Admin account to begin your journey." 
+                ? "The user directory is currently empty. Define the primary administrator to begin." 
                 : isCloudAuthRequired 
-                ? "This workspace is linked to a Google Sheet but the user cache is empty. Authorize to download your team directory."
+                ? "This workspace is linked to a Google Sheet. Authorize to download your team directory."
                 : "Enter your credentials to manage your rental portfolio. Your session remains authorized in the background."}
             </p>
           </div>
@@ -150,7 +161,7 @@ const Login: React.FC = () => {
         <div className="p-8 lg:p-16 flex flex-col justify-center bg-slate-900/40">
           <div className="mb-10">
             <h2 className="text-3xl font-black text-white tracking-tight mb-2 uppercase">
-              {isInitializing ? "System Setup" : isCloudAuthRequired ? "Connect to Sheets" : "Identify User"}
+              {isInitializing ? "Account Setup" : isCloudAuthRequired ? "Connect to Sheets" : "Identify User"}
             </h2>
             <p className="text-slate-400 font-medium">
               {isInitializing ? "Set up the primary administrator account." : isCloudAuthRequired ? "Authorize your Google session to proceed." : "Please enter your workspace credentials."}
@@ -170,7 +181,7 @@ const Login: React.FC = () => {
                  <div className="p-6 bg-indigo-600/10 border border-indigo-600/20 rounded-3xl space-y-4">
                     <div className="flex items-center gap-3 text-indigo-400">
                        <Cloud className="w-6 h-6" />
-                       <span className="text-xs font-black uppercase tracking-widest">Workspace Origin: Google Cloud</span>
+                       <span className="text-xs font-black uppercase tracking-widest">Database: Connected</span>
                     </div>
                     <p className="text-slate-400 text-xs font-medium">
                        We detected a linked database but the local user cache is empty. To recover your team list, authorize cloud access.
