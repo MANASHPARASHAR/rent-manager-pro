@@ -22,99 +22,81 @@ const CLOUD_TOKEN_KEY = 'rentmaster_cloud_token_persistent_v1';
 const TOMBSTONES_KEY = 'rentmaster_global_deletion_tombstones';
 const LOCAL_CACHE_KEY = 'rentmaster_local_cache';
 
+// Helper to load initial state from localStorage synchronously to avoid "empty state" overwrites
+const getInitialData = (key: string, defaultValue: any) => {
+  const saved = localStorage.getItem(LOCAL_CACHE_KEY);
+  if (!saved) return defaultValue;
+  try {
+    const parsed = JSON.parse(saved);
+    return parsed[key] !== undefined ? parsed[key] : defaultValue;
+  } catch (e) {
+    return defaultValue;
+  }
+};
+
 export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [isReady, setIsReady] = useState(false);
-  const [isBooting, setIsBooting] = useState(true);
-  const [isCloudSyncing, setIsCloudSyncing] = useState(false);
-  const [cloudError, setCloudError] = useState<string | null>(null);
+  // Persistence state
+  const [spreadsheetId, setSpreadsheetId] = useState<string | null>(() => localStorage.getItem('rentmaster_active_sheet_id'));
   const [spreadsheetName, setSpreadsheetName] = useState<string | null>(() => localStorage.getItem('rentmaster_active_sheet_name'));
-  
+  const [authClientId, setAuthClientId] = useState<string>(() => localStorage.getItem('rentmaster_google_client_id') || '');
   const [authSession, setAuthSession] = useState<any>(() => {
     const saved = localStorage.getItem(CLOUD_TOKEN_KEY);
     return saved ? JSON.parse(saved) : null;
   });
-  
-  const [spreadsheetId, setSpreadsheetId] = useState<string | null>(() => localStorage.getItem('rentmaster_active_sheet_id'));
-  const [authClientId, setAuthClientId] = useState<string>(() => localStorage.getItem('rentmaster_google_client_id') || '');
-  const [storageMode, setStorageMode] = useState<'cloud' | 'local'>(() => 
-    (localStorage.getItem('rentmaster_storage_mode') as 'cloud' | 'local') || 'cloud'
-  );
 
-  const [user, setUser] = useState<User | null>(null);
-  const [users, setUsers] = useState<User[]>([]);
-  const [propertyTypes, setPropertyTypes] = useState<PropertyType[]>([]);
-  const [properties, setProperties] = useState<Property[]>([]);
-  const [records, setRecords] = useState<PropertyRecord[]>([]);
-  const [recordValues, setRecordValues] = useState<RecordValue[]>([]);
-  const [payments, setPayments] = useState<Payment[]>([]);
-  
-  const [config, setConfig] = useState<AppConfig>({
+  // App Data - Initialized directly from Local Storage to prevent Genesis-mode flicker
+  const [users, setUsers] = useState<User[]>(() => getInitialData('users', []));
+  const [propertyTypes, setPropertyTypes] = useState<PropertyType[]>(() => getInitialData('propertyTypes', []));
+  const [properties, setProperties] = useState<Property[]>(() => getInitialData('properties', []));
+  const [records, setRecords] = useState<PropertyRecord[]>(() => getInitialData('records', []));
+  const [recordValues, setRecordValues] = useState<RecordValue[]>(() => getInitialData('recordValues', []));
+  const [payments, setPayments] = useState<Payment[]>(() => getInitialData('payments', []));
+  const [config, setConfig] = useState<AppConfig>(() => getInitialData('config', {
     paidToOptions: ['Company Account', 'Bank Account', 'Petty Cash', 'Owner Direct'],
     paymentModeOptions: ['Bank Transfer', 'Cash', 'Check', 'UPI/QR', 'Credit Card']
-  });
+  }));
 
   const [tombstones, setTombstones] = useState<Set<string>>(() => {
     const saved = localStorage.getItem(TOMBSTONES_KEY);
     return saved ? new Set(JSON.parse(saved)) : new Set();
   });
 
-  // Track latest state to avoid stale closures in cache writing
-  const latestStateRef = useRef({ users, propertyTypes, properties, records, recordValues, payments, config, tombstones });
-  useEffect(() => {
-    latestStateRef.current = { users, propertyTypes, properties, records, recordValues, payments, config, tombstones };
-  }, [users, propertyTypes, properties, records, recordValues, payments, config, tombstones]);
+  // UI / Sync State
+  const [user, setUser] = useState<User | null>(null);
+  const [isReady, setIsReady] = useState(false);
+  const [isBooting, setIsBooting] = useState(true);
+  const [isCloudSyncing, setIsCloudSyncing] = useState(false);
+  const [cloudError, setCloudError] = useState<string | null>(null);
 
   const lastSyncHash = useRef('');
-  const isInitializingFirstUser = useRef(false);
   const tokenClientRef = useRef<any>(null);
+  const isInitializingFirstUser = useRef(false);
 
-  // Synchronous Local Storage Persistence
+  // Sync Ref for mutation stability
+  const stateRef = useRef({ users, propertyTypes, properties, records, recordValues, payments, config });
+  useEffect(() => {
+    stateRef.current = { users, propertyTypes, properties, records, recordValues, payments, config };
+  }, [users, propertyTypes, properties, records, recordValues, payments, config]);
+
+  // Synchronous Persistence Helper
   const writeLocalCache = useCallback((overrides: any = {}) => {
-    const s = latestStateRef.current;
-    const cache = {
-      users: overrides.users || s.users,
-      propertyTypes: overrides.propertyTypes || s.propertyTypes,
-      properties: overrides.properties || s.properties,
-      records: overrides.records || s.records,
-      recordValues: overrides.recordValues || s.recordValues,
-      payments: overrides.payments || s.payments,
-      config: overrides.config || s.config
+    const s = stateRef.current;
+    const dataToSave = {
+      users: overrides.users !== undefined ? overrides.users : s.users,
+      propertyTypes: overrides.propertyTypes !== undefined ? overrides.propertyTypes : s.propertyTypes,
+      properties: overrides.properties !== undefined ? overrides.properties : s.properties,
+      records: overrides.records !== undefined ? overrides.records : s.records,
+      recordValues: overrides.recordValues !== undefined ? overrides.recordValues : s.recordValues,
+      payments: overrides.payments !== undefined ? overrides.payments : s.payments,
+      config: overrides.config !== undefined ? overrides.config : s.config
     };
-    localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(cache));
+    localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(dataToSave));
   }, []);
 
-  // Load from cache utility
-  const reloadFromCache = useCallback(() => {
-    const saved = localStorage.getItem(LOCAL_CACHE_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        const currentTombstones = new Set(JSON.parse(localStorage.getItem(TOMBSTONES_KEY) || '[]'));
-        if (parsed.users) setUsers(parsed.users.filter((u: any) => !currentTombstones.has(u.id)));
-        if (parsed.propertyTypes) setPropertyTypes(parsed.propertyTypes.filter((t: any) => !currentTombstones.has(t.id)));
-        if (parsed.properties) setProperties(parsed.properties.filter((p: any) => !currentTombstones.has(p.id)));
-        if (parsed.records) setRecords(parsed.records.filter((r: any) => !currentTombstones.has(r.id)));
-        if (parsed.recordValues) setRecordValues(parsed.recordValues.filter((v: any) => !currentTombstones.has(v.recordId)));
-        if (parsed.payments) setPayments(parsed.payments.filter((p: any) => !currentTombstones.has(p.recordId)));
-        if (parsed.config) setConfig(parsed.config);
-      } catch (e) {}
-    }
-  }, []);
-
-  // Sync Tombstones to disk
+  // Update tombstone disk storage
   useEffect(() => {
     localStorage.setItem(TOMBSTONES_KEY, JSON.stringify(Array.from(tombstones)));
   }, [tombstones]);
-
-  // Session guard
-  useEffect(() => {
-    if (user && users.length > 0 && !isInitializingFirstUser.current) {
-      const stillExists = users.some(u => u.id === user.id);
-      if (!stillExists || tombstones.has(user.id)) {
-        setUser(null);
-      }
-    }
-  }, [users, user, tombstones]);
 
   const initGoogleClient = useCallback(async () => {
     return new Promise((resolve) => {
@@ -232,10 +214,10 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       setCloudError(null);
     } catch (e: any) {
-      if (e.status === 401) {
-        if (tokenClientRef.current) {
-          tokenClientRef.current.requestAccessToken({ prompt: '' });
-        }
+      if (e.status === 401 && tokenClientRef.current) {
+        tokenClientRef.current.requestAccessToken({ prompt: '' });
+      } else {
+        setCloudError("Offline mode. Syncing paused.");
       }
     }
   }, [authSession, writeLocalCache]);
@@ -255,6 +237,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       let dbId: string;
       if (searchResponse.result.files && searchResponse.result.files.length > 0) {
         dbId = searchResponse.result.files[0].id;
+        setSpreadsheetName(searchResponse.result.files[0].name);
       } else {
         const createResponse = await gapi.client.sheets.spreadsheets.create({
           resource: {
@@ -263,13 +246,14 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           }
         });
         dbId = createResponse.result.spreadsheetId;
+        setSpreadsheetName(DATABASE_FILENAME);
       }
 
       setSpreadsheetId(dbId);
       localStorage.setItem('rentmaster_active_sheet_id', dbId);
       await loadAllData(dbId);
     } catch (error: any) {
-      setCloudError("Cloud verify failed.");
+      setCloudError("Cloud verify failed. Local changes preserved.");
     } finally {
       setIsCloudSyncing(false);
     }
@@ -294,7 +278,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               await bootstrapDatabase();
               resolve(true);
             } else {
-              if (!silent) setCloudError("Auth required.");
+              if (!silent) setCloudError("Authorization required.");
               resolve(false);
             }
           },
@@ -308,7 +292,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const syncAll = useCallback(async (force: boolean = false, overrideState?: any) => {
     if (!spreadsheetId || !authSession) return; 
     
-    const s = { ...latestStateRef.current, ...overrideState };
+    const s = { ...stateRef.current, ...overrideState };
     const currentHash = JSON.stringify({ users: s.users, propertyTypes: s.propertyTypes, properties: s.properties, records: s.records, recordValues: s.recordValues, payments: s.payments, config: s.config });
     if (!force && currentHash === lastSyncHash.current) return;
     
@@ -335,6 +319,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         });
       }
       lastSyncHash.current = currentHash;
+      setCloudError(null);
     } catch (e: any) {
       if (e.status === 401 && tokenClientRef.current) {
         tokenClientRef.current.requestAccessToken({ prompt: '' });
@@ -351,26 +336,24 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [initGoogleClient, authSession, spreadsheetId, bootstrapDatabase]);
 
   useEffect(() => {
-    if (spreadsheetId && authSession && storageMode === 'cloud' && !isInitializingFirstUser.current) {
-      const timer = setTimeout(() => syncAll(), 2500);
+    if (spreadsheetId && authSession && !isInitializingFirstUser.current) {
+      const timer = setTimeout(() => syncAll(), 3000);
       return () => clearTimeout(timer);
     }
-  }, [users, propertyTypes, properties, records, recordValues, payments, config, spreadsheetId, authSession, storageMode, syncAll]);
+  }, [users, propertyTypes, properties, records, recordValues, payments, config, spreadsheetId, authSession, syncAll]);
 
   useEffect(() => {
-    reloadFromCache();
     const timer = setTimeout(() => {
       setIsReady(true);
       setIsBooting(false);
-    }, 800);
+    }, 500);
     return () => clearTimeout(timer);
-  }, [reloadFromCache]);
+  }, []);
 
   const login = async (username: string, password: string) => {
     const lowerUser = username.toLowerCase();
     const currentTombstones = new Set(JSON.parse(localStorage.getItem(TOMBSTONES_KEY) || '[]'));
     const foundUser = users.find(u => u.username.toLowerCase() === lowerUser && u.passwordHash === password && !currentTombstones.has(u.id));
-    
     if (foundUser) {
       setUser(foundUser);
       return true;
@@ -380,10 +363,11 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const logout = () => {
     setUser(null);
-    // Explicitly do not clear users list so they can log back in
+    // CRITICAL: We DO NOT clear users, propertyTypes, etc. here.
+    // This ensures that upon logout, the team directory is still present in state,
+    // which prevents the "Super Admin Initialize" screen from appearing incorrectly.
   };
 
-  // Fix: Missing updateClientId function
   const updateClientId = (id: string) => {
     setAuthClientId(id);
     localStorage.setItem('rentmaster_google_client_id', id);
@@ -391,79 +375,63 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const addUser = async (newUser: User, autoLogin: boolean = false) => {
     if (users.length === 0) isInitializingFirstUser.current = true;
-    setUsers(prev => {
-      const next = [...prev, newUser];
-      writeLocalCache({ users: next });
-      syncAll(true, { users: next });
-      return next;
-    });
+    const nextUsers = [...users, newUser];
+    setUsers(nextUsers);
+    writeLocalCache({ users: nextUsers });
+    syncAll(true, { users: nextUsers });
     if (autoLogin) { setUser(newUser); isInitializingFirstUser.current = false; }
   };
 
   const deleteUser = async (id: string) => {
     setTombstones(prev => { const n = new Set(prev); n.add(id); return n; });
-    setUsers(prev => {
-      const next = prev.filter(u => u.id !== id);
-      writeLocalCache({ users: next });
-      syncAll(true, { users: next });
-      return next;
-    });
+    const nextUsers = users.filter(u => u.id !== id);
+    setUsers(nextUsers);
+    writeLocalCache({ users: nextUsers });
+    syncAll(true, { users: nextUsers });
   };
 
   const addPropertyType = async (type: PropertyType) => {
-    setPropertyTypes(prev => {
-      const next = [...prev, type];
-      writeLocalCache({ propertyTypes: next });
-      syncAll(true, { propertyTypes: next });
-      return next;
-    });
+    const nextTypes = [...propertyTypes, type];
+    setPropertyTypes(nextTypes);
+    writeLocalCache({ propertyTypes: nextTypes });
+    syncAll(true, { propertyTypes: nextTypes });
   };
 
-  // Fix: Missing updatePropertyType function
   const updatePropertyType = async (type: PropertyType) => {
-    setPropertyTypes(prev => {
-      const next = prev.map(t => t.id === type.id ? type : t);
-      writeLocalCache({ propertyTypes: next });
-      syncAll(true, { propertyTypes: next });
-      return next;
-    });
+    const nextTypes = propertyTypes.map(t => t.id === type.id ? type : t);
+    setPropertyTypes(nextTypes);
+    writeLocalCache({ propertyTypes: nextTypes });
+    syncAll(true, { propertyTypes: nextTypes });
   };
 
   const deletePropertyType = async (id: string) => {
     setTombstones(prev => { const n = new Set(prev); n.add(id); return n; });
-    setPropertyTypes(prev => {
-      const next = prev.filter(t => t.id !== id);
-      writeLocalCache({ propertyTypes: next });
-      syncAll(true, { propertyTypes: next });
-      return next;
-    });
+    const nextTypes = propertyTypes.filter(t => t.id !== id);
+    setPropertyTypes(nextTypes);
+    writeLocalCache({ propertyTypes: nextTypes });
+    syncAll(true, { propertyTypes: nextTypes });
   };
 
   const addProperty = async (prop: Property) => {
-    setProperties(prev => {
-      const next = [...prev, { ...prop, isVisibleToManager: true }];
-      writeLocalCache({ properties: next });
-      syncAll(true, { properties: next });
-      return next;
-    });
+    const nextProps = [...properties, { ...prop, isVisibleToManager: true }];
+    setProperties(nextProps);
+    writeLocalCache({ properties: nextProps });
+    syncAll(true, { properties: nextProps });
   };
 
-  // Fix: Missing togglePropertyVisibility function
   const togglePropertyVisibility = async (id: string) => {
-    setProperties(prev => {
-      const next = prev.map(p => p.id === id ? { ...p, isVisibleToManager: !p.isVisibleToManager } : p);
-      writeLocalCache({ properties: next });
-      syncAll(true, { properties: next });
-      return next;
-    });
+    const nextProps = properties.map(p => p.id === id ? { ...p, isVisibleToManager: !p.isVisibleToManager } : p);
+    setProperties(nextProps);
+    writeLocalCache({ properties: nextProps });
+    syncAll(true, { properties: nextProps });
   };
 
   const deleteProperty = async (id: string) => {
     setTombstones(prev => {
-      const next = new Set(prev);
-      next.add(id);
-      records.filter(r => r.propertyId === id).forEach(r => next.add(r.id));
-      return next;
+      const n = new Set(prev);
+      n.add(id);
+      records.filter(r => r.propertyId === id).forEach(r => n.add(r.id));
+      return n;
     });
     
     const nextProps = properties.filter(p => p.id !== id);
@@ -483,25 +451,20 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const addRecord = async (record: PropertyRecord, values: RecordValue[]) => {
     const nextValues = [...recordValues, ...values];
+    const nextRecords = [...records, record];
     setRecordValues(nextValues);
-    setRecords(prev => {
-      const next = [...prev, record];
-      writeLocalCache({ records: next, recordValues: nextValues });
-      syncAll(true, { records: next, recordValues: nextValues });
-      return next;
-    });
+    setRecords(nextRecords);
+    writeLocalCache({ records: nextRecords, recordValues: nextValues });
+    syncAll(true, { records: nextRecords, recordValues: nextValues });
   };
 
-  // Fix: Missing updateRecord function
   const updateRecord = async (recordId: string, values: RecordValue[]) => {
     const nextValues = recordValues.filter(v => v.recordId !== recordId).concat(values);
+    const nextRecords = records.map(r => r.id === recordId ? { ...r, updatedAt: new Date().toISOString() } : r);
     setRecordValues(nextValues);
-    setRecords(prev => {
-      const next = prev.map(r => r.id === recordId ? { ...r, updatedAt: new Date().toISOString() } : r);
-      writeLocalCache({ records: next, recordValues: nextValues });
-      syncAll(true, { records: next, recordValues: nextValues });
-      return next;
-    });
+    setRecords(nextRecords);
+    writeLocalCache({ records: nextRecords, recordValues: nextValues });
+    syncAll(true, { records: nextRecords, recordValues: nextValues });
   };
 
   const deleteRecord = async (id: string) => {
@@ -519,36 +482,31 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const togglePayment = async (recordId: string, month: string, amount: number, dueDate: string, extra: Partial<Payment> = {}, paymentType: PaymentType = 'RENT') => {
-    setPayments(prev => {
-      const existing = prev.find(p => p.recordId === recordId && p.month === month && p.type === paymentType);
-      const next = existing ? prev.filter(p => p.id !== existing.id) : [...prev, {
-        id: 'pay' + Date.now(), recordId, month, amount, status: PaymentStatus.PAID, type: paymentType,
-        dueDate, paidAt: new Date().toISOString(), ...extra
-      }];
-      writeLocalCache({ payments: next });
-      syncAll(true, { payments: next });
-      return next;
-    });
+    const existing = payments.find(p => p.recordId === recordId && p.month === month && p.type === paymentType);
+    const nextPayments = existing 
+      ? payments.filter(p => p.id !== existing.id) 
+      : [...payments, {
+          id: 'pay' + Date.now(), recordId, month, amount, status: PaymentStatus.PAID, type: paymentType,
+          dueDate, paidAt: new Date().toISOString(), ...extra
+        } as Payment];
+    
+    setPayments(nextPayments);
+    writeLocalCache({ payments: nextPayments });
+    syncAll(true, { payments: nextPayments });
   };
 
-  // Fix: Missing refundDeposit function
   const refundDeposit = async (recordId: string) => {
-    setPayments(prev => {
-      const next = prev.map(p => p.recordId === recordId && p.type === 'DEPOSIT' ? { ...p, isRefunded: true } : p);
-      writeLocalCache({ payments: next });
-      syncAll(true, { payments: next });
-      return next;
-    });
+    const nextPayments = payments.map(p => p.recordId === recordId && p.type === 'DEPOSIT' ? { ...p, isRefunded: true } : p);
+    setPayments(nextPayments);
+    writeLocalCache({ payments: nextPayments });
+    syncAll(true, { payments: nextPayments });
   };
 
-  // Fix: Missing updateConfig function
   const updateConfig = async (updates: Partial<AppConfig>) => {
-    setConfig(prev => {
-      const next = { ...prev, ...updates };
-      writeLocalCache({ config: next });
-      syncAll(true, { config: next });
-      return next;
-    });
+    const nextConfig = { ...config, ...updates };
+    setConfig(nextConfig);
+    writeLocalCache({ config: nextConfig });
+    syncAll(true, { config: nextConfig });
   };
 
   const value = {

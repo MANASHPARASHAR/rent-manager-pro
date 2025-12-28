@@ -28,25 +28,24 @@ const Login: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const hasLocalUsers = store.users.length > 0;
-
-  // HOOKS MUST BE DECLARED ABOVE EARLY RETURNS
-  const isCloudAuthRequired = useMemo(() => {
-    if (hasLocalUsers) return false;
-    const hasClientIdConfigured = !!store.googleClientId;
-    const isNotAuthorizedYet = !store.googleUser;
-    return hasClientIdConfigured && isNotAuthorizedYet;
-  }, [hasLocalUsers, store.googleClientId, store.googleUser]);
+  // Derive state logic clearly
+  const hasTeamDirectory = store.users.length > 0;
+  const isCloudAuthorized = !!store.googleUser;
+  const isCloudConfigured = !!store.googleClientId;
 
   const isInitializing = useMemo(() => {
-    if (hasLocalUsers) return false; 
-    if (isCloudAuthRequired) return false; 
-    const isLocalMode = !store.googleClientId;
-    const isWipedCloud = !!store.googleUser && !hasLocalUsers;
-    return (isLocalMode || isWipedCloud) && !store.isCloudSyncing;
-  }, [hasLocalUsers, isCloudAuthRequired, store.googleUser, store.googleClientId, store.isCloudSyncing]);
+    // We only initialize if there's no team found locally and we aren't waiting for a cloud auth
+    if (hasTeamDirectory) return false;
+    if (isCloudConfigured && !isCloudAuthorized) return false;
+    return true;
+  }, [hasTeamDirectory, isCloudConfigured, isCloudAuthorized]);
 
-  // The Login page should only block the entire screen on initial boot timer
+  const isCloudAuthRequired = useMemo(() => {
+    // If we have no local team but cloud is configured, we need to auth to fetch the team
+    return !hasTeamDirectory && isCloudConfigured && !isCloudAuthorized;
+  }, [hasTeamDirectory, isCloudConfigured, isCloudAuthorized]);
+
+  // Boot screen
   if (store.isBooting) {
     return (
       <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center p-4 relative overflow-hidden font-sans">
@@ -101,7 +100,7 @@ const Login: React.FC = () => {
     setError(null);
     const success = await store.authenticate();
     if (!success) {
-      setError("Cloud authentication failed. Please check your internet connection.");
+      setError("Cloud authentication failed. Please check connection.");
     }
     setIsLoading(false);
   };
@@ -153,12 +152,6 @@ const Login: React.FC = () => {
               <p className="text-slate-400 font-medium">
                 {isInitializing ? "Configure the master administrative account." : isCloudAuthRequired ? "Grant sheet permissions to fetch your data." : "Identify yourself to access the dashboard."}
               </p>
-              {store.isCloudSyncing && (
-                <div className="flex items-center gap-2 text-indigo-400 animate-pulse">
-                   <Loader2 className="w-3 h-3 animate-spin" />
-                   <span className="text-[9px] font-black uppercase">Syncing...</span>
-                </div>
-              )}
             </div>
           </div>
 
@@ -178,7 +171,7 @@ const Login: React.FC = () => {
                        <span className="text-xs font-black uppercase tracking-widest">Database Linked</span>
                     </div>
                     <p className="text-slate-400 text-xs font-medium leading-relaxed">
-                       We detected an existing Google Sheet integration but the local cache is empty. Authorize your account to recover the user directory.
+                       Detected Google Sheet integration but local directory is empty. Authorize to recover team data.
                     </p>
                  </div>
                  <button 
@@ -258,9 +251,9 @@ const Login: React.FC = () => {
           
           <div className="mt-8 p-4 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-between">
              <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${store.googleUser ? 'bg-emerald-500' : 'bg-slate-600'}`}></div>
+                <div className={`w-2 h-2 rounded-full ${store.googleUser && !store.cloudError ? 'bg-emerald-500' : store.cloudError ? 'bg-rose-500' : 'bg-slate-600'}`}></div>
                 <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">
-                  Cloud Status: {store.googleUser ? "Sync Active" : "Offline / Unlinked"}
+                  Cloud Status: {store.googleUser && !store.cloudError ? "Sync Active" : store.cloudError ? "Error / Offline" : "Unlinked"}
                 </span>
              </div>
              {isInitializing && (
