@@ -20,6 +20,7 @@ const DATABASE_FILENAME = "RentMaster_Pro_Database";
 const SHEET_TABS = ["Users", "PropertyTypes", "Properties", "Records", "RecordValues", "Payments", "Config"];
 const CLOUD_TOKEN_KEY = 'rentmaster_cloud_token_persistent_v1';
 const TOMBSTONES_KEY = 'rentmaster_deleted_user_tombstones';
+const LOCAL_CACHE_KEY = 'rentmaster_local_cache';
 
 export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isReady, setIsReady] = useState(false);
@@ -55,6 +56,22 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const saved = localStorage.getItem(TOMBSTONES_KEY);
     return saved ? new Set(JSON.parse(saved)) : new Set();
   });
+
+  // Persistence Effect: Automatically save state to localStorage whenever it changes
+  useEffect(() => {
+    if (isReady && !isBooting) {
+      const cache = {
+        users,
+        propertyTypes,
+        properties,
+        records,
+        recordValues,
+        payments,
+        config
+      };
+      localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(cache));
+    }
+  }, [users, propertyTypes, properties, records, recordValues, payments, config, isReady, isBooting]);
 
   useEffect(() => {
     localStorage.setItem(TOMBSTONES_KEY, JSON.stringify(Array.from(tombstones)));
@@ -111,7 +128,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     try {
       const response = await gapi.client.sheets.spreadsheets.values.batchGet({
         spreadsheetId: id,
-        ranges: SHEET_TABS.map(tab => `${tab}!A1:Z1000`),
+        ranges: SHEET_TABS.map(tab => `${tab}!A1:Z5000`),
       });
 
       const data = response.result.valueRanges;
@@ -124,18 +141,18 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         .map((r: any) => ({
           id: r[0], username: r[1], name: r[2], role: r[3] as UserRole, passwordHash: r[4], createdAt: r[5]
         }))
-        .filter(u => u.username && !currentTombstones.has(u.id));
+        .filter(u => u.username && u.id && !currentTombstones.has(u.id));
       
       setUsers(parsedUsers);
 
       const parsedTypes = parse(1).map((r: any) => ({ 
         id: r[0], name: r[1], columns: JSON.parse(r[2] || '[]'), defaultDueDateDay: parseInt(r[3] || '5') 
-      })).filter(t => t.name);
+      })).filter(t => t.id && t.name);
       setPropertyTypes(parsedTypes);
       
       const parsedProps = parse(2).map((r: any) => ({ 
         id: r[0], name: r[1], propertyTypeId: r[2], address: r[3], createdAt: r[4], isVisibleToManager: r[5] === 'true' 
-      })).filter(p => p.name);
+      })).filter(p => p.id && p.name);
       setProperties(parsedProps);
       
       const pRecords = parse(3).map(r => ({ id: r[0], propertyId: r[1], createdAt: r[2], updatedAt: r[3] })).filter(r => r.id);
@@ -271,6 +288,12 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ];
 
       for (const item of batchData) {
+        // MUST clear the range before updating to ensure deleted rows are actually removed from the sheet
+        await gapi.client.sheets.spreadsheets.values.clear({
+          spreadsheetId,
+          range: `${item.tab}!A1:Z5000`
+        });
+
         await gapi.client.sheets.spreadsheets.values.update({
           spreadsheetId,
           range: `${item.tab}!A1`,
@@ -314,7 +337,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [propertyTypes, properties, records, recordValues, payments, users, config, spreadsheetId, authSession, storageMode, syncAll]);
 
   useEffect(() => {
-    const saved = localStorage.getItem('rentmaster_local_cache');
+    const saved = localStorage.getItem(LOCAL_CACHE_KEY);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -336,14 +359,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return () => clearTimeout(timer);
   }, []);
 
-  const updateLocalCacheManually = (overrides: any) => {
-    const currentCache = JSON.parse(localStorage.getItem('rentmaster_local_cache') || '{}');
-    localStorage.setItem('rentmaster_local_cache', JSON.stringify({
-      ...currentCache,
-      ...overrides
-    }));
-  };
-
   const login = async (username: string, password: string, skipCloudRefresh = false) => {
     const lowerUser = username.toLowerCase();
     if (spreadsheetId && authSession && !skipCloudRefresh) {
@@ -358,14 +373,20 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return false;
   };
 
-  const logout = () => setUser(null);
+  const logout = () => {
+    setUser(null);
+    // Clearing transient session data while keeping directory cache for the next login
+    setProperties([]);
+    setRecords([]);
+    setRecordValues([]);
+    setPayments([]);
+  };
 
   const addUser = async (newUser: User, autoLogin: boolean = false) => {
     if (users.length === 0) isInitializingFirstUser.current = true;
     const nextUsers = [...users, newUser];
     setTombstones(prev => { const n = new Set(prev); n.delete(newUser.id); return n; });
     setUsers(nextUsers);
-    updateLocalCacheManually({ users: nextUsers });
     if (autoLogin) { setUser(newUser); isInitializingFirstUser.current = false; }
     await syncAll(true, { users: nextUsers });
   };
@@ -374,49 +395,42 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setTombstones(prev => new Set(prev).add(id));
     const nextUsers = users.filter(u => u.id !== id);
     setUsers(nextUsers);
-    updateLocalCacheManually({ users: nextUsers });
     await syncAll(true, { users: nextUsers });
   };
 
   const updateUser = async (updated: User) => {
     const nextUsers = users.map(u => u.id === updated.id ? updated : u);
     setUsers(nextUsers);
-    updateLocalCacheManually({ users: nextUsers });
     await syncAll(true, { users: nextUsers });
   };
 
   const addPropertyType = async (type: PropertyType) => {
     const next = [...propertyTypes, type];
     setPropertyTypes(next);
-    updateLocalCacheManually({ propertyTypes: next });
     await syncAll(true, { propertyTypes: next });
   };
 
   const updatePropertyType = async (type: PropertyType) => {
     const next = propertyTypes.map(t => t.id === type.id ? type : t);
     setPropertyTypes(next);
-    updateLocalCacheManually({ propertyTypes: next });
     await syncAll(true, { propertyTypes: next });
   };
 
   const deletePropertyType = async (id: string) => {
     const next = propertyTypes.filter(t => t.id !== id);
     setPropertyTypes(next);
-    updateLocalCacheManually({ propertyTypes: next });
     await syncAll(true, { propertyTypes: next });
   };
 
   const addProperty = async (prop: Property) => {
     const next = [...properties, { ...prop, isVisibleToManager: true }];
     setProperties(next);
-    updateLocalCacheManually({ properties: next });
     await syncAll(true, { properties: next });
   };
 
   const togglePropertyVisibility = async (id: string) => {
     const next = properties.map(p => p.id === id ? { ...p, isVisibleToManager: !p.isVisibleToManager } : p);
     setProperties(next);
-    updateLocalCacheManually({ properties: next });
     await syncAll(true, { properties: next });
   };
 
@@ -432,7 +446,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setRecordValues(nextValues);
     setPayments(nextPayments);
     
-    updateLocalCacheManually({ properties: nextProps, records: nextRecords, recordValues: nextValues, payments: nextPayments });
     await syncAll(true, { properties: nextProps, records: nextRecords, recordValues: nextValues, payments: nextPayments });
   };
 
@@ -441,14 +454,12 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const nextValues = [...recordValues, ...values];
     setRecords(nextRecords);
     setRecordValues(nextValues);
-    updateLocalCacheManually({ records: nextRecords, recordValues: nextValues });
     await syncAll(true, { records: nextRecords, recordValues: nextValues });
   };
 
   const updateRecord = async (recordId: string, values: RecordValue[]) => {
     const nextValues = [...recordValues.filter(v => v.recordId !== recordId), ...values];
     setRecordValues(nextValues);
-    updateLocalCacheManually({ recordValues: nextValues });
     await syncAll(true, { recordValues: nextValues });
   };
 
@@ -461,7 +472,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setRecordValues(nextValues);
     setPayments(nextPayments);
     
-    updateLocalCacheManually({ records: nextRecords, recordValues: nextValues, payments: nextPayments });
     await syncAll(true, { records: nextRecords, recordValues: nextValues, payments: nextPayments });
   };
 
@@ -477,21 +487,18 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }];
     }
     setPayments(nextPayments);
-    updateLocalCacheManually({ payments: nextPayments });
     await syncAll(true, { payments: nextPayments });
   };
 
   const refundDeposit = async (recordId: string) => {
     const next = payments.map(p => p.recordId === recordId && p.type === 'DEPOSIT' ? { ...p, isRefunded: true } : p);
     setPayments(next);
-    updateLocalCacheManually({ payments: next });
     await syncAll(true, { payments: next });
   };
 
   const updateConfig = async (newConfig: Partial<AppConfig>) => {
     const next = { ...config, ...newConfig };
     setConfig(next);
-    updateLocalCacheManually({ config: next });
     await syncAll(true, { config: next });
   };
 
