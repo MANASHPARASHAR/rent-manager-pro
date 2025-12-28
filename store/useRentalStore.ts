@@ -72,8 +72,10 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const tokenClientRef = useRef<any>(null);
   const isInitializingFirstUser = useRef(false);
 
-  // Sync Ref for mutation stability
+  // Sync Ref for mutation stability - CRITICAL: This is updated synchronously by mutation functions
   const stateRef = useRef({ users, propertyTypes, properties, records, recordValues, payments, config });
+  
+  // Keep the ref in sync with React state for any external triggers
   useEffect(() => {
     stateRef.current = { users, propertyTypes, properties, records, recordValues, payments, config };
   }, [users, propertyTypes, properties, records, recordValues, payments, config]);
@@ -196,6 +198,17 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }))
         .filter(p => p.id && !currentTombstones.has(p.recordId));
 
+      // Update ref immediately to prevent overwrite by writeLocalCache
+      stateRef.current = { 
+        users: parsedUsers, 
+        propertyTypes: parsedTypes, 
+        properties: parsedProps, 
+        records: pRecords, 
+        recordValues: pVals, 
+        payments: pPays,
+        config: stateRef.current.config
+      };
+
       setUsers(parsedUsers);
       setPropertyTypes(parsedTypes);
       setProperties(parsedProps);
@@ -203,15 +216,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setRecordValues(pVals);
       setPayments(pPays);
       
-      writeLocalCache({ 
-        users: parsedUsers, 
-        propertyTypes: parsedTypes, 
-        properties: parsedProps, 
-        records: pRecords, 
-        recordValues: pVals, 
-        payments: pPays 
-      });
-
+      writeLocalCache();
       setCloudError(null);
     } catch (e: any) {
       if (e.status === 401 && tokenClientRef.current) {
@@ -363,9 +368,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const logout = () => {
     setUser(null);
-    // CRITICAL: We DO NOT clear users, propertyTypes, etc. here.
-    // This ensures that upon logout, the team directory is still present in state,
-    // which prevents the "Super Admin Initialize" screen from appearing incorrectly.
   };
 
   const updateClientId = (id: string) => {
@@ -374,17 +376,33 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const addUser = async (newUser: User, autoLogin: boolean = false) => {
-    if (users.length === 0) isInitializingFirstUser.current = true;
+    const isFirstUser = users.length === 0;
+    if (isFirstUser) isInitializingFirstUser.current = true;
+    
     const nextUsers = [...users, newUser];
-    setUsers(nextUsers);
+    
+    // 1. Update ref synchronously to prevent state race conditions
+    stateRef.current.users = nextUsers;
+    
+    // 2. Persist to localStorage immediately
     writeLocalCache({ users: nextUsers });
+    
+    // 3. Update React State
+    setUsers(nextUsers);
+    
+    // 4. Manual sync trigger
     syncAll(true, { users: nextUsers });
-    if (autoLogin) { setUser(newUser); isInitializingFirstUser.current = false; }
+    
+    if (autoLogin) { 
+      setUser(newUser); 
+      isInitializingFirstUser.current = false; 
+    }
   };
 
   const deleteUser = async (id: string) => {
     setTombstones(prev => { const n = new Set(prev); n.add(id); return n; });
     const nextUsers = users.filter(u => u.id !== id);
+    stateRef.current.users = nextUsers;
     setUsers(nextUsers);
     writeLocalCache({ users: nextUsers });
     syncAll(true, { users: nextUsers });
@@ -392,6 +410,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const addPropertyType = async (type: PropertyType) => {
     const nextTypes = [...propertyTypes, type];
+    stateRef.current.propertyTypes = nextTypes;
     setPropertyTypes(nextTypes);
     writeLocalCache({ propertyTypes: nextTypes });
     syncAll(true, { propertyTypes: nextTypes });
@@ -399,6 +418,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const updatePropertyType = async (type: PropertyType) => {
     const nextTypes = propertyTypes.map(t => t.id === type.id ? type : t);
+    stateRef.current.propertyTypes = nextTypes;
     setPropertyTypes(nextTypes);
     writeLocalCache({ propertyTypes: nextTypes });
     syncAll(true, { propertyTypes: nextTypes });
@@ -407,6 +427,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const deletePropertyType = async (id: string) => {
     setTombstones(prev => { const n = new Set(prev); n.add(id); return n; });
     const nextTypes = propertyTypes.filter(t => t.id !== id);
+    stateRef.current.propertyTypes = nextTypes;
     setPropertyTypes(nextTypes);
     writeLocalCache({ propertyTypes: nextTypes });
     syncAll(true, { propertyTypes: nextTypes });
@@ -414,6 +435,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const addProperty = async (prop: Property) => {
     const nextProps = [...properties, { ...prop, isVisibleToManager: true }];
+    stateRef.current.properties = nextProps;
     setProperties(nextProps);
     writeLocalCache({ properties: nextProps });
     syncAll(true, { properties: nextProps });
@@ -421,6 +443,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const togglePropertyVisibility = async (id: string) => {
     const nextProps = properties.map(p => p.id === id ? { ...p, isVisibleToManager: !p.isVisibleToManager } : p);
+    stateRef.current.properties = nextProps;
     setProperties(nextProps);
     writeLocalCache({ properties: nextProps });
     syncAll(true, { properties: nextProps });
@@ -440,31 +463,40 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const nextValues = recordValues.filter(v => !deletedRecordIds.includes(v.recordId));
     const nextPayments = payments.filter(p => !deletedRecordIds.includes(p.recordId));
 
+    stateRef.current.properties = nextProps;
+    stateRef.current.records = nextRecords;
+    stateRef.current.recordValues = nextValues;
+    stateRef.current.payments = nextPayments;
+
     setProperties(nextProps);
     setRecords(nextRecords);
     setRecordValues(nextValues);
     setPayments(nextPayments);
 
-    writeLocalCache({ properties: nextProps, records: nextRecords, recordValues: nextValues, payments: nextPayments });
-    syncAll(true, { properties: nextProps, records: nextRecords, recordValues: nextValues, payments: nextPayments });
+    writeLocalCache();
+    syncAll(true);
   };
 
   const addRecord = async (record: PropertyRecord, values: RecordValue[]) => {
     const nextValues = [...recordValues, ...values];
     const nextRecords = [...records, record];
+    stateRef.current.records = nextRecords;
+    stateRef.current.recordValues = nextValues;
     setRecordValues(nextValues);
     setRecords(nextRecords);
-    writeLocalCache({ records: nextRecords, recordValues: nextValues });
-    syncAll(true, { records: nextRecords, recordValues: nextValues });
+    writeLocalCache();
+    syncAll(true);
   };
 
   const updateRecord = async (recordId: string, values: RecordValue[]) => {
     const nextValues = recordValues.filter(v => v.recordId !== recordId).concat(values);
     const nextRecords = records.map(r => r.id === recordId ? { ...r, updatedAt: new Date().toISOString() } : r);
+    stateRef.current.records = nextRecords;
+    stateRef.current.recordValues = nextValues;
     setRecordValues(nextValues);
     setRecords(nextRecords);
-    writeLocalCache({ records: nextRecords, recordValues: nextValues });
-    syncAll(true, { records: nextRecords, recordValues: nextValues });
+    writeLocalCache();
+    syncAll(true);
   };
 
   const deleteRecord = async (id: string) => {
@@ -473,12 +505,16 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const nextValues = recordValues.filter(v => v.recordId !== id);
     const nextRecords = records.filter(r => r.id !== id);
     
+    stateRef.current.records = nextRecords;
+    stateRef.current.recordValues = nextValues;
+    stateRef.current.payments = nextPayments;
+
     setPayments(nextPayments);
     setRecordValues(nextValues);
     setRecords(nextRecords);
 
-    writeLocalCache({ records: nextRecords, recordValues: nextValues, payments: nextPayments });
-    syncAll(true, { records: nextRecords, recordValues: nextValues, payments: nextPayments });
+    writeLocalCache();
+    syncAll(true);
   };
 
   const togglePayment = async (recordId: string, month: string, amount: number, dueDate: string, extra: Partial<Payment> = {}, paymentType: PaymentType = 'RENT') => {
@@ -490,23 +526,26 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           dueDate, paidAt: new Date().toISOString(), ...extra
         } as Payment];
     
+    stateRef.current.payments = nextPayments;
     setPayments(nextPayments);
-    writeLocalCache({ payments: nextPayments });
-    syncAll(true, { payments: nextPayments });
+    writeLocalCache();
+    syncAll(true);
   };
 
   const refundDeposit = async (recordId: string) => {
     const nextPayments = payments.map(p => p.recordId === recordId && p.type === 'DEPOSIT' ? { ...p, isRefunded: true } : p);
+    stateRef.current.payments = nextPayments;
     setPayments(nextPayments);
-    writeLocalCache({ payments: nextPayments });
-    syncAll(true, { payments: nextPayments });
+    writeLocalCache();
+    syncAll(true);
   };
 
   const updateConfig = async (updates: Partial<AppConfig>) => {
     const nextConfig = { ...config, ...updates };
+    stateRef.current.config = nextConfig;
     setConfig(nextConfig);
-    writeLocalCache({ config: nextConfig });
-    syncAll(true, { config: nextConfig });
+    writeLocalCache();
+    syncAll(true);
   };
 
   const value = {
