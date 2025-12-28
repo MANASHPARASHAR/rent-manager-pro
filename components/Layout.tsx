@@ -28,7 +28,9 @@ import {
   ChevronUp,
   ChevronDown,
   Users,
-  Loader2
+  Loader2,
+  FileText,
+  AlertCircle
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { UserRole } from '../types';
@@ -58,7 +60,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   ];
 
   const steps = [
-    { id: 1, title: "Enable API Access", icon: Database, desc: "Enable 'Google Sheets API' & 'Google Drive API' in your Cloud Library.", link: "https://console.cloud.google.com/apis/library" },
+    { id: 1, title: "Enable API Access", icon: Database, desc: "Enable 'Google Sheets API', 'Google Drive API' in your Cloud Library.", link: "https://console.cloud.google.com/apis/library" },
     { id: 2, title: "Grant Permissions", icon: ShieldAlert, desc: "Add your email to 'Test Users' on the Consent Screen. Required for testing phase.", link: "https://console.cloud.google.com/apis/oauthconsent" },
     { id: 3, title: "Link Client ID", icon: Key, desc: "Create 'OAuth Web Application' credentials. Paste the resulting Client ID below.", link: "https://console.cloud.google.com/apis/credentials" }
   ];
@@ -81,7 +83,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       {/* Cloud Setup Modal */}
       {isSetupOpen && isAdmin && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-md animate-in fade-in duration-300">
-           <div className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95">
+           <div className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
               <div className="p-10 bg-slate-900 text-white relative">
                  <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
@@ -136,7 +138,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                           onChange={e => setTempClientId(e.target.value)}
                        />
                     </div>
-                    <button onClick={handleSaveSetup} className="w-full py-5 bg-indigo-600 text-white rounded-[2rem] font-black uppercase text-xs tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all active:scale-95">Initialize Connection</button>
+                    <button onClick={handleSaveSetup} className="w-full py-5 bg-indigo-600 text-white rounded-[2rem] font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all active:scale-95">Initialize Connection</button>
                  </div>
               </div>
            </div>
@@ -161,26 +163,49 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         {/* Sidebar Content */}
         <div className="flex-1 overflow-y-auto custom-scrollbar px-6 space-y-8 pb-10">
           <div className={`${isSidebarOpen ? 'opacity-100' : 'opacity-0 lg:hidden'}`}>
-             <div className={`p-5 rounded-[2rem] border ${store.googleUser ? 'bg-indigo-500/5 border-indigo-500/20' : 'bg-slate-800/50 border-white/5'} transition-all`}>
+             <div className={`p-5 rounded-[2rem] border ${store.googleUser && !store.cloudError ? 'bg-emerald-500/5 border-emerald-500/20' : store.cloudError ? 'bg-rose-500/5 border-rose-500/20' : 'bg-slate-800/50 border-white/5'} transition-all`}>
                 <div className="flex items-center justify-between mb-4">
                    <div className="flex items-center gap-2">
-                      {store.googleUser ? <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div> : <div className="w-2 h-2 rounded-full bg-slate-600"></div>}
-                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">
-                        {store.googleUser ? "Cloud Active" : "Local Cache"}
+                      {store.googleUser && !store.cloudError ? (
+                        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+                      ) : store.cloudError ? (
+                        <div className="w-2 h-2 rounded-full bg-rose-500"></div>
+                      ) : (
+                        <div className="w-2 h-2 rounded-full bg-slate-600"></div>
+                      )}
+                      <span className={`text-[9px] font-black uppercase tracking-widest ${store.cloudError ? 'text-rose-400' : 'text-slate-400'}`}>
+                        {store.googleUser && !store.cloudError ? "Cloud Active" : store.cloudError ? "Sync Error" : "Local Cache"}
                       </span>
                    </div>
                    {store.isCloudSyncing && <RefreshCw className="w-3 h-3 text-indigo-400 animate-spin" />}
                 </div>
+
+                {store.spreadsheetName && (
+                  <div className="mb-4 flex items-center gap-2 px-3 py-2 bg-white/5 rounded-xl">
+                    <FileText className="w-3 h-3 text-indigo-400" />
+                    <span className="text-[9px] font-bold text-slate-300 truncate max-w-[150px]">{store.spreadsheetName}</span>
+                  </div>
+                )}
+
+                {store.cloudError && (
+                  <div className="mb-4 flex items-start gap-2 px-3 py-2 bg-rose-500/10 rounded-xl border border-rose-500/20">
+                    <AlertCircle className="w-3 h-3 text-rose-400 shrink-0 mt-0.5" />
+                    <span className="text-[8px] font-bold text-rose-300 leading-tight">{store.cloudError}</span>
+                  </div>
+                )}
+
                 {isAdmin && (
                   <button 
                     onClick={handleConnect}
                     className={`w-full py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${
-                      store.googleUser 
+                      store.googleUser && !store.cloudError
                         ? 'bg-emerald-600/10 text-emerald-500 border border-emerald-500/20' 
+                        : store.cloudError
+                        ? 'bg-rose-600 text-white shadow-lg active:scale-95'
                         : 'bg-indigo-600 text-white shadow-lg active:scale-95'
                     }`}
                   >
-                    {store.googleUser ? 'Session Verified' : 'Authorize Cloud'}
+                    {store.googleUser && !store.cloudError ? 'Session Verified' : store.cloudError ? 'Retry Sync' : 'Authorize Cloud'}
                   </button>
                 )}
                 {!isAdmin && !store.googleUser && (

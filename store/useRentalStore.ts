@@ -19,7 +19,7 @@ const RentalContext = createContext<any>(null);
 const DATABASE_FILENAME = "RentMaster_Pro_Database";
 const SHEET_TABS = ["Users", "PropertyTypes", "Properties", "Records", "RecordValues", "Payments", "Config"];
 const CLOUD_TOKEN_KEY = 'rentmaster_cloud_token_persistent_v1';
-const TOMBSTONES_KEY = 'rentmaster_deleted_user_tombstones';
+const TOMBSTONES_KEY = 'rentmaster_global_deletion_tombstones';
 const LOCAL_CACHE_KEY = 'rentmaster_local_cache';
 
 export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -27,6 +27,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isBooting, setIsBooting] = useState(true);
   const [isCloudSyncing, setIsCloudSyncing] = useState(false);
   const [cloudError, setCloudError] = useState<string | null>(null);
+  const [spreadsheetName, setSpreadsheetName] = useState<string | null>(null);
   
   const [authSession, setAuthSession] = useState<any>(() => {
     const saved = localStorage.getItem(CLOUD_TOKEN_KEY);
@@ -57,30 +58,36 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return saved ? new Set(JSON.parse(saved)) : new Set();
   });
 
-  // Persistence Effect: Automatically save state to localStorage whenever it changes
-  useEffect(() => {
-    if (isReady && !isBooting) {
-      const cache = {
-        users,
-        propertyTypes,
-        properties,
-        records,
-        recordValues,
-        payments,
-        config
-      };
-      localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(cache));
-    }
-  }, [users, propertyTypes, properties, records, recordValues, payments, config, isReady, isBooting]);
+  const lastSyncHash = useRef('');
+  const isInitializingFirstUser = useRef(false);
 
+  // Synchronous Local Storage Persistence
+  const writeLocalCache = useCallback((overrides: any = {}) => {
+    const cache = {
+      users: overrides.users || users,
+      propertyTypes: overrides.propertyTypes || propertyTypes,
+      properties: overrides.properties || properties,
+      records: overrides.records || records,
+      recordValues: overrides.recordValues || recordValues,
+      payments: overrides.payments || payments,
+      config: overrides.config || config
+    };
+    localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(cache));
+  }, [users, propertyTypes, properties, records, recordValues, payments, config]);
+
+  // Sync Tombstones to disk immediately on change
   useEffect(() => {
     localStorage.setItem(TOMBSTONES_KEY, JSON.stringify(Array.from(tombstones)));
   }, [tombstones]);
 
-  const lastSyncHash = useRef('');
-  const isInitializingFirstUser = useRef(false);
+  // Effect to keep local cache in sync with state in real-time
+  useEffect(() => {
+    if (isReady && !isBooting) {
+      writeLocalCache();
+    }
+  }, [users, propertyTypes, properties, records, recordValues, payments, config, isReady, isBooting, writeLocalCache]);
 
-  // SESSION GUARD
+  // Session guard to handle deleted users
   useEffect(() => {
     if (user && users.length > 0 && !isInitializingFirstUser.current) {
       const stillExists = users.some(u => u.id === user.id);
@@ -126,6 +133,18 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (!gapi?.client?.sheets || !authSession) return;
 
     try {
+      // Also fetch metadata to verify file name/existence
+      const fileMeta = await gapi.client.drive.files.get({
+        fileId: id,
+        fields: 'name, trashed'
+      });
+
+      if (fileMeta.result.trashed) {
+        setCloudError("The linked spreadsheet is in the trash.");
+        return;
+      }
+      setSpreadsheetName(fileMeta.result.name);
+
       const response = await gapi.client.sheets.spreadsheets.values.batchGet({
         spreadsheetId: id,
         ranges: SHEET_TABS.map(tab => `${tab}!A1:Z5000`),
@@ -135,36 +154,39 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (!data) return;
 
       const parse = (index: number) => data[index]?.values?.slice(1) || [];
-
       const currentTombstones = new Set(JSON.parse(localStorage.getItem(TOMBSTONES_KEY) || '[]'));
+
       const parsedUsers = parse(0)
-        .map((r: any) => ({
-          id: r[0], username: r[1], name: r[2], role: r[3] as UserRole, passwordHash: r[4], createdAt: r[5]
-        }))
-        .filter(u => u.username && u.id && !currentTombstones.has(u.id));
-      
+        .map((r: any) => ({ id: r[0], username: r[1], name: r[2], role: r[3] as UserRole, passwordHash: r[4], createdAt: r[5] }))
+        .filter(u => u.id && u.username && !currentTombstones.has(u.id));
       setUsers(parsedUsers);
 
-      const parsedTypes = parse(1).map((r: any) => ({ 
-        id: r[0], name: r[1], columns: JSON.parse(r[2] || '[]'), defaultDueDateDay: parseInt(r[3] || '5') 
-      })).filter(t => t.id && t.name);
+      const parsedTypes = parse(1)
+        .map((r: any) => ({ id: r[0], name: r[1], columns: JSON.parse(r[2] || '[]'), defaultDueDateDay: parseInt(r[3] || '5') }))
+        .filter(t => t.id && t.name && !currentTombstones.has(t.id));
       setPropertyTypes(parsedTypes);
       
-      const parsedProps = parse(2).map((r: any) => ({ 
-        id: r[0], name: r[1], propertyTypeId: r[2], address: r[3], createdAt: r[4], isVisibleToManager: r[5] === 'true' 
-      })).filter(p => p.id && p.name);
+      const parsedProps = parse(2)
+        .map((r: any) => ({ id: r[0], name: r[1], propertyTypeId: r[2], address: r[3], createdAt: r[4], isVisibleToManager: r[5] === 'true' }))
+        .filter(p => p.id && p.name && !currentTombstones.has(p.id));
       setProperties(parsedProps);
       
-      const pRecords = parse(3).map(r => ({ id: r[0], propertyId: r[1], createdAt: r[2], updatedAt: r[3] })).filter(r => r.id);
+      const pRecords = parse(3)
+        .map(r => ({ id: r[0], propertyId: r[1], createdAt: r[2], updatedAt: r[3] }))
+        .filter(r => r.id && !currentTombstones.has(r.id) && !currentTombstones.has(r.propertyId));
       setRecords(pRecords);
 
-      const pVals = parse(4).map(r => ({ id: r[0], recordId: r[1], columnId: r[2], value: r[3] })).filter(r => r.id);
+      const pVals = parse(4)
+        .map(r => ({ id: r[0], recordId: r[1], columnId: r[2], value: r[3] }))
+        .filter(v => v.id && !currentTombstones.has(v.recordId));
       setRecordValues(pVals);
 
-      const pPays = parse(5).map(r => ({ 
-        id: r[0], recordId: r[1], month: r[2], amount: parseFloat(r[3] || '0'), status: r[4], 
-        type: r[5], dueDate: r[6], paidAt: r[7], paidTo: r[8], paymentMode: r[9], isRefunded: r[10] === 'true' 
-      })).filter(r => r.id);
+      const pPays = parse(5)
+        .map(r => ({ 
+          id: r[0], recordId: r[1], month: r[2], amount: parseFloat(r[3] || '0'), status: r[4], 
+          type: r[5], dueDate: r[6], paidAt: r[7], paidTo: r[8], paymentMode: r[9], isRefunded: r[10] === 'true' 
+        }))
+        .filter(p => p.id && !currentTombstones.has(p.recordId));
       setPayments(pPays);
 
       const pConfig = parse(6);
@@ -182,8 +204,14 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (e.status === 401) {
         setAuthSession(null);
         localStorage.removeItem(CLOUD_TOKEN_KEY);
+        setCloudError("Session expired. Please re-authorize.");
+      } else if (e.status === 404) {
+        setCloudError("Spreadsheet not found. Please check your Drive.");
+      } else if (e.status === 403) {
+        setCloudError("Access denied. Ensure API permissions are enabled.");
+      } else {
+        setCloudError("Cloud sync failed. Working from local cache.");
       }
-      setCloudError("Cloud fetch failed.");
     }
   }, [authSession]);
 
@@ -202,6 +230,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       let dbId: string;
       if (searchResponse.result.files && searchResponse.result.files.length > 0) {
         dbId = searchResponse.result.files[0].id;
+        setSpreadsheetName(searchResponse.result.files[0].name);
       } else {
         const createResponse = await gapi.client.sheets.spreadsheets.create({
           resource: {
@@ -210,6 +239,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           }
         });
         dbId = createResponse.result.spreadsheetId;
+        setSpreadsheetName(DATABASE_FILENAME);
       }
 
       setSpreadsheetId(dbId);
@@ -238,7 +268,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           try {
             const client = google.accounts.oauth2.initTokenClient({
               client_id: clientIdValue,
-              scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file',
+              scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly',
               callback: async (response: any) => {
                 if (response.access_token) {
                   setAuthSession(response);
@@ -288,12 +318,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ];
 
       for (const item of batchData) {
-        // MUST clear the range before updating to ensure deleted rows are actually removed from the sheet
-        await gapi.client.sheets.spreadsheets.values.clear({
-          spreadsheetId,
-          range: `${item.tab}!A1:Z5000`
-        });
-
+        await gapi.client.sheets.spreadsheets.values.clear({ spreadsheetId, range: `${item.tab}!A1:Z5000` });
         await gapi.client.sheets.spreadsheets.values.update({
           spreadsheetId,
           range: `${item.tab}!A1`,
@@ -302,12 +327,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         });
       }
       
-      setTombstones(prev => {
-        const next = new Set(prev);
-        sUsers.forEach((u: any) => next.delete(u.id));
-        return next;
-      });
-
       lastSyncHash.current = currentHash;
       setCloudError(null);
     } catch (e: any) {
@@ -315,7 +334,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setAuthSession(null);
         localStorage.removeItem(CLOUD_TOKEN_KEY);
       }
-      setCloudError("Sync Failed.");
+      setCloudError("Cloud sync failure.");
     } finally {
       setIsCloudSyncing(false);
     }
@@ -323,9 +342,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   useEffect(() => { 
     initGoogleClient().then(() => {
-      if (authSession && spreadsheetId) {
-        bootstrapDatabase();
-      }
+      if (authSession && spreadsheetId) bootstrapDatabase();
     });
   }, [initGoogleClient, authSession, spreadsheetId, bootstrapDatabase]);
 
@@ -342,13 +359,12 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       try {
         const parsed = JSON.parse(saved);
         const currentTombstones = new Set(JSON.parse(localStorage.getItem(TOMBSTONES_KEY) || '[]'));
-        
         if (parsed.users) setUsers(parsed.users.filter((u: any) => !currentTombstones.has(u.id)));
-        if (parsed.propertyTypes) setPropertyTypes(parsed.propertyTypes);
-        if (parsed.properties) setProperties(parsed.properties);
-        if (parsed.records) setRecords(parsed.records);
-        if (parsed.recordValues) setRecordValues(parsed.recordValues);
-        if (parsed.payments) setPayments(parsed.payments);
+        if (parsed.propertyTypes) setPropertyTypes(parsed.propertyTypes.filter((t: any) => !currentTombstones.has(t.id)));
+        if (parsed.properties) setProperties(parsed.properties.filter((p: any) => !currentTombstones.has(p.id)));
+        if (parsed.records) setRecords(parsed.records.filter((r: any) => !currentTombstones.has(r.id)));
+        if (parsed.recordValues) setRecordValues(parsed.recordValues.filter((v: any) => !currentTombstones.has(v.recordId)));
+        if (parsed.payments) setPayments(parsed.payments.filter((p: any) => !currentTombstones.has(p.recordId)));
         if (parsed.config) setConfig(parsed.config);
       } catch (e) {}
     }
@@ -375,7 +391,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const logout = () => {
     setUser(null);
-    // Clearing transient session data while keeping directory cache for the next login
     setProperties([]);
     setRecords([]);
     setRecordValues([]);
@@ -384,127 +399,175 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const addUser = async (newUser: User, autoLogin: boolean = false) => {
     if (users.length === 0) isInitializingFirstUser.current = true;
-    const nextUsers = [...users, newUser];
     setTombstones(prev => { const n = new Set(prev); n.delete(newUser.id); return n; });
-    setUsers(nextUsers);
+    setUsers(prev => {
+      const next = [...prev, newUser];
+      writeLocalCache({ users: next });
+      syncAll(true, { users: next });
+      return next;
+    });
     if (autoLogin) { setUser(newUser); isInitializingFirstUser.current = false; }
-    await syncAll(true, { users: nextUsers });
   };
 
   const deleteUser = async (id: string) => {
-    setTombstones(prev => new Set(prev).add(id));
-    const nextUsers = users.filter(u => u.id !== id);
-    setUsers(nextUsers);
-    await syncAll(true, { users: nextUsers });
+    setTombstones(prev => { const n = new Set(prev); n.add(id); return n; });
+    setUsers(prev => {
+      const next = prev.filter(u => u.id !== id);
+      writeLocalCache({ users: next });
+      syncAll(true, { users: next });
+      return next;
+    });
   };
 
   const updateUser = async (updated: User) => {
-    const nextUsers = users.map(u => u.id === updated.id ? updated : u);
-    setUsers(nextUsers);
-    await syncAll(true, { users: nextUsers });
+    setUsers(prev => {
+      const next = prev.map(u => u.id === updated.id ? updated : u);
+      writeLocalCache({ users: next });
+      syncAll(true, { users: next });
+      return next;
+    });
   };
 
   const addPropertyType = async (type: PropertyType) => {
-    const next = [...propertyTypes, type];
-    setPropertyTypes(next);
-    await syncAll(true, { propertyTypes: next });
+    setTombstones(prev => { const n = new Set(prev); n.delete(type.id); return n; });
+    setPropertyTypes(prev => {
+      const next = [...prev, type];
+      writeLocalCache({ propertyTypes: next });
+      syncAll(true, { propertyTypes: next });
+      return next;
+    });
   };
 
   const updatePropertyType = async (type: PropertyType) => {
-    const next = propertyTypes.map(t => t.id === type.id ? type : t);
-    setPropertyTypes(next);
-    await syncAll(true, { propertyTypes: next });
+    setPropertyTypes(prev => {
+      const next = prev.map(t => t.id === type.id ? type : t);
+      writeLocalCache({ propertyTypes: next });
+      syncAll(true, { propertyTypes: next });
+      return next;
+    });
   };
 
   const deletePropertyType = async (id: string) => {
-    const next = propertyTypes.filter(t => t.id !== id);
-    setPropertyTypes(next);
-    await syncAll(true, { propertyTypes: next });
+    setTombstones(prev => { const n = new Set(prev); n.add(id); return n; });
+    setPropertyTypes(prev => {
+      const next = prev.filter(t => t.id !== id);
+      writeLocalCache({ propertyTypes: next });
+      syncAll(true, { propertyTypes: next });
+      return next;
+    });
   };
 
   const addProperty = async (prop: Property) => {
-    const next = [...properties, { ...prop, isVisibleToManager: true }];
-    setProperties(next);
-    await syncAll(true, { properties: next });
+    setTombstones(prev => { const n = new Set(prev); n.delete(prop.id); return n; });
+    setProperties(prev => {
+      const next = [...prev, { ...prop, isVisibleToManager: true }];
+      writeLocalCache({ properties: next });
+      syncAll(true, { properties: next });
+      return next;
+    });
   };
 
   const togglePropertyVisibility = async (id: string) => {
-    const next = properties.map(p => p.id === id ? { ...p, isVisibleToManager: !p.isVisibleToManager } : p);
-    setProperties(next);
-    await syncAll(true, { properties: next });
+    setProperties(prev => {
+      const next = prev.map(p => p.id === id ? { ...p, isVisibleToManager: !p.isVisibleToManager } : p);
+      writeLocalCache({ properties: next });
+      syncAll(true, { properties: next });
+      return next;
+    });
   };
 
   const deleteProperty = async (id: string) => {
-    const nextProps = properties.filter(p => p.id !== id);
-    const unitsToDelete = records.filter(r => r.propertyId === id).map(r => r.id);
-    const nextRecords = records.filter(r => r.propertyId !== id);
-    const nextValues = recordValues.filter(v => !unitsToDelete.includes(v.recordId));
-    const nextPayments = payments.filter(p => !unitsToDelete.includes(p.recordId));
+    setTombstones(prev => {
+      const next = new Set(prev);
+      next.add(id);
+      records.filter(r => r.propertyId === id).forEach(r => next.add(r.id));
+      return next;
+    });
     
+    const recordsToDelete = records.filter(r => r.propertyId === id);
+    const deletedRecordIds = recordsToDelete.map(r => r.id);
+
+    const nextProps = properties.filter(p => p.id !== id);
+    const nextRecords = records.filter(r => r.propertyId !== id);
+    const nextValues = recordValues.filter(v => !deletedRecordIds.includes(v.recordId));
+    const nextPayments = payments.filter(p => !deletedRecordIds.includes(p.recordId));
+
     setProperties(nextProps);
     setRecords(nextRecords);
     setRecordValues(nextValues);
     setPayments(nextPayments);
-    
-    await syncAll(true, { properties: nextProps, records: nextRecords, recordValues: nextValues, payments: nextPayments });
+
+    writeLocalCache({ properties: nextProps, records: nextRecords, recordValues: nextValues, payments: nextPayments });
+    syncAll(true, { properties: nextProps, records: nextRecords, recordValues: nextValues, payments: nextPayments });
   };
 
   const addRecord = async (record: PropertyRecord, values: RecordValue[]) => {
-    const nextRecords = [...records, record];
+    setTombstones(prev => { const n = new Set(prev); n.delete(record.id); return n; });
     const nextValues = [...recordValues, ...values];
-    setRecords(nextRecords);
     setRecordValues(nextValues);
-    await syncAll(true, { records: nextRecords, recordValues: nextValues });
+    setRecords(prev => {
+      const next = [...prev, record];
+      writeLocalCache({ records: next, recordValues: nextValues });
+      syncAll(true, { records: next, recordValues: nextValues });
+      return next;
+    });
   };
 
   const updateRecord = async (recordId: string, values: RecordValue[]) => {
     const nextValues = [...recordValues.filter(v => v.recordId !== recordId), ...values];
     setRecordValues(nextValues);
-    await syncAll(true, { recordValues: nextValues });
+    writeLocalCache({ recordValues: nextValues });
+    syncAll(true, { recordValues: nextValues });
   };
 
-  const deleteRecord = async (id: string) => {
-    const nextRecords = records.filter(r => r.id !== id);
-    const nextValues = recordValues.filter(v => v.recordId !== id);
+  const deleteRecord = async (id: string, syncImmediately = true) => {
+    setTombstones(prev => { const n = new Set(prev); n.add(id); return n; });
     const nextPayments = payments.filter(p => p.recordId !== id);
+    const nextValues = recordValues.filter(v => v.recordId !== id);
+    const nextRecords = records.filter(r => r.id !== id);
     
-    setRecords(nextRecords);
-    setRecordValues(nextValues);
     setPayments(nextPayments);
-    
-    await syncAll(true, { records: nextRecords, recordValues: nextValues, payments: nextPayments });
+    setRecordValues(nextValues);
+    setRecords(nextRecords);
+
+    writeLocalCache({ records: nextRecords, recordValues: nextValues, payments: nextPayments });
+    if (syncImmediately) syncAll(true, { records: nextRecords, recordValues: nextValues, payments: nextPayments });
   };
 
   const togglePayment = async (recordId: string, month: string, amount: number, dueDate: string, extra: Partial<Payment> = {}, paymentType: PaymentType = 'RENT') => {
-    const existing = payments.find(p => p.recordId === recordId && p.month === month && p.type === paymentType);
-    let nextPayments;
-    if (existing) {
-      nextPayments = payments.filter(p => p.id !== existing.id);
-    } else {
-      nextPayments = [...payments, {
+    setPayments(prev => {
+      const existing = prev.find(p => p.recordId === recordId && p.month === month && p.type === paymentType);
+      const next = existing ? prev.filter(p => p.id !== existing.id) : [...prev, {
         id: 'pay' + Date.now(), recordId, month, amount, status: PaymentStatus.PAID, type: paymentType,
         dueDate, paidAt: new Date().toISOString(), ...extra
       }];
-    }
-    setPayments(nextPayments);
-    await syncAll(true, { payments: nextPayments });
+      writeLocalCache({ payments: next });
+      syncAll(true, { payments: next });
+      return next;
+    });
   };
 
   const refundDeposit = async (recordId: string) => {
-    const next = payments.map(p => p.recordId === recordId && p.type === 'DEPOSIT' ? { ...p, isRefunded: true } : p);
-    setPayments(next);
-    await syncAll(true, { payments: next });
+    setPayments(prev => {
+      const next = prev.map(p => p.recordId === recordId && p.type === 'DEPOSIT' ? { ...p, isRefunded: true } : p);
+      writeLocalCache({ payments: next });
+      syncAll(true, { payments: next });
+      return next;
+    });
   };
 
   const updateConfig = async (newConfig: Partial<AppConfig>) => {
-    const next = { ...config, ...newConfig };
-    setConfig(next);
-    await syncAll(true, { config: next });
+    setConfig(prev => {
+      const next = { ...prev, ...newConfig };
+      writeLocalCache({ config: next });
+      syncAll(true, { config: next });
+      return next;
+    });
   };
 
   const value = {
     isReady, isBooting, user, users, propertyTypes, properties, records, recordValues, payments, config,
-    isCloudSyncing, cloudError, googleUser: authSession, spreadsheetId, googleClientId: authClientId, updateClientId, authenticate,
+    isCloudSyncing, cloudError, spreadsheetName, googleUser: authSession, spreadsheetId, googleClientId: authClientId, updateClientId, authenticate,
     login, logout, addUser, deleteUser, updateUser, addPropertyType, updatePropertyType, deletePropertyType, addProperty,
     togglePropertyVisibility, deleteProperty, addRecord, updateRecord, deleteRecord,
     togglePayment, refundDeposit, updateConfig
