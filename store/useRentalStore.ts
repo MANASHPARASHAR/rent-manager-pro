@@ -26,14 +26,12 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isCloudSyncing, setIsCloudSyncing] = useState(false);
   const [cloudError, setCloudError] = useState<string | null>(null);
   
-  // Renamed from googleUser to authSession to avoid potential global collisions in certain environments
   const [authSession, setAuthSession] = useState<any>(() => {
     const saved = localStorage.getItem(CLOUD_TOKEN_KEY);
     return saved ? JSON.parse(saved) : null;
   });
   
   const [spreadsheetId, setSpreadsheetId] = useState<string | null>(() => localStorage.getItem('rentmaster_active_sheet_id'));
-  // Renamed from googleClientId to authClientId to avoid potential global collisions
   const [authClientId, setAuthClientId] = useState<string>(() => localStorage.getItem('rentmaster_google_client_id') || '');
   const [storageMode, setStorageMode] = useState<'cloud' | 'local'>(() => 
     (localStorage.getItem('rentmaster_storage_mode') as 'cloud' | 'local') || 'cloud'
@@ -72,7 +70,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     localStorage.setItem('rentmaster_google_client_id', cleanId);
   };
 
-  // Wrapped in useCallback and updated dependency
   const initGoogleClient = useCallback(async () => {
     return new Promise((resolve) => {
       const checkGapi = () => {
@@ -98,7 +95,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
   }, [authSession]);
 
-  // Re-ordered loadAllData before functions that depend on it
   const loadAllData = useCallback(async (id: string) => {
     const gapi = (window as any).gapi;
     if (!gapi?.client?.sheets || !authSession) return;
@@ -158,7 +154,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [authSession]);
 
-  // Wrapped in useCallback and updated dependency array
   const bootstrapDatabase = useCallback(async () => {
     if (!authSession) return;
     setIsCloudSyncing(true);
@@ -198,7 +193,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [authSession, initGoogleClient, loadAllData]);
 
-  // Fixed authenticate syntax error (was missing useCallback) and dependencies
   const authenticate = useCallback(async (providedId?: string, silent: boolean = false) => {
     const rawId = providedId || authClientId;
     const clientIdValue = rawId.trim();
@@ -233,7 +227,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
   }, [authClientId, authSession, bootstrapDatabase]);
 
-  // Wrapped in useCallback and updated dependency array
   const syncAll = useCallback(async (force: boolean = false, overrideUsers?: User[]) => {
     if (!spreadsheetId || !authSession) return; 
     
@@ -312,13 +305,13 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return () => clearTimeout(timer);
   }, []);
 
-  useEffect(() => {
-    if (isReady && hasLoadedInitialCache.current) {
-      localStorage.setItem('rentmaster_local_cache', JSON.stringify({ 
-        users, propertyTypes, properties, records, recordValues, payments, config 
-      }));
-    }
-  }, [users, propertyTypes, properties, records, recordValues, payments, config, isReady]);
+  const updateLocalCacheManually = (updatedUsers: User[]) => {
+    const localData = JSON.parse(localStorage.getItem('rentmaster_local_cache') || '{}');
+    localStorage.setItem('rentmaster_local_cache', JSON.stringify({
+      ...localData,
+      users: updatedUsers
+    }));
+  };
 
   const login = async (username: string, password: string, skipCloudRefresh = false) => {
     const lowerUser = username.toLowerCase();
@@ -340,26 +333,31 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const addUser = async (newUser: User, autoLogin: boolean = false) => {
     if (users.length === 0) isInitializingFirstUser.current = true;
-    const updatedUsers = [...users, newUser];
-    setUsers(updatedUsers);
+    setUsers(prev => {
+      const next = [...prev, newUser];
+      updateLocalCacheManually(next);
+      return next;
+    });
     localStorage.setItem('rentmaster_initialized', 'true');
     if (autoLogin) { setUser(newUser); isInitializingFirstUser.current = false; }
-    if (spreadsheetId && authSession) { await syncAll(true, updatedUsers); }
+    if (spreadsheetId && authSession) { await syncAll(true, [...users, newUser]); }
   };
 
   const deleteUser = async (id: string) => {
-    const updatedUsers = users.filter(u => u.id !== id);
-    setUsers(updatedUsers);
+    const updated = users.filter(u => u.id !== id);
+    setUsers(updated);
+    updateLocalCacheManually(updated);
     if (spreadsheetId && authSession) {
-      await syncAll(true, updatedUsers);
+      await syncAll(true, updated);
     }
   };
 
   const updateUser = async (updated: User) => {
-    const updatedUsers = users.map(u => u.id === updated.id ? updated : u);
-    setUsers(updatedUsers);
+    const next = users.map(u => u.id === updated.id ? updated : u);
+    setUsers(next);
+    updateLocalCacheManually(next);
     if (spreadsheetId && authSession) {
-      await syncAll(true, updatedUsers);
+      await syncAll(true, next);
     }
   };
 

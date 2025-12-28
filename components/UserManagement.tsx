@@ -12,7 +12,8 @@ import {
   X,
   Lock,
   ArrowLeft,
-  AlertTriangle
+  AlertTriangle,
+  Loader2
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { UserRole } from '../types';
@@ -20,9 +21,9 @@ import { UserRole } from '../types';
 const UserManagement: React.FC = () => {
   const store = useRentalStore();
   const [isAdding, setIsAdding] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [newUser, setNewUser] = useState({ name: '', username: '', password: '', role: UserRole.MANAGER });
   
-  // Confirmation Modal State
   const [confirmConfig, setConfirmConfig] = useState<{
     isOpen: boolean;
     title: string;
@@ -49,11 +50,11 @@ const UserManagement: React.FC = () => {
     );
   }
 
-  const handleCreate = (e: React.FormEvent) => {
+  const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newUser.username || !newUser.password) return;
 
-    store.addUser({
+    await store.addUser({
       id: 'u-' + Math.random().toString(36).substr(2, 9),
       username: newUser.username.toLowerCase(),
       name: newUser.name,
@@ -74,8 +75,13 @@ const UserManagement: React.FC = () => {
       actionLabel: "Revoke Access",
       icon: <Trash2 className="w-10 h-10" />,
       onConfirm: async () => {
-        await store.deleteUser(id);
         setConfirmConfig(prev => ({ ...prev, isOpen: false }));
+        setDeletingId(id);
+        try {
+          await store.deleteUser(id);
+        } finally {
+          setDeletingId(null);
+        }
       }
     });
   };
@@ -88,7 +94,6 @@ const UserManagement: React.FC = () => {
 
   return (
     <div className="space-y-10 pb-20 max-w-5xl mx-auto animate-in fade-in duration-700">
-      {/* Confirmation Modal Overlay */}
       {confirmConfig.isOpen && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md animate-in fade-in duration-300">
           <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl border border-white/20 overflow-hidden animate-in zoom-in-95 duration-200">
@@ -124,7 +129,8 @@ const UserManagement: React.FC = () => {
         </div>
         <button 
           onClick={() => setIsAdding(true)}
-          className="bg-indigo-600 text-white px-8 py-4 rounded-2xl flex items-center gap-3 hover:bg-indigo-700 transition-all font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-100 active:scale-95"
+          disabled={!!deletingId}
+          className="bg-indigo-600 text-white px-8 py-4 rounded-2xl flex items-center gap-3 hover:bg-indigo-700 transition-all font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-100 active:scale-95 disabled:opacity-50"
         >
           <UserPlus className="w-5 h-5" /> Add Team Member
         </button>
@@ -171,14 +177,22 @@ const UserManagement: React.FC = () => {
         {store.users.map((u: any) => {
           const config = roleLabels[u.role as UserRole];
           const isOwnAccount = u.id === store.user?.id;
+          const isDeleting = deletingId === u.id;
           
           return (
-            <div key={u.id} className="bg-white p-10 rounded-[3.5rem] border border-slate-100 shadow-sm flex flex-col relative group transition-all duration-300 hover:shadow-2xl hover:border-indigo-100">
+            <div key={u.id} className={`bg-white p-10 rounded-[3.5rem] border border-slate-100 shadow-sm flex flex-col relative group transition-all duration-300 ${isDeleting ? 'opacity-50 scale-95 grayscale' : 'hover:shadow-2xl hover:border-indigo-100'}`}>
+               {isDeleting && (
+                 <div className="absolute inset-0 z-10 bg-white/60 rounded-[3.5rem] flex flex-col items-center justify-center gap-3 backdrop-blur-[2px]">
+                    <Loader2 className="w-8 h-8 text-rose-500 animate-spin" />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-rose-600">Revoking...</span>
+                 </div>
+               )}
+
                <div className="flex justify-between items-start mb-10">
                   <div className={`${config.bg} ${config.color} p-5 rounded-[1.5rem] shadow-xl`}>
                      <config.icon className="w-8 h-8" />
                   </div>
-                  {!isOwnAccount && (
+                  {!isOwnAccount && !isDeleting && (
                     <button onClick={() => handleDeleteRequest(u.id, u.name)} className="p-3 text-slate-300 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100">
                        <Trash2 className="w-6 h-6" />
                     </button>

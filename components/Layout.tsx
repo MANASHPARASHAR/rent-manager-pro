@@ -27,7 +27,8 @@ import {
   Info,
   ChevronUp,
   ChevronDown,
-  Users
+  Users,
+  Loader2
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { UserRole } from '../types';
@@ -211,9 +212,21 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
         {/* Sidebar Footer */}
         <div className="p-8 shrink-0">
-          <button onClick={() => store.logout()} className={`bg-white/5 rounded-[2.5rem] border border-white/5 flex items-center gap-4 w-full hover:bg-rose-500/10 transition-all group active:scale-95 ${isSidebarOpen ? 'p-6' : 'p-4 justify-center'}`}>
-            <LogOut className={`w-5 h-5 text-slate-500 group-hover:text-rose-400`} />
-            {isSidebarOpen && <span className="text-[10px] font-black text-white uppercase tracking-widest group-hover:text-rose-400">Sign Out</span>}
+          <button 
+            onClick={() => store.logout()} 
+            disabled={store.isCloudSyncing}
+            className={`bg-white/5 rounded-[2.5rem] border border-white/5 flex items-center gap-4 w-full hover:bg-rose-500/10 transition-all group active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed ${isSidebarOpen ? 'p-6' : 'p-4 justify-center'}`}
+          >
+            {store.isCloudSyncing ? (
+              <Loader2 className="w-5 h-5 text-indigo-400 animate-spin" />
+            ) : (
+              <LogOut className={`w-5 h-5 text-slate-500 group-hover:text-rose-400`} />
+            )}
+            {isSidebarOpen && (
+              <span className="text-[10px] font-black text-white uppercase tracking-widest group-hover:text-rose-400">
+                {store.isCloudSyncing ? "Syncing..." : "Sign Out"}
+              </span>
+            )}
           </button>
         </div>
       </aside>
