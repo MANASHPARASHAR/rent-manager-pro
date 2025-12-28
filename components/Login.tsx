@@ -28,41 +28,26 @@ const Login: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  /**
-   * RE-ENGINEERED LOGIN LOGIC:
-   * 1. Priority: Local Entry. If store.users.length > 0, show the Login form immediately.
-   * 2. Secondary: Cloud Link. Only if users are 0 AND ClientID is set.
-   * 3. Tertiary: Genesis Mode. Only if no ClientID and no Users.
-   */
-
   const hasLocalUsers = store.users.length > 0;
 
+  // HOOKS MUST BE DECLARED ABOVE EARLY RETURNS
   const isCloudAuthRequired = useMemo(() => {
-    if (store.isBooting) return false;
-    
-    // If we have local users, WE DO NOT block with cloud auth.
-    // Cloud auth can happen inside the dashboard via the sidebar.
     if (hasLocalUsers) return false;
-    
     const hasClientIdConfigured = !!store.googleClientId;
-    const isCloudMode = store.storageMode === 'cloud';
     const isNotAuthorizedYet = !store.googleUser;
-    
-    return !hasLocalUsers && hasClientIdConfigured && isNotAuthorizedYet && isCloudMode;
-  }, [store.isBooting, hasLocalUsers, store.googleClientId, store.googleUser, store.storageMode]);
+    return hasClientIdConfigured && isNotAuthorizedYet;
+  }, [hasLocalUsers, store.googleClientId, store.googleUser]);
 
   const isInitializing = useMemo(() => {
-    if (store.isBooting || store.isCloudSyncing) return false;
-    if (hasLocalUsers) return false; // Not initializing if we have users
-    if (isCloudAuthRequired) return false; // Stage 1 takes priority
-    
+    if (hasLocalUsers) return false; 
+    if (isCloudAuthRequired) return false; 
     const isLocalMode = !store.googleClientId;
     const isWipedCloud = !!store.googleUser && !hasLocalUsers;
+    return (isLocalMode || isWipedCloud) && !store.isCloudSyncing;
+  }, [hasLocalUsers, isCloudAuthRequired, store.googleUser, store.googleClientId, store.isCloudSyncing]);
 
-    return !hasLocalUsers && (isLocalMode || isWipedCloud);
-  }, [store.isBooting, store.isCloudSyncing, hasLocalUsers, isCloudAuthRequired, store.googleUser, store.googleClientId]);
-
-  if (store.isBooting || (store.googleUser && store.isCloudSyncing && !hasLocalUsers)) {
+  // The Login page should only block the entire screen on initial boot timer
+  if (store.isBooting) {
     return (
       <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center p-4 relative overflow-hidden font-sans">
         <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] bg-indigo-600/20 rounded-full blur-[160px] pointer-events-none"></div>
@@ -74,7 +59,7 @@ const Login: React.FC = () => {
               <h2 className="text-2xl font-black text-white uppercase tracking-tighter">RentMaster Pro</h2>
               <div className="flex items-center justify-center gap-3 text-slate-500 text-[10px] font-black uppercase tracking-[0.3em]">
                  <Loader2 className="w-4 h-4 animate-spin text-indigo-500" /> 
-                 {store.isCloudSyncing ? "Syncing Directory" : "Verifying Workspace"}
+                 Verifying Workspace
               </div>
            </div>
         </div>
@@ -144,8 +129,8 @@ const Login: React.FC = () => {
               {isInitializing 
                 ? "Your user directory is empty. Create the primary administrator account to define your workspace." 
                 : isCloudAuthRequired 
-                ? "This instance is linked to Google Sheets but your local session has no user directory. Authorize to recover data."
-                : "Enter your credentials to manage your rental portfolio. Your session directory is available."}
+                ? "This instance is linked to Google Sheets. Authorize your session to synchronize your directory."
+                : "Enter your credentials to manage your rental portfolio. Your session directory is active."}
             </p>
           </div>
 
@@ -164,9 +149,17 @@ const Login: React.FC = () => {
             <h2 className="text-3xl font-black text-white tracking-tight mb-2 uppercase">
               {isInitializing ? "Account Setup" : isCloudAuthRequired ? "Cloud Connect" : "Identify User"}
             </h2>
-            <p className="text-slate-400 font-medium">
-              {isInitializing ? "Configure the master administrative account." : isCloudAuthRequired ? "Grant sheet permissions to fetch your data." : "Identify yourself to access the dashboard."}
-            </p>
+            <div className="flex items-center gap-3">
+              <p className="text-slate-400 font-medium">
+                {isInitializing ? "Configure the master administrative account." : isCloudAuthRequired ? "Grant sheet permissions to fetch your data." : "Identify yourself to access the dashboard."}
+              </p>
+              {store.isCloudSyncing && (
+                <div className="flex items-center gap-2 text-indigo-400 animate-pulse">
+                   <Loader2 className="w-3 h-3 animate-spin" />
+                   <span className="text-[9px] font-black uppercase">Syncing...</span>
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="space-y-6">
@@ -247,7 +240,7 @@ const Login: React.FC = () => {
 
                 <button 
                   type="submit"
-                  disabled={isLoading}
+                  disabled={isLoading || store.isCloudSyncing}
                   className={`w-full ${isInitializing ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-500/20' : 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/20'} text-white font-black uppercase tracking-widest py-5 rounded-2xl shadow-xl transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-3 group`}
                 >
                   {isLoading ? (

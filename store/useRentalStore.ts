@@ -51,7 +51,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     paymentModeOptions: ['Bank Transfer', 'Cash', 'Check', 'UPI/QR', 'Credit Card']
   });
 
-  // Tracking for deleted IDs to prevent "ghost" users from re-appearing during sync lag
   const [tombstones, setTombstones] = useState<Set<string>>(() => {
     const saved = localStorage.getItem(TOMBSTONES_KEY);
     return saved ? new Set(JSON.parse(saved)) : new Set();
@@ -61,7 +60,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     localStorage.setItem(TOMBSTONES_KEY, JSON.stringify(Array.from(tombstones)));
   }, [tombstones]);
 
-  const hasLoadedInitialCache = useRef(false);
   const lastSyncHash = useRef('');
   const isInitializingFirstUser = useRef(false);
 
@@ -117,9 +115,10 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
 
       const data = response.result.valueRanges;
+      if (!data) return;
+
       const parse = (index: number) => data[index]?.values?.slice(1) || [];
 
-      // Load users and filter against local tombstones to ensure deleted users don't reappear
       const currentTombstones = new Set(JSON.parse(localStorage.getItem(TOMBSTONES_KEY) || '[]'));
       const parsedUsers = parse(0)
         .map((r: any) => ({
@@ -153,11 +152,13 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       const pConfig = parse(6);
       if (pConfig.length > 0) {
-        const cloudConfig: AppConfig = {
-          paidToOptions: JSON.parse(pConfig[0][0] || '[]'),
-          paymentModeOptions: JSON.parse(pConfig[0][1] || '[]')
-        };
-        if (cloudConfig.paidToOptions.length) setConfig(cloudConfig);
+        try {
+          const cloudConfig: AppConfig = {
+            paidToOptions: JSON.parse(pConfig[0][0] || '[]'),
+            paymentModeOptions: JSON.parse(pConfig[0][1] || '[]')
+          };
+          if (cloudConfig.paidToOptions.length) setConfig(cloudConfig);
+        } catch(e) {}
       }
       setCloudError(null);
     } catch (e: any) {
@@ -240,26 +241,33 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       };
       tryAuth();
     });
-  }, [authClientId, authSession, bootstrapDatabase]);
+  }, [authClientId, bootstrapDatabase]);
 
-  const syncAll = useCallback(async (force: boolean = false, overrideUsers?: User[]) => {
+  const syncAll = useCallback(async (force: boolean = false, overrideState?: any) => {
     if (!spreadsheetId || !authSession) return; 
     
-    const activeUsers = overrideUsers || users;
-    const currentHash = JSON.stringify({ users: activeUsers, propertyTypes, properties, records, recordValues, payments, config });
+    const sUsers = overrideState?.users || users;
+    const sTypes = overrideState?.propertyTypes || propertyTypes;
+    const sProps = overrideState?.properties || properties;
+    const sRecords = overrideState?.records || records;
+    const sValues = overrideState?.recordValues || recordValues;
+    const sPayments = overrideState?.payments || payments;
+    const sConfig = overrideState?.config || config;
+
+    const currentHash = JSON.stringify({ users: sUsers, propertyTypes: sTypes, properties: sProps, records: sRecords, recordValues: sValues, payments: sPayments, config: sConfig });
     if (!force && currentHash === lastSyncHash.current) return;
     
     setIsCloudSyncing(true);
     try {
       const gapi = (window as any).gapi;
       const batchData = [
-        { tab: "Users", rows: [["ID", "Username", "Name", "Role", "PassHash", "Created"], ...activeUsers.map(u => [u.id, u.username, u.name, u.role, u.passwordHash, u.createdAt])] },
-        { tab: "PropertyTypes", rows: [["ID", "Name", "ColumnsJSON", "DueDay"], ...propertyTypes.map(t => [t.id, t.name, JSON.stringify(t.columns), t.defaultDueDateDay])] },
-        { tab: "Properties", rows: [["ID", "Name", "TypeID", "Address", "Created", "Visible"], ...properties.map(p => [p.id, p.name, p.propertyTypeId, p.address, p.createdAt, p.isVisibleToManager])] },
-        { tab: "Records", rows: [["ID", "PropID", "Created", "Updated"], ...records.map(r => [r.id, r.propertyId, r.createdAt, r.updatedAt])] },
-        { tab: "RecordValues", rows: [["ID", "RecordID", "ColID", "Value"], ...recordValues.map(v => [v.id, v.recordId, v.columnId, v.value])] },
-        { tab: "Payments", rows: [["ID", "RecID", "Month", "Amount", "Status", "Type", "Due", "PaidAt", "PaidTo", "Mode", "Refunded"], ...payments.map(p => [p.id, p.recordId, p.month, p.amount, p.status, p.type, p.dueDate, p.paidAt, p.paidTo, p.paymentMode, p.isRefunded])] },
-        { tab: "Config", rows: [["PaidToJSON", "ModesJSON"], [JSON.stringify(config.paidToOptions), JSON.stringify(config.paymentModeOptions)]] }
+        { tab: "Users", rows: [["ID", "Username", "Name", "Role", "PassHash", "Created"], ...sUsers.map((u: any) => [u.id, u.username, u.name, u.role, u.passwordHash, u.createdAt])] },
+        { tab: "PropertyTypes", rows: [["ID", "Name", "ColumnsJSON", "DueDay"], ...sTypes.map((t: any) => [t.id, t.name, JSON.stringify(t.columns), t.defaultDueDateDay])] },
+        { tab: "Properties", rows: [["ID", "Name", "TypeID", "Address", "Created", "Visible"], ...sProps.map((p: any) => [p.id, p.name, p.propertyTypeId, p.address, p.createdAt, p.isVisibleToManager])] },
+        { tab: "Records", rows: [["ID", "PropID", "Created", "Updated"], ...sRecords.map((r: any) => [r.id, r.propertyId, r.createdAt, r.updatedAt])] },
+        { tab: "RecordValues", rows: [["ID", "RecordID", "ColID", "Value"], ...sValues.map((v: any) => [v.id, v.recordId, v.columnId, v.value])] },
+        { tab: "Payments", rows: [["ID", "RecID", "Month", "Amount", "Status", "Type", "Due", "PaidAt", "PaidTo", "Mode", "Refunded"], ...sPayments.map((p: any) => [p.id, p.recordId, p.month, p.amount, p.status, p.type, p.dueDate, p.paidAt, p.paidTo, p.paymentMode, p.isRefunded])] },
+        { tab: "Config", rows: [["PaidToJSON", "ModesJSON"], [JSON.stringify(sConfig.paidToOptions), JSON.stringify(sConfig.paymentModeOptions)]] }
       ];
 
       for (const item of batchData) {
@@ -271,10 +279,9 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         });
       }
       
-      // Clear tombstones for users that were just successfully pushed as "removed"
       setTombstones(prev => {
         const next = new Set(prev);
-        activeUsers.forEach(u => next.delete(u.id));
+        sUsers.forEach((u: any) => next.delete(u.id));
         return next;
       });
 
@@ -322,7 +329,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (parsed.config) setConfig(parsed.config);
       } catch (e) {}
     }
-    hasLoadedInitialCache.current = true;
     const timer = setTimeout(() => {
       setIsReady(true);
       setIsBooting(false);
@@ -330,31 +336,23 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return () => clearTimeout(timer);
   }, []);
 
-  const updateLocalCacheManually = (updatedUsers: User[]) => {
-    const localData = JSON.parse(localStorage.getItem('rentmaster_local_cache') || '{}');
+  const updateLocalCacheManually = (overrides: any) => {
+    const currentCache = JSON.parse(localStorage.getItem('rentmaster_local_cache') || '{}');
     localStorage.setItem('rentmaster_local_cache', JSON.stringify({
-      ...localData,
-      users: updatedUsers
+      ...currentCache,
+      ...overrides
     }));
   };
 
   const login = async (username: string, password: string, skipCloudRefresh = false) => {
     const lowerUser = username.toLowerCase();
-    
     if (spreadsheetId && authSession && !skipCloudRefresh) {
       try { await loadAllData(spreadsheetId); } catch(e) {}
     }
-
     const currentTombstones = new Set(JSON.parse(localStorage.getItem(TOMBSTONES_KEY) || '[]'));
-    const foundUser = users.find(u => 
-      u.username.toLowerCase() === lowerUser && 
-      u.passwordHash === password &&
-      !currentTombstones.has(u.id)
-    );
-
+    const foundUser = users.find(u => u.username.toLowerCase() === lowerUser && u.passwordHash === password && !currentTombstones.has(u.id));
     if (foundUser) {
       setUser(foundUser);
-      isInitializingFirstUser.current = false;
       return true;
     }
     return false;
@@ -364,93 +362,138 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const addUser = async (newUser: User, autoLogin: boolean = false) => {
     if (users.length === 0) isInitializingFirstUser.current = true;
-    
-    // Clear any potential tombstone if we are re-adding an ID (unlikely but safe)
-    setTombstones(prev => {
-      const next = new Set(prev);
-      next.delete(newUser.id);
-      return next;
-    });
-
-    setUsers(prev => {
-      const next = [...prev, newUser];
-      updateLocalCacheManually(next);
-      return next;
-    });
-
-    localStorage.setItem('rentmaster_initialized', 'true');
+    const nextUsers = [...users, newUser];
+    setTombstones(prev => { const n = new Set(prev); n.delete(newUser.id); return n; });
+    setUsers(nextUsers);
+    updateLocalCacheManually({ users: nextUsers });
     if (autoLogin) { setUser(newUser); isInitializingFirstUser.current = false; }
-    
-    if (spreadsheetId && authSession) { 
-      // Important: use functional update logic to get most recent state for sync
-      await syncAll(true, [...users, newUser]); 
-    }
+    await syncAll(true, { users: nextUsers });
   };
 
   const deleteUser = async (id: string) => {
-    // Add to tombstones immediately to block any re-login or restoration
     setTombstones(prev => new Set(prev).add(id));
-
-    setUsers(prev => {
-      const next = prev.filter(u => u.id !== id);
-      updateLocalCacheManually(next);
-      return next;
-    });
-
-    if (spreadsheetId && authSession) {
-      const nextUsers = users.filter(u => u.id !== id);
-      await syncAll(true, nextUsers);
-    }
+    const nextUsers = users.filter(u => u.id !== id);
+    setUsers(nextUsers);
+    updateLocalCacheManually({ users: nextUsers });
+    await syncAll(true, { users: nextUsers });
   };
 
   const updateUser = async (updated: User) => {
-    const next = users.map(u => u.id === updated.id ? updated : u);
-    setUsers(next);
-    updateLocalCacheManually(next);
-    if (spreadsheetId && authSession) {
-      await syncAll(true, next);
-    }
+    const nextUsers = users.map(u => u.id === updated.id ? updated : u);
+    setUsers(nextUsers);
+    updateLocalCacheManually({ users: nextUsers });
+    await syncAll(true, { users: nextUsers });
   };
 
-  const addPropertyType = (type: PropertyType) => setPropertyTypes(prev => [...prev, type]);
-  const updatePropertyType = (type: PropertyType) => setPropertyTypes(prev => prev.map(t => t.id === type.id ? type : t));
-  const deletePropertyType = (id: string) => setPropertyTypes(prev => prev.filter(t => t.id !== id));
-  const addProperty = (prop: Property) => setProperties(prev => [...prev, { ...prop, isVisibleToManager: true }]);
-  const togglePropertyVisibility = (id: string) => setProperties(prev => prev.map(p => p.id === id ? { ...p, isVisibleToManager: !p.isVisibleToManager } : p));
-  const deleteProperty = (id: string) => {
-    setProperties(prev => prev.filter(p => p.id !== id));
+  const addPropertyType = async (type: PropertyType) => {
+    const next = [...propertyTypes, type];
+    setPropertyTypes(next);
+    updateLocalCacheManually({ propertyTypes: next });
+    await syncAll(true, { propertyTypes: next });
+  };
+
+  const updatePropertyType = async (type: PropertyType) => {
+    const next = propertyTypes.map(t => t.id === type.id ? type : t);
+    setPropertyTypes(next);
+    updateLocalCacheManually({ propertyTypes: next });
+    await syncAll(true, { propertyTypes: next });
+  };
+
+  const deletePropertyType = async (id: string) => {
+    const next = propertyTypes.filter(t => t.id !== id);
+    setPropertyTypes(next);
+    updateLocalCacheManually({ propertyTypes: next });
+    await syncAll(true, { propertyTypes: next });
+  };
+
+  const addProperty = async (prop: Property) => {
+    const next = [...properties, { ...prop, isVisibleToManager: true }];
+    setProperties(next);
+    updateLocalCacheManually({ properties: next });
+    await syncAll(true, { properties: next });
+  };
+
+  const togglePropertyVisibility = async (id: string) => {
+    const next = properties.map(p => p.id === id ? { ...p, isVisibleToManager: !p.isVisibleToManager } : p);
+    setProperties(next);
+    updateLocalCacheManually({ properties: next });
+    await syncAll(true, { properties: next });
+  };
+
+  const deleteProperty = async (id: string) => {
+    const nextProps = properties.filter(p => p.id !== id);
     const unitsToDelete = records.filter(r => r.propertyId === id).map(r => r.id);
-    setRecords(prev => prev.filter(r => r.propertyId !== id));
-    setRecordValues(prev => prev.filter(v => !unitsToDelete.includes(v.recordId)));
-    setPayments(prev => prev.filter(p => !unitsToDelete.includes(p.recordId)));
+    const nextRecords = records.filter(r => r.propertyId !== id);
+    const nextValues = recordValues.filter(v => !unitsToDelete.includes(v.recordId));
+    const nextPayments = payments.filter(p => !unitsToDelete.includes(p.recordId));
+    
+    setProperties(nextProps);
+    setRecords(nextRecords);
+    setRecordValues(nextValues);
+    setPayments(nextPayments);
+    
+    updateLocalCacheManually({ properties: nextProps, records: nextRecords, recordValues: nextValues, payments: nextPayments });
+    await syncAll(true, { properties: nextProps, records: nextRecords, recordValues: nextValues, payments: nextPayments });
   };
-  const addRecord = (record: PropertyRecord, values: RecordValue[]) => {
-    setRecords(prev => [...prev, record]);
-    setRecordValues(prev => [...prev, ...values]);
+
+  const addRecord = async (record: PropertyRecord, values: RecordValue[]) => {
+    const nextRecords = [...records, record];
+    const nextValues = [...recordValues, ...values];
+    setRecords(nextRecords);
+    setRecordValues(nextValues);
+    updateLocalCacheManually({ records: nextRecords, recordValues: nextValues });
+    await syncAll(true, { records: nextRecords, recordValues: nextValues });
   };
-  const updateRecord = (recordId: string, values: RecordValue[]) => {
-    setRecordValues(prev => [...prev.filter(v => v.recordId !== recordId), ...values]);
+
+  const updateRecord = async (recordId: string, values: RecordValue[]) => {
+    const nextValues = [...recordValues.filter(v => v.recordId !== recordId), ...values];
+    setRecordValues(nextValues);
+    updateLocalCacheManually({ recordValues: nextValues });
+    await syncAll(true, { recordValues: nextValues });
   };
-  const deleteRecord = (id: string) => {
-    setRecords(prev => prev.filter(r => r.id !== id));
-    setRecordValues(prev => prev.filter(v => v.recordId !== id));
-    setPayments(prev => prev.filter(p => p.recordId !== id));
+
+  const deleteRecord = async (id: string) => {
+    const nextRecords = records.filter(r => r.id !== id);
+    const nextValues = recordValues.filter(v => v.recordId !== id);
+    const nextPayments = payments.filter(p => p.recordId !== id);
+    
+    setRecords(nextRecords);
+    setRecordValues(nextValues);
+    setPayments(nextPayments);
+    
+    updateLocalCacheManually({ records: nextRecords, recordValues: nextValues, payments: nextPayments });
+    await syncAll(true, { records: nextRecords, recordValues: nextValues, payments: nextPayments });
   };
-  const togglePayment = (recordId: string, month: string, amount: number, dueDate: string, extra: Partial<Payment> = {}, paymentType: PaymentType = 'RENT') => {
+
+  const togglePayment = async (recordId: string, month: string, amount: number, dueDate: string, extra: Partial<Payment> = {}, paymentType: PaymentType = 'RENT') => {
     const existing = payments.find(p => p.recordId === recordId && p.month === month && p.type === paymentType);
+    let nextPayments;
     if (existing) {
-      setPayments(prev => prev.filter(p => p.id !== existing.id));
+      nextPayments = payments.filter(p => p.id !== existing.id);
     } else {
-      setPayments(prev => [...prev, {
+      nextPayments = [...payments, {
         id: 'pay' + Date.now(), recordId, month, amount, status: PaymentStatus.PAID, type: paymentType,
         dueDate, paidAt: new Date().toISOString(), ...extra
-      }]);
+      }];
     }
+    setPayments(nextPayments);
+    updateLocalCacheManually({ payments: nextPayments });
+    await syncAll(true, { payments: nextPayments });
   };
-  const refundDeposit = (recordId: string) => {
-    setPayments(prev => prev.map(p => p.recordId === recordId && p.type === 'DEPOSIT' ? { ...p, isRefunded: true } : p));
+
+  const refundDeposit = async (recordId: string) => {
+    const next = payments.map(p => p.recordId === recordId && p.type === 'DEPOSIT' ? { ...p, isRefunded: true } : p);
+    setPayments(next);
+    updateLocalCacheManually({ payments: next });
+    await syncAll(true, { payments: next });
   };
-  const updateConfig = (newConfig: Partial<AppConfig>) => setConfig(prev => ({ ...prev, ...newConfig }));
+
+  const updateConfig = async (newConfig: Partial<AppConfig>) => {
+    const next = { ...config, ...newConfig };
+    setConfig(next);
+    updateLocalCacheManually({ config: next });
+    await syncAll(true, { config: next });
+  };
 
   const value = {
     isReady, isBooting, user, users, propertyTypes, properties, records, recordValues, payments, config,
