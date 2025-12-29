@@ -17,23 +17,12 @@ Google Access Tokens expire every hour.
 - **Silent Refresh**: On a 401 (Unauthorized) error, the app attempts a background refresh using `tokenClient.requestAccessToken({ prompt: '' })`.
 - **Hard Expiry**: If silent refresh fails (user signed out of Google), the `syncStatus` shifts to `reauth`, prompting a user-facing Google popup.
 
-### B. Zero-Knowledge Credentialing
-The app utilizes the **SubtleCrypto Web API** to implement SHA-256 hashing. 
-- Raw passwords **never** enter the application state.
-- Raw passwords **never** enter the Google Sheet.
-- Verification is performed by comparing hashes, ensuring that even a full database breach does not expose user passwords.
+### B. Genesis Mode (The Bootstrap)
+- **Condition**: No users in local storage AND no `spreadsheetId` configured.
+- **Behavior**: Bypasses cloud checks to allow local creation of the first `ADMIN`. Once created, the Admin can link a Google Client ID from the settings.
 
-### C. Local Cache Obfuscation
-To prevent casual data breaches from shared devices or basic browser inspections:
-- All data stored in `localStorage` is passed through a **Base64 encoding layer** with UTF-8 support.
-- This prevents automated scraping tools or shoulder-surfers from reading sensitive tenant PII (Personally Identifiable Information) in plain text.
-- **Storage Versioning**: The app uses `_v2` keys to prevent parsing collisions with legacy, unhardened data formats.
-
-### D. Content Security Policy (CSP)
-A strict CSP is enforced via Meta tags to:
-- Disable unauthorized script execution.
-- Prevent data exfiltration to non-Google domains.
-- Mitigate Cross-Site Scripting (XSS) risks from malformed external data.
+### C. Joining an Existing Workspace
+- **Flow**: User enters Client ID -> Google Auth -> App finds `RentMaster_Pro_Database` in Drive -> Pulls all Users/Properties -> UI unlocks Login.
 
 ## 4. Error Handling & Recovery
 - **401 (Unauthorized)**: Triggers re-authentication flow.

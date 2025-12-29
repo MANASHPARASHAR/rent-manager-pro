@@ -1,21 +1,16 @@
+
 import React from 'react';
-import { createRoot } from 'react-dom/client';
-import App from './App.tsx';
+import ReactDOM from 'react-dom/client';
+import App from './App';
 
-/**
- * RentMaster Pro - Root Entry Point
- * Mounts the React application to the DOM.
- */
-
-const container = document.getElementById('root');
-
-if (container) {
-  const root = createRoot(container);
-  root.render(
-    <React.StrictMode>
-      <App />
-    </React.StrictMode>
-  );
-} else {
-  console.error("Critical Error: 'root' element not found in index.html.");
+const rootElement = document.getElementById('root');
+if (!rootElement) {
+  throw new Error("Could not find root element to mount to");
 }
+
+const root = ReactDOM.createRoot(rootElement);
+root.render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);

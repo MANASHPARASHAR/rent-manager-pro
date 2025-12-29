@@ -1,15 +1,16 @@
+
 import React from 'react';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import Layout from './components/Layout.tsx';
-import Dashboard from './components/Dashboard.tsx';
-import PropertyManagement from './components/PropertyManagement.tsx';
-import PropertyTypeManager from './components/PropertyTypeManager.tsx';
-import PropertyDetails from './components/PropertyDetails.tsx';
-import RentCollection from './components/RentCollection.tsx';
-import Reports from './components/Reports.tsx';
-import UserManagement from './components/UserManagement.tsx';
-import Login from './components/Login.tsx';
-import { useRentalStore, RentalProvider } from './store/useRentalStore.ts';
+import Layout from './components/Layout';
+import Dashboard from './components/Dashboard';
+import PropertyManagement from './components/PropertyManagement';
+import PropertyTypeManager from './components/PropertyTypeManager';
+import PropertyDetails from './components/PropertyDetails';
+import RentCollection from './components/RentCollection';
+import Reports from './components/Reports';
+import UserManagement from './components/UserManagement';
+import Login from './components/Login';
+import { useRentalStore, RentalProvider } from './store/useRentalStore';
 
 const AppContent: React.FC = () => {
   const store = useRentalStore();
