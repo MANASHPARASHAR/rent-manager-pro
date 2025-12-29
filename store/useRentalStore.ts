@@ -70,6 +70,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const lastSyncHash = useRef('');
   const tokenClientRef = useRef<any>(null);
   const isInitializingFirstUser = useRef(false);
+  const isSyncInProgress = useRef(false);
 
   const stateRef = useRef({ 
     users: initialData.current?.users || [], 
@@ -105,6 +106,69 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     
     localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(dataToSave));
   }, []);
+
+  const syncAll = useCallback(async (force: boolean = false, overrideState?: any) => {
+    if (!spreadsheetId || !authSession || isSyncInProgress.current) return; 
+    
+    const s = { ...stateRef.current, ...overrideState };
+    const currentHash = JSON.stringify({ users: s.users, propertyTypes: s.propertyTypes, properties: s.properties, records: s.records, recordValues: s.recordValues, unitHistory: s.unitHistory, payments: s.payments, config: s.config });
+    if (!force && currentHash === lastSyncHash.current) return;
+    
+    isSyncInProgress.current = true;
+    setIsCloudSyncing(true);
+    try {
+      const gapi = (window as any).gapi;
+      
+      const batchData = [
+        { tab: "Users", rows: [["ID", "Username", "Name", "Role", "PassHash", "Created"], ...s.users.map((u: any) => [u.id, u.username, u.name, u.role, u.passwordHash, u.createdAt])] },
+        { tab: "PropertyTypes", rows: [["ID", "Name", "ColumnsJSON", "DueDay"], ...s.propertyTypes.map((t: any) => [t.id, t.name, JSON.stringify(t.columns), t.defaultDueDateDay])] },
+        { tab: "Properties", rows: [["ID", "Name", "TypeID", "Address", "Created", "Visible", "City"], ...s.properties.map((p: any) => [p.id, p.name, p.propertyTypeId, p.address, p.createdAt, String(p.isVisibleToManager !== false), p.city || ''])] },
+        { tab: "Records", rows: [["ID", "PropID", "Created", "Updated"], ...s.records.map((r: any) => [r.id, r.propertyId, r.createdAt, r.updatedAt])] },
+        { tab: "RecordValues", rows: [["ID", "RecordID", "ColID", "Value"], ...s.recordValues.map((v: any) => [v.id, v.recordId, v.columnId, v.value])] },
+        { tab: "Payments", rows: [["ID", "RecID", "Month", "Amount", "Status", "Type", "Due", "PaidAt", "PaidTo", "Mode", "Refunded"], ...s.payments.map((p: any) => [p.id, p.recordId, p.month, p.amount, p.status, p.type, p.dueDate, p.paidAt, p.paidTo, p.paymentMode, String(p.isRefunded === true)])] },
+        { tab: "Config", rows: [["PaidToJSON", "ModesJSON", "CitiesJSON"], [JSON.stringify(s.config.paidToOptions), JSON.stringify(s.config.paymentModeOptions), JSON.stringify(s.config.cities)]] },
+        { tab: "UnitHistory", rows: [["ID", "RecordID", "ValuesJSON", "From", "To"], ...s.unitHistory.map((h: any) => [h.id, h.recordId, JSON.stringify(h.values), h.effectiveFrom, h.effectiveTo || 'null'])] }
+      ];
+
+      // Prepare Atomic Batch Clear & Update
+      const data = batchData.map(item => ({
+        range: `${item.tab}!A1`,
+        values: item.rows
+      }));
+
+      // We clear the ranges first to ensure no old rows remain if new dataset is smaller
+      // but to be more efficient we just clear A1:Z5000 in the same session if needed.
+      // For now, simple clear + update is most reliable for preventing row leakage.
+      for (const item of batchData) {
+        await gapi.client.sheets.spreadsheets.values.clear({ spreadsheetId, range: `${item.tab}!A1:Z5000` });
+      }
+
+      await gapi.client.sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId,
+        resource: {
+          data,
+          valueInputOption: 'RAW'
+        }
+      });
+
+      lastSyncHash.current = currentHash;
+      setCloudError(null);
+    } catch (e: any) {
+      console.error("Sync error:", e);
+      if (e.status === 401 && tokenClientRef.current) {
+        tokenClientRef.current.requestAccessToken({ prompt: '' });
+      } else if (e.result?.error?.message?.includes("Requested entity was not found")) {
+        setCloudError("Cloud database missing. Re-authorization required.");
+        localStorage.removeItem('rentmaster_active_sheet_id');
+        setSpreadsheetId(null);
+      } else {
+        setCloudError("Sync Interrupted. Retrying shortly...");
+      }
+    } finally {
+      setIsCloudSyncing(false);
+      isSyncInProgress.current = false;
+    }
+  }, [spreadsheetId, authSession]);
 
   const initGoogleClient = useCallback(async () => {
     return new Promise((resolve) => {
@@ -181,7 +245,8 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const parse = (index: number) => data[index]?.values?.slice(1) || [];
       const currentTombstones = new Set(JSON.parse(localStorage.getItem(TOMBSTONES_KEY) || '[]'));
 
-      const parsedUsers = parse(0)
+      const rawUsers = parse(0);
+      const parsedUsers = rawUsers
         .map((r: any) => ({ id: r[0], username: r[1], name: r[2], role: r[3] as UserRole, passwordHash: r[4], createdAt: r[5] }))
         .filter(u => u.id && u.username && !currentTombstones.has(u.id));
       
@@ -229,6 +294,14 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }))
         .filter(h => h.id && !currentTombstones.has(h.recordId));
 
+      // Special Check: If cloud is completely empty (new sheet) but local has data, push local to cloud immediately
+      if (rawUsers.length === 0 && (stateRef.current.users.length > 0 || stateRef.current.properties.length > 0)) {
+        console.log("Empty cloud sheet detected with non-empty local cache. Pushing local to cloud...");
+        syncAll(true);
+        setIsBooting(false);
+        return;
+      }
+
       const nextState = { 
         users: parsedUsers, 
         propertyTypes: parsedTypes, 
@@ -261,7 +334,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     } finally {
       setIsBooting(false);
     }
-  }, [authSession, writeLocalCache, spreadsheetId]);
+  }, [authSession, writeLocalCache, spreadsheetId, syncAll]);
 
   const bootstrapDatabase = useCallback(async () => {
     if (!authSession) {
@@ -334,47 +407,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
   }, [authClientId, bootstrapDatabase]);
 
-  const syncAll = useCallback(async (force: boolean = false, overrideState?: any) => {
-    if (!spreadsheetId || !authSession) return; 
-    
-    const s = { ...stateRef.current, ...overrideState };
-    const currentHash = JSON.stringify({ users: s.users, propertyTypes: s.propertyTypes, properties: s.properties, records: s.records, recordValues: s.recordValues, unitHistory: s.unitHistory, payments: s.payments, config: s.config });
-    if (!force && currentHash === lastSyncHash.current) return;
-    
-    setIsCloudSyncing(true);
-    try {
-      const gapi = (window as any).gapi;
-      const batchData = [
-        { tab: "Users", rows: [["ID", "Username", "Name", "Role", "PassHash", "Created"], ...s.users.map((u: any) => [u.id, u.username, u.name, u.role, u.passwordHash, u.createdAt])] },
-        { tab: "PropertyTypes", rows: [["ID", "Name", "ColumnsJSON", "DueDay"], ...s.propertyTypes.map((t: any) => [t.id, t.name, JSON.stringify(t.columns), t.defaultDueDateDay])] },
-        { tab: "Properties", rows: [["ID", "Name", "TypeID", "Address", "Created", "Visible", "City"], ...s.properties.map((p: any) => [p.id, p.name, p.propertyTypeId, p.address, p.createdAt, String(p.isVisibleToManager !== false), p.city || ''])] },
-        { tab: "Records", rows: [["ID", "PropID", "Created", "Updated"], ...s.records.map((r: any) => [r.id, r.propertyId, r.createdAt, r.updatedAt])] },
-        { tab: "RecordValues", rows: [["ID", "RecordID", "ColID", "Value"], ...s.recordValues.map((v: any) => [v.id, v.recordId, v.columnId, v.value])] },
-        { tab: "Payments", rows: [["ID", "RecID", "Month", "Amount", "Status", "Type", "Due", "PaidAt", "PaidTo", "Mode", "Refunded"], ...s.payments.map((p: any) => [p.id, p.recordId, p.month, p.amount, p.status, p.type, p.dueDate, p.paidAt, p.paidTo, p.paymentMode, p.isRefunded])] },
-        { tab: "Config", rows: [["PaidToJSON", "ModesJSON", "CitiesJSON"], [JSON.stringify(s.config.paidToOptions), JSON.stringify(s.config.paymentModeOptions), JSON.stringify(s.config.cities)]] },
-        { tab: "UnitHistory", rows: [["ID", "RecordID", "ValuesJSON", "From", "To"], ...s.unitHistory.map((h: any) => [h.id, h.recordId, JSON.stringify(h.values), h.effectiveFrom, h.effectiveTo || 'null'])] }
-      ];
-
-      for (const item of batchData) {
-        await gapi.client.sheets.spreadsheets.values.clear({ spreadsheetId, range: `${item.tab}!A1:Z5000` });
-        await gapi.client.sheets.spreadsheets.values.update({
-          spreadsheetId,
-          range: `${item.tab}!A1`,
-          valueInputOption: 'RAW',
-          resource: { values: item.rows }
-        });
-      }
-      lastSyncHash.current = currentHash;
-      setCloudError(null);
-    } catch (e: any) {
-      if (e.status === 401 && tokenClientRef.current) {
-        tokenClientRef.current.requestAccessToken({ prompt: '' });
-      }
-    } finally {
-      setIsCloudSyncing(false);
-    }
-  }, [spreadsheetId, authSession]);
-
   useEffect(() => { 
     initGoogleClient().then(() => {
       if (authSession && spreadsheetId) bootstrapDatabase();
@@ -384,7 +416,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   useEffect(() => {
     if (spreadsheetId && authSession && !isInitializingFirstUser.current) {
-      const timer = setTimeout(() => syncAll(), 3000);
+      const timer = setTimeout(() => syncAll(), 2500);
       return () => clearTimeout(timer);
     }
   }, [users, propertyTypes, properties, records, recordValues, unitHistory, payments, config, spreadsheetId, authSession, syncAll]);
@@ -445,79 +477,25 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     const prevMonth = now.getMonth() === 0 ? `${now.getFullYear()-1}-12` : `${now.getFullYear()}-${String(now.getMonth()).padStart(2, '0')}`;
 
-    // Apex Units
-    const apexUnits = [
-        { id: '101', tenant: 'Jonathan Wick', num: '5550101', rent: '2400', dep: '2400', status: 'Active', date: '2024-10-01' },
-        { id: '102', tenant: 'Selina Kyle', num: '5550102', rent: '1850', dep: '1850', status: 'Active', date: '2024-11-15' },
-        { id: '103', tenant: 'Vacant', num: '0', rent: '2100', dep: '2100', status: 'Vacant', date: '2024-01-01' }
-    ];
-
-    apexUnits.forEach((u, i) => {
+    apexUnits.forEach((u) => {
         const rId = `r_demo_apex_${u.id}`;
         recordsArr.push({ id: rId, propertyId: prop1Id, createdAt: '2024-01-01T00:00:00Z', updatedAt: new Date().toISOString() });
-        
-        const unitValues = { 
-          [colIds.tenant]: u.status === 'Vacant' ? '' : u.tenant, 
-          [colIds.num]: u.status === 'Vacant' ? '' : u.num,
-          [colIds.rent]: u.rent, 
-          [colIds.deposit]: u.dep, 
-          [colIds.date]: u.date, 
-          [colIds.status]: u.status 
-        };
-
+        const unitValues = { [colIds.tenant]: u.status === 'Vacant' ? '' : u.tenant, [colIds.num]: u.status === 'Vacant' ? '' : u.num, [colIds.rent]: u.rent, [colIds.deposit]: u.dep, [colIds.date]: u.date, [colIds.status]: u.status };
         Object.entries(unitValues).forEach(([cid, val]) => valuesArr.push({ id: `v_demo_${rId}_${cid}`, recordId: rId, columnId: cid, value: val }));
-        
-        historyArr.push({ 
-          id: `h_demo_${rId}`, 
-          recordId: rId, 
-          effectiveFrom: '2024-01-01T00:00:00Z', 
-          effectiveTo: null, 
-          values: unitValues 
-        });
+        historyArr.push({ id: `h_demo_${rId}`, recordId: rId, effectiveFrom: '2024-01-01T00:00:00Z', effectiveTo: null, values: unitValues });
 
         if (u.status === 'Active') {
-            // Previous Month Paid
-            paymentsArr.push({ 
-              id: `pay_demo_${rId}_prev`, 
-              recordId: rId, 
-              month: prevMonth, 
-              amount: parseFloat(u.rent), 
-              status: PaymentStatus.PAID, 
-              type: 'RENT', 
-              dueDate: `${prevMonth}-05`, 
-              paidAt: `${prevMonth}-02`, 
-              paidTo: 'Company Account', 
-              paymentMode: 'Bank Transfer' 
-            });
-            // Deposit
-            paymentsArr.push({ 
-              id: `dep_demo_${rId}`, 
-              recordId: rId, 
-              month: 'ONE_TIME', 
-              amount: parseFloat(u.dep), 
-              status: PaymentStatus.PAID, 
-              type: 'DEPOSIT', 
-              dueDate: 'N/A', 
-              paidAt: u.date, 
-              paidTo: 'Company Account', 
-              paymentMode: 'Check' 
-            });
+            paymentsArr.push({ id: `pay_demo_${rId}_prev`, recordId: rId, month: prevMonth, amount: parseFloat(u.rent), status: PaymentStatus.PAID, type: 'RENT', dueDate: `${prevMonth}-05`, paidAt: `${prevMonth}-02`, paidTo: 'Company Account', paymentMode: 'Bank Transfer' });
+            paymentsArr.push({ id: `dep_demo_${rId}`, recordId: rId, month: 'ONE_TIME', amount: parseFloat(u.dep), status: PaymentStatus.PAID, type: 'DEPOSIT', dueDate: 'N/A', paidAt: u.date, paidTo: 'Company Account', paymentMode: 'Check' });
         }
     });
 
-    // Evergreen - One unit with transition from Vacant to Active
     const eId = `r_demo_e_201`;
     recordsArr.push({ id: eId, propertyId: prop2Id, createdAt: '2024-01-01T00:00:00Z', updatedAt: new Date().toISOString() });
-    
-    // Phase 1: Vacant
     const vacantValues = { [colIds.tenant]: '', [colIds.num]: '', [colIds.rent]: '1600', [colIds.deposit]: '1600', [colIds.date]: '2024-01-01', [colIds.status]: 'Vacant' };
     historyArr.push({ id: `h_demo_e_phase1`, recordId: eId, effectiveFrom: '2024-01-01T00:00:00Z', effectiveTo: '2024-12-31T23:59:59Z', values: vacantValues });
-    
-    // Phase 2: Active
     const activeValues = { [colIds.tenant]: 'Peter Parker', [colIds.num]: '5550201', [colIds.rent]: '1600', [colIds.deposit]: '1600', [colIds.date]: '2025-01-01', [colIds.status]: 'Active' };
     historyArr.push({ id: `h_demo_e_phase2`, recordId: eId, effectiveFrom: '2025-01-01T00:00:00Z', effectiveTo: null, values: activeValues });
-    
-    // Initial record values (latest)
     Object.entries(activeValues).forEach(([cid, val]) => valuesArr.push({ id: `v_demo_${eId}_${cid}`, recordId: eId, columnId: cid, value: val }));
 
     setPropertyTypes([pt]);
@@ -533,6 +511,12 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (spreadsheetId) syncAll(true, nextState);
   };
 
+  const apexUnits = [
+    { id: '101', tenant: 'Jonathan Wick', num: '5550101', rent: '2400', dep: '2400', status: 'Active', date: '2024-10-01' },
+    { id: '102', tenant: 'Selina Kyle', num: '5550102', rent: '1850', dep: '1850', status: 'Active', date: '2024-11-15' },
+    { id: '103', tenant: 'Vacant', num: '0', rent: '2100', dep: '2100', status: 'Vacant', date: '2024-01-01' }
+  ];
+
   const updateClientId = (id: string) => {
     setAuthClientId(id);
     localStorage.setItem('rentmaster_google_client_id', id);
@@ -541,17 +525,12 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const addUser = async (newUser: User, autoLogin: boolean = false) => {
     const isFirstUser = users.length === 0;
     if (isFirstUser) isInitializingFirstUser.current = true;
-    
     const nextUsers = [...users, newUser];
     stateRef.current.users = nextUsers;
     writeLocalCache({ users: nextUsers });
     setUsers(nextUsers);
     syncAll(true, { users: nextUsers });
-    
-    if (autoLogin) { 
-      setUser(newUser); 
-      isInitializingFirstUser.current = false; 
-    }
+    if (autoLogin) { setUser(newUser); isInitializingFirstUser.current = false; }
   };
 
   const deleteUser = async (id: string) => {
@@ -619,26 +598,18 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       records.filter(r => r.propertyId === id).forEach(r => n.add(r.id));
       return n;
     });
-    
     const nextProps = properties.filter(p => p.id !== id);
     const nextRecords = records.filter(r => r.propertyId !== id);
     const deletedRecordIds = records.filter(r => r.propertyId === id).map(r => r.id);
     const nextValues = recordValues.filter(v => !deletedRecordIds.includes(v.recordId));
     const nextPayments = payments.filter(p => !deletedRecordIds.includes(p.recordId));
     const nextHistory = unitHistory.filter(h => !deletedRecordIds.includes(h.recordId));
-
-    stateRef.current.properties = nextProps;
-    stateRef.current.records = nextRecords;
-    stateRef.current.recordValues = nextValues;
-    stateRef.current.unitHistory = nextHistory;
-    stateRef.current.payments = nextPayments;
-
+    stateRef.current = { ...stateRef.current, properties: nextProps, records: nextRecords, recordValues: nextValues, unitHistory: nextHistory, payments: nextPayments };
     setProperties(nextProps);
     setRecords(nextRecords);
     setRecordValues(nextValues);
     setUnitHistory(nextHistory);
     setPayments(nextPayments);
-
     writeLocalCache();
     syncAll(true);
   };
@@ -646,27 +617,14 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const addRecord = async (record: PropertyRecord, values: RecordValue[]) => {
     const now = new Date().toISOString();
     const mappedValues = values.reduce((acc, v) => ({...acc, [v.columnId]: v.value}), {});
-    
-    const newHistory: UnitHistory = {
-      id: 'h' + Date.now(),
-      recordId: record.id,
-      values: mappedValues,
-      effectiveFrom: now,
-      effectiveTo: null
-    };
-
+    const newHistory: UnitHistory = { id: 'h' + Date.now(), recordId: record.id, values: mappedValues, effectiveFrom: now, effectiveTo: null };
     const nextValues = [...recordValues, ...values];
     const nextRecords = [...records, record];
     const nextHistory = [...unitHistory, newHistory];
-
-    stateRef.current.records = nextRecords;
-    stateRef.current.recordValues = nextValues;
-    stateRef.current.unitHistory = nextHistory;
-
+    stateRef.current = { ...stateRef.current, records: nextRecords, recordValues: nextValues, unitHistory: nextHistory };
     setRecordValues(nextValues);
     setRecords(nextRecords);
     setUnitHistory(nextHistory);
-
     writeLocalCache();
     syncAll(true);
   };
@@ -674,38 +632,20 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const updateRecord = async (recordId: string, values: RecordValue[], effectiveDate?: string) => {
     const effDate = effectiveDate ? new Date(effectiveDate).toISOString() : new Date().toISOString();
     const mappedNewValues = values.reduce((acc, v) => ({...acc, [v.columnId]: v.value}), {});
-    
-    // Temporal integrity: Close active snapshot and start new one
     const updatedHistory = unitHistory.map(h => {
       if (h.recordId === recordId && h.effectiveTo === null) {
-        if (new Date(effDate) > new Date(h.effectiveFrom)) {
-            return { ...h, effectiveTo: new Date(new Date(effDate).getTime() - 1000).toISOString() };
-        }
+        if (new Date(effDate) > new Date(h.effectiveFrom)) return { ...h, effectiveTo: new Date(new Date(effDate).getTime() - 1000).toISOString() };
       }
       return h;
     });
-
-    const newHistoryEntry: UnitHistory = {
-      id: 'h' + Date.now() + Math.random().toString(36).substr(2, 5),
-      recordId: recordId,
-      values: mappedNewValues,
-      effectiveFrom: effDate,
-      effectiveTo: null
-    };
-
-    // Update current values for dashboard fast-lookup (latest snapshot)
+    const newHistoryEntry: UnitHistory = { id: 'h' + Date.now() + Math.random().toString(36).substr(2, 5), recordId: recordId, values: mappedNewValues, effectiveFrom: effDate, effectiveTo: null };
     const nextValues = recordValues.filter(v => v.recordId !== recordId).concat(values);
     const nextRecords = records.map(r => r.id === recordId ? { ...r, updatedAt: new Date().toISOString() } : r);
     const finalHistory = [...updatedHistory, newHistoryEntry];
-
-    stateRef.current.records = nextRecords;
-    stateRef.current.recordValues = nextValues;
-    stateRef.current.unitHistory = finalHistory;
-
+    stateRef.current = { ...stateRef.current, records: nextRecords, recordValues: nextValues, unitHistory: finalHistory };
     setRecordValues(nextValues);
     setRecords(nextRecords);
     setUnitHistory(finalHistory);
-
     writeLocalCache();
     syncAll(true);
   };
@@ -716,17 +656,11 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const nextValues = recordValues.filter(v => v.recordId !== id);
     const nextRecords = records.filter(r => r.id !== id);
     const nextHistory = unitHistory.filter(h => h.recordId !== id);
-    
-    stateRef.current.records = nextRecords;
-    stateRef.current.recordValues = nextValues;
-    stateRef.current.unitHistory = nextHistory;
-    stateRef.current.payments = nextPayments;
-
+    stateRef.current = { ...stateRef.current, records: nextRecords, recordValues: nextValues, unitHistory: nextHistory, payments: nextPayments };
     setPayments(nextPayments);
     setRecordValues(nextValues);
     setRecords(nextRecords);
     setUnitHistory(nextHistory);
-
     writeLocalCache();
     syncAll(true);
   };
@@ -739,7 +673,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           id: 'pay' + Date.now(), recordId, month, amount, status: extra.status || PaymentStatus.PAID, type: paymentType,
           dueDate, paidAt: new Date().toISOString(), ...extra
         } as Payment];
-    
     stateRef.current.payments = nextPayments;
     setPayments(nextPayments);
     writeLocalCache();
