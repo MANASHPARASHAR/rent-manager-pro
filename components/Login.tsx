@@ -1,5 +1,4 @@
-
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Building, 
   ArrowRight, 
@@ -32,10 +31,15 @@ const Login: React.FC = () => {
   const isCloudAuthorized = !!store.googleUser;
   const isCloudConfigured = !!store.googleClientId;
 
+  // Auto-trigger Cloud Auth if we have a client ID but no local data
+  useEffect(() => {
+    if (!hasTeamDirectory && isCloudConfigured && !isCloudAuthorized && !isLoading) {
+      handleCloudAuthorize(true); // Silent/Auto attempt
+    }
+  }, [hasTeamDirectory, isCloudConfigured, isCloudAuthorized]);
+
   const isInitializing = useMemo(() => {
     if (hasTeamDirectory) return false;
-    // CRITICAL: If a spreadsheet ID is already in storage, we are NOT initializing from scratch.
-    // We are simply syncing. Do not show the Super Admin setup.
     if (store.spreadsheetId) return false;
     if (isCloudConfigured && !isCloudAuthorized) return false;
     return true;
@@ -94,14 +98,17 @@ const Login: React.FC = () => {
     }
   };
 
-  const handleCloudAuthorize = async () => {
+  const handleCloudAuthorize = async (silent: boolean = false) => {
     setIsLoading(true);
     setError(null);
-    const success = await store.authenticate();
-    if (!success) {
-      setError("Cloud authentication failed. Please check connection.");
+    try {
+        const success = await store.authenticate(undefined, silent);
+        if (!success && !silent) {
+            setError("Cloud authentication required to fetch team directory.");
+        }
+    } finally {
+        setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   return (
@@ -174,7 +181,7 @@ const Login: React.FC = () => {
                     </p>
                  </div>
                  <button 
-                    onClick={handleCloudAuthorize}
+                    onClick={() => handleCloudAuthorize(false)}
                     disabled={isLoading}
                     className="w-full bg-white text-slate-950 font-black uppercase tracking-widest py-5 rounded-2xl shadow-xl transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-3 group"
                  >
@@ -250,9 +257,9 @@ const Login: React.FC = () => {
           
           <div className="mt-8 p-4 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-between">
              <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${store.googleUser && !store.cloudError ? 'bg-emerald-500' : store.cloudError ? 'bg-rose-500' : 'bg-slate-600'}`}></div>
+                <div className={`w-2 h-2 rounded-full ${store.syncStatus === 'synced' ? 'bg-emerald-500' : store.syncStatus === 'reauth' ? 'bg-rose-500' : 'bg-slate-600'}`}></div>
                 <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">
-                  Cloud Status: {store.googleUser && !store.cloudError ? "Sync Active" : store.cloudError ? "Error / Offline" : "Unlinked"}
+                  Cloud Status: {store.syncStatus === 'synced' ? "Sync Active" : store.syncStatus === 'reauth' ? "Re-auth Required" : "Unlinked"}
                 </span>
              </div>
              {isInitializing && (

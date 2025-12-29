@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
@@ -30,7 +29,8 @@ import {
   Users,
   Loader2,
   FileText,
-  AlertCircle
+  AlertCircle,
+  ShieldCheck
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { UserRole } from '../types';
@@ -57,7 +57,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Close sidebar on navigation on mobile
   useEffect(() => {
     if (window.innerWidth < 1024) {
       setIsSidebarOpen(false);
@@ -94,9 +93,24 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     if (success) setIsSetupOpen(false);
   };
 
+  const isReauthNeeded = store.syncStatus === 'reauth';
+
   return (
     <div className="min-h-screen bg-slate-50 flex font-sans antialiased text-slate-900 overflow-x-hidden">
-      {/* Mobile Sidebar Backdrop */}
+      {/* GLOBAL REAUTH BANNER */}
+      {isReauthNeeded && isAdmin && (
+        <div className="fixed top-0 inset-x-0 z-[200] bg-indigo-600 text-white p-3 flex items-center justify-center gap-4 animate-in slide-in-from-top duration-500 shadow-2xl">
+           <ShieldAlert className="w-5 h-5 text-indigo-200" />
+           <p className="text-[10px] font-black uppercase tracking-widest">Google Session Expired. Synchronization is paused.</p>
+           <button 
+             onClick={handleConnect}
+             className="bg-white text-indigo-600 px-4 py-1.5 rounded-lg text-[9px] font-black uppercase hover:bg-indigo-50 transition-all active:scale-95 shadow-sm"
+           >
+             Reconnect Now
+           </button>
+        </div>
+      )}
+
       {isSidebarOpen && (
         <div 
           className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm z-[45] lg:hidden animate-in fade-in duration-300"
@@ -104,7 +118,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         />
       )}
 
-      {/* Cloud Setup Modal */}
       {isSetupOpen && isAdmin && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-md animate-in fade-in duration-300">
            <div className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
@@ -169,13 +182,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         </div>
       )}
 
-      {/* Sidebar UI */}
-      <aside className={`fixed inset-y-0 left-0 z-50 bg-slate-900 text-white transition-all duration-500 border-r border-white/5 shadow-2xl flex flex-col ${isSidebarOpen ? 'w-80 translate-x-0' : 'w-24 -translate-x-full lg:translate-x-0'} lg:sticky lg:h-screen`}>
+      <aside className={`fixed inset-y-0 left-0 z-50 bg-slate-900 text-white transition-all duration-500 border-r border-white/5 shadow-2xl flex flex-col ${isSidebarOpen ? 'w-80 translate-x-0' : 'w-24 -translate-x-full lg:translate-x-0'} lg:sticky lg:h-screen ${isReauthNeeded ? 'pt-16' : ''}`}>
         <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className={`absolute -right-4 top-12 bg-indigo-600 text-white p-2.5 rounded-full shadow-2xl hover:bg-indigo-500 transition-all hidden lg:flex items-center justify-center border-4 border-slate-50 ${!isSidebarOpen && 'rotate-180'}`}>
           <ChevronLeft className="w-4 h-4" />
         </button>
 
-        {/* Sidebar Header */}
         <div className={`p-10 flex items-center justify-between shrink-0 ${isSidebarOpen ? 'opacity-100' : 'opacity-0 lg:hidden'}`}>
             <div className="flex items-center gap-4">
               <div className="bg-indigo-600 p-3 rounded-2xl shadow-xl shadow-indigo-600/20"><Building className="w-7 h-7" /></div>
@@ -184,27 +195,19 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 <span className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.3em] block mt-1">Rental Pro</span>
               </div>
             </div>
-            {/* Mobile Close Button */}
             <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden p-2 hover:bg-white/10 rounded-full transition-colors text-slate-500">
               <X className="w-6 h-6" />
             </button>
         </div>
 
-        {/* Sidebar Content */}
         <div className="flex-1 overflow-y-auto custom-scrollbar px-6 space-y-8 pb-10">
           <div className={`${isSidebarOpen ? 'opacity-100' : 'opacity-0 lg:hidden'}`}>
-             <div className={`p-5 rounded-[2rem] border ${store.googleUser && !store.cloudError ? 'bg-emerald-500/5 border-emerald-500/20' : store.cloudError ? 'bg-rose-500/5 border-rose-500/20' : 'bg-slate-800/50 border-white/5'} transition-all`}>
+             <div className={`p-5 rounded-[2rem] border ${store.syncStatus === 'synced' ? 'bg-emerald-500/5 border-emerald-500/20' : store.syncStatus === 'reauth' ? 'bg-rose-500/10 border-rose-500/30' : store.syncStatus === 'error' ? 'bg-amber-500/5 border-amber-500/20' : 'bg-slate-800/50 border-white/5'} transition-all`}>
                 <div className="flex items-center justify-between mb-4">
                    <div className="flex items-center gap-2">
-                      {store.googleUser && !store.cloudError ? (
-                        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                      ) : store.cloudError ? (
-                        <div className="w-2 h-2 rounded-full bg-rose-500"></div>
-                      ) : (
-                        <div className="w-2 h-2 rounded-full bg-slate-600"></div>
-                      )}
-                      <span className={`text-[9px] font-black uppercase tracking-widest ${store.cloudError ? 'text-rose-400' : 'text-slate-400'}`}>
-                        {store.googleUser && !store.cloudError ? "Cloud Active" : store.cloudError ? "Sync Error" : "Local Cache"}
+                      <div className={`w-2 h-2 rounded-full ${store.syncStatus === 'synced' ? 'bg-emerald-500 animate-pulse' : store.syncStatus === 'reauth' ? 'bg-rose-500 animate-pulse' : store.syncStatus === 'error' ? 'bg-amber-500' : 'bg-slate-600'}`}></div>
+                      <span className={`text-[9px] font-black uppercase tracking-widest ${store.syncStatus === 'reauth' ? 'text-rose-400' : 'text-slate-400'}`}>
+                        {store.syncStatus === 'synced' ? "Cloud Active" : store.syncStatus === 'reauth' ? "Re-auth Required" : store.syncStatus === 'error' ? "Sync Error" : "Local Cache"}
                       </span>
                    </div>
                    {store.isCloudSyncing && <RefreshCw className="w-3 h-3 text-indigo-400 animate-spin" />}
@@ -228,20 +231,15 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   <button 
                     onClick={handleConnect}
                     className={`w-full py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${
-                      store.googleUser && !store.cloudError
+                      store.syncStatus === 'synced'
                         ? 'bg-emerald-600/10 text-emerald-500 border border-emerald-500/20' 
-                        : store.cloudError
+                        : store.syncStatus === 'reauth'
                         ? 'bg-rose-600 text-white shadow-lg active:scale-95'
                         : 'bg-indigo-600 text-white shadow-lg active:scale-95'
                     }`}
                   >
-                    {store.googleUser && !store.cloudError ? 'Session Verified' : store.cloudError ? 'Retry Sync' : 'Authorize Cloud'}
+                    {store.syncStatus === 'synced' ? 'Sync Stable' : store.syncStatus === 'reauth' ? 'Re-authorize' : 'Retry Cloud'}
                   </button>
-                )}
-                {!isAdmin && !store.googleUser && (
-                  <div className="text-[8px] font-black text-slate-500 uppercase tracking-tight text-center">
-                    Offline mode • Syncing paused
-                  </div>
                 )}
              </div>
           </div>
@@ -265,7 +263,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           </nav>
         </div>
 
-        {/* Sidebar Footer */}
         <div className="p-8 shrink-0">
           <button 
             onClick={() => store.logout()} 
@@ -286,7 +283,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         </div>
       </aside>
 
-      <main className="flex-1 overflow-x-hidden min-h-screen flex flex-col relative">
+      <main className={`flex-1 overflow-x-hidden min-h-screen flex flex-col relative ${isReauthNeeded ? 'pt-16' : ''}`}>
         <div className="lg:hidden p-6 bg-white border-b border-slate-100 flex items-center justify-between sticky top-0 z-30 shadow-sm">
             <div className="flex items-center gap-3">
               <div className="bg-indigo-600 p-2.5 rounded-xl text-white shadow-lg"><Building className="w-5 h-5" /></div>
