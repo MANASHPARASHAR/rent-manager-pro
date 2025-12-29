@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { 
@@ -16,7 +15,11 @@ import {
   X,
   AlertTriangle,
   ShieldCheck,
-  Layout
+  Layout,
+  Navigation,
+  Settings,
+  PlusCircle,
+  Map
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { UserRole } from '../types';
@@ -24,7 +27,10 @@ import { UserRole } from '../types';
 const PropertyManagement: React.FC = () => {
   const store = useRentalStore();
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCity, setSelectedCity] = useState('all');
   const [isAdding, setIsAdding] = useState(false);
+  const [showCityConfig, setShowCityConfig] = useState(false);
+  const [newCityInput, setNewCityInput] = useState('');
   
   const [confirmConfig, setConfirmConfig] = useState<{
     isOpen: boolean;
@@ -49,7 +55,8 @@ const PropertyManagement: React.FC = () => {
   const [newProp, setNewProp] = useState({
     name: '',
     address: '',
-    typeId: store.propertyTypes[0]?.id || ''
+    typeId: store.propertyTypes[0]?.id || '',
+    city: store.config.cities[0] || ''
   });
 
   const handleAddProperty = (e: React.FormEvent) => {
@@ -67,10 +74,11 @@ const PropertyManagement: React.FC = () => {
           id: 'p' + Date.now(),
           name: newProp.name,
           address: newProp.address,
+          city: newProp.city,
           propertyTypeId: newProp.typeId,
           createdAt: new Date().toISOString()
         });
-        setNewProp({ name: '', address: '', typeId: store.propertyTypes[0]?.id || '' });
+        setNewProp({ name: '', address: '', typeId: store.propertyTypes[0]?.id || '', city: store.config.cities[0] || '' });
         setIsAdding(false);
         setConfirmConfig(prev => ({ ...prev, isOpen: false }));
       }
@@ -107,11 +115,23 @@ const PropertyManagement: React.FC = () => {
     });
   };
 
+  const addCity = () => {
+    if (!newCityInput.trim()) return;
+    if (store.config.cities.includes(newCityInput.trim())) return;
+    store.updateConfig({ cities: [...store.config.cities, newCityInput.trim()] });
+    setNewCityInput('');
+  };
+
+  const removeCity = (city: string) => {
+    store.updateConfig({ cities: store.config.cities.filter((c: string) => c !== city) });
+  };
+
   const filteredProperties = store.properties.filter((p: any) => {
     const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                         p.address.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesCity = selectedCity === 'all' || p.city === selectedCity;
     const matchesRole = !isManager || p.isVisibleToManager !== false;
-    return matchesSearch && matchesRole;
+    return matchesSearch && matchesCity && matchesRole;
   });
 
   return (
@@ -144,19 +164,74 @@ const PropertyManagement: React.FC = () => {
         </div>
       )}
 
+      {showCityConfig && isAdmin && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+           <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+              <div className="p-8 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                 <div className="flex items-center gap-3">
+                    <div className="p-3 bg-indigo-600 text-white rounded-2xl"><Map className="w-5 h-5" /></div>
+                    <h3 className="text-xl font-black text-gray-900 uppercase">Manage Cities</h3>
+                 </div>
+                 <button onClick={() => setShowCityConfig(false)} className="p-2 hover:bg-white rounded-full transition-colors">
+                    <X className="w-6 h-6 text-gray-400" />
+                 </button>
+              </div>
+              <div className="p-8 space-y-6">
+                 <div className="space-y-4">
+                    <div className="flex gap-2">
+                       <input 
+                          className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500" 
+                          placeholder="New City Name" 
+                          value={newCityInput} 
+                          onChange={e => setNewCityInput(e.target.value)} 
+                          onKeyDown={e => e.key === 'Enter' && addCity()}
+                       />
+                       <button onClick={addCity} className="bg-indigo-600 text-white p-3 rounded-xl hover:bg-indigo-700 active:scale-95 transition-all"><PlusCircle className="w-5 h-5" /></button>
+                    </div>
+                    <div className="flex flex-wrap gap-2 max-h-[300px] overflow-y-auto custom-scrollbar p-1">
+                       {store.config.cities.map((city: string) => (
+                          <div key={city} className="px-4 py-2 bg-slate-50 border border-slate-100 rounded-xl flex items-center gap-2 group hover:border-rose-200 transition-all shadow-sm">
+                             <span className="text-[11px] font-black uppercase text-slate-700 tracking-wider">{city}</span>
+                             <button onClick={() => removeCity(city)} className="text-slate-300 hover:text-rose-500 transition-all"><Trash2 className="w-3.5 h-3.5" /></button>
+                          </div>
+                       ))}
+                       {store.config.cities.length === 0 && (
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest py-10 text-center w-full">No cities configured</p>
+                       )}
+                    </div>
+                 </div>
+              </div>
+              <div className="p-8 bg-gray-50 border-t border-gray-100">
+                 <button onClick={() => setShowCityConfig(false)} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700">Close Manager</button>
+              </div>
+           </div>
+        </div>
+      )}
+
       <header className="flex justify-between items-end">
         <div>
           <h1 className="text-3xl font-black text-gray-900 tracking-tight uppercase">Your Properties</h1>
           <p className="text-gray-500 mt-1 font-medium">Manage all rental locations and their inventories.</p>
         </div>
-        {isAdmin && (
-          <button 
-            onClick={() => setIsAdding(true)}
-            className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 font-black uppercase text-[10px] tracking-widest"
-          >
-            <Plus className="w-5 h-5" /> Add Property
-          </button>
-        )}
+        <div className="flex items-center gap-3">
+          {isAdmin && (
+            <button 
+              onClick={() => setShowCityConfig(true)}
+              className="p-3 bg-white border border-gray-200 text-gray-400 rounded-xl hover:text-indigo-600 hover:border-indigo-100 transition-all shadow-sm active:scale-95"
+              title="Manage Cities"
+            >
+              <Settings className="w-5 h-5" />
+            </button>
+          )}
+          {isAdmin && (
+            <button 
+              onClick={() => setIsAdding(true)}
+              className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 font-black uppercase text-[10px] tracking-widest"
+            >
+              <Plus className="w-5 h-5" /> Add Property
+            </button>
+          )}
+        </div>
       </header>
 
       {isAdding && isAdmin && (
@@ -168,7 +243,7 @@ const PropertyManagement: React.FC = () => {
                 <X className="w-6 h-6 text-gray-400" />
               </button>
             </div>
-            <form onSubmit={handleAddProperty} className="p-8 space-y-6">
+            <form onSubmit={handleAddProperty} className="p-8 space-y-6 max-h-[70vh] overflow-y-auto custom-scrollbar">
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Property Name</label>
                 <input 
@@ -187,6 +262,19 @@ const PropertyManagement: React.FC = () => {
                   value={newProp.address}
                   onChange={e => setNewProp({...newProp, address: e.target.value})}
                 />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">City</label>
+                <select 
+                  className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 transition-all appearance-none"
+                  value={newProp.city}
+                  onChange={e => setNewProp({...newProp, city: e.target.value})}
+                >
+                  <option value="">Select City...</option>
+                  {store.config.cities.map((city: string) => (
+                    <option key={city} value={city}>{city}</option>
+                  ))}
+                </select>
               </div>
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Schema Template</label>
@@ -209,15 +297,28 @@ const PropertyManagement: React.FC = () => {
         </div>
       )}
 
-      <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
+      <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-white p-4 rounded-[2rem] border border-gray-100 shadow-sm">
         <div className="relative w-full md:w-96">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input 
-            className="w-full pl-12 pr-4 py-4 bg-white border border-gray-200 rounded-[1.5rem] outline-none focus:ring-2 focus:ring-indigo-500 transition-all shadow-sm font-semibold"
+            className="w-full pl-11 pr-4 py-3.5 bg-gray-50 border border-transparent rounded-xl outline-none focus:bg-white focus:border-indigo-100 transition-all font-semibold text-sm"
             placeholder="Search portfolio..."
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
           />
+        </div>
+        <div className="flex items-center gap-3 w-full md:w-auto">
+          <Filter className="w-4 h-4 text-slate-400" />
+          <select 
+            className="bg-gray-50 border border-transparent rounded-xl px-4 py-3.5 text-[10px] font-black uppercase tracking-widest outline-none cursor-pointer hover:bg-gray-100 transition-all"
+            value={selectedCity}
+            onChange={e => setSelectedCity(e.target.value)}
+          >
+            <option value="all">All Cities</option>
+            {store.config.cities.map((city: string) => (
+              <option key={city} value={city}>{city}</option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -258,9 +359,17 @@ const PropertyManagement: React.FC = () => {
                    {isAdmin && isHidden && <span className="text-[8px] font-black uppercase tracking-widest bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded">Hidden</span>}
                 </div>
                 
-                <div className="mt-2 flex items-center gap-2 text-gray-400 font-bold text-xs uppercase tracking-widest">
-                  <MapPin className="w-4 h-4 text-indigo-400" />
-                  <span className="truncate">{prop.address || 'Address not listed'}</span>
+                <div className="mt-2 flex flex-col gap-1.5">
+                    <div className="flex items-center gap-2 text-gray-400 font-bold text-[10px] uppercase tracking-widest">
+                        <MapPin className="w-3 h-3 text-indigo-400" />
+                        <span className="truncate">{prop.address || 'Address not listed'}</span>
+                    </div>
+                    {prop.city && (
+                        <div className="flex items-center gap-2 text-indigo-400 font-black text-[9px] uppercase tracking-widest">
+                            <Navigation className="w-3 h-3" />
+                            <span>{prop.city}</span>
+                        </div>
+                    )}
                 </div>
 
                 <div className="mt-10 flex items-center justify-between border-t border-gray-50 pt-6">

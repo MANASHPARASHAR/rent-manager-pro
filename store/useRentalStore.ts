@@ -52,7 +52,8 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [payments, setPayments] = useState<Payment[]>(() => initialData.current?.payments || []);
   const [config, setConfig] = useState<AppConfig>(() => initialData.current?.config || {
     paidToOptions: ['Company Account', 'Bank Account', 'Petty Cash', 'Owner Direct'],
-    paymentModeOptions: ['Bank Transfer', 'Cash', 'Check', 'UPI/QR', 'Credit Card']
+    paymentModeOptions: ['Bank Transfer', 'Cash', 'Check', 'UPI/QR', 'Credit Card'],
+    cities: ['New York', 'Los Angeles', 'Chicago', 'Houston']
   });
 
   const [tombstones, setTombstones] = useState<Set<string>>(() => {
@@ -80,7 +81,8 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     payments: initialData.current?.payments || [], 
     config: initialData.current?.config || {
       paidToOptions: ['Company Account', 'Bank Account', 'Petty Cash', 'Owner Direct'],
-      paymentModeOptions: ['Bank Transfer', 'Cash', 'Check', 'UPI/QR', 'Credit Card']
+      paymentModeOptions: ['Bank Transfer', 'Cash', 'Check', 'UPI/QR', 'Credit Card'],
+      cities: ['New York', 'Los Angeles', 'Chicago', 'Houston']
     }
   });
   
@@ -194,7 +196,8 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           propertyTypeId: r[2], 
           address: r[3], 
           createdAt: r[4], 
-          isVisibleToManager: r[5] !== 'false'
+          isVisibleToManager: r[5] !== 'false',
+          city: r[6] || ''
         }))
         .filter(p => p.id && p.name && !currentTombstones.has(p.id));
       
@@ -213,6 +216,13 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }))
         .filter(p => p.id && !currentTombstones.has(p.recordId));
 
+      const pConf = parse(6)[0];
+      const parsedConfig = pConf ? {
+        paidToOptions: JSON.parse(pConf[0] || '[]'),
+        paymentModeOptions: JSON.parse(pConf[1] || '[]'),
+        cities: JSON.parse(pConf[2] || '[]')
+      } : stateRef.current.config;
+
       const pHist = parse(7)
         .map(r => ({
           id: r[0], recordId: r[1], values: JSON.parse(r[2] || '{}'), effectiveFrom: r[3], effectiveTo: r[4] === 'null' ? null : r[4]
@@ -227,7 +237,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         recordValues: pVals, 
         unitHistory: pHist,
         payments: pPays,
-        config: stateRef.current.config
+        config: parsedConfig
       };
       stateRef.current = nextState;
 
@@ -238,6 +248,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setRecordValues(pVals);
       setUnitHistory(pHist);
       setPayments(pPays);
+      setConfig(parsedConfig);
       
       writeLocalCache(nextState);
       setCloudError(null);
@@ -336,11 +347,11 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const batchData = [
         { tab: "Users", rows: [["ID", "Username", "Name", "Role", "PassHash", "Created"], ...s.users.map((u: any) => [u.id, u.username, u.name, u.role, u.passwordHash, u.createdAt])] },
         { tab: "PropertyTypes", rows: [["ID", "Name", "ColumnsJSON", "DueDay"], ...s.propertyTypes.map((t: any) => [t.id, t.name, JSON.stringify(t.columns), t.defaultDueDateDay])] },
-        { tab: "Properties", rows: [["ID", "Name", "TypeID", "Address", "Created", "Visible"], ...s.properties.map((p: any) => [p.id, p.name, p.propertyTypeId, p.address, p.createdAt, String(p.isVisibleToManager !== false)])] },
+        { tab: "Properties", rows: [["ID", "Name", "TypeID", "Address", "Created", "Visible", "City"], ...s.properties.map((p: any) => [p.id, p.name, p.propertyTypeId, p.address, p.createdAt, String(p.isVisibleToManager !== false), p.city || ''])] },
         { tab: "Records", rows: [["ID", "PropID", "Created", "Updated"], ...s.records.map((r: any) => [r.id, r.propertyId, r.createdAt, r.updatedAt])] },
         { tab: "RecordValues", rows: [["ID", "RecordID", "ColID", "Value"], ...s.recordValues.map((v: any) => [v.id, v.recordId, v.columnId, v.value])] },
         { tab: "Payments", rows: [["ID", "RecID", "Month", "Amount", "Status", "Type", "Due", "PaidAt", "PaidTo", "Mode", "Refunded"], ...s.payments.map((p: any) => [p.id, p.recordId, p.month, p.amount, p.status, p.type, p.dueDate, p.paidAt, p.paidTo, p.paymentMode, p.isRefunded])] },
-        { tab: "Config", rows: [["PaidToJSON", "ModesJSON"], [JSON.stringify(s.config.paidToOptions), JSON.stringify(s.config.paymentModeOptions)]] },
+        { tab: "Config", rows: [["PaidToJSON", "ModesJSON", "CitiesJSON"], [JSON.stringify(s.config.paidToOptions), JSON.stringify(s.config.paymentModeOptions), JSON.stringify(s.config.cities)]] },
         { tab: "UnitHistory", rows: [["ID", "RecordID", "ValuesJSON", "From", "To"], ...s.unitHistory.map((h: any) => [h.id, h.recordId, JSON.stringify(h.values), h.effectiveFrom, h.effectiveTo || 'null'])] }
       ];
 
@@ -421,8 +432,8 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     };
 
     const props: Property[] = [
-      { id: prop1Id, name: 'Apex Plaza Suites', propertyTypeId: ptId, address: '100 Financial District, NY', createdAt: new Date().toISOString(), isVisibleToManager: true },
-      { id: prop2Id, name: 'Evergreen Heights', propertyTypeId: ptId, address: '742 Terrace, Springfield', createdAt: new Date().toISOString(), isVisibleToManager: true }
+      { id: prop1Id, name: 'Apex Plaza Suites', propertyTypeId: ptId, address: '100 Financial District, NY', city: 'New York', createdAt: new Date().toISOString(), isVisibleToManager: true },
+      { id: prop2Id, name: 'Evergreen Heights', propertyTypeId: ptId, address: '742 Terrace, Springfield', city: 'Chicago', createdAt: new Date().toISOString(), isVisibleToManager: true }
     ];
 
     const recordsArr: PropertyRecord[] = [];

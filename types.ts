@@ -57,6 +57,7 @@ export interface Property {
   name: string;
   propertyTypeId: string;
   address: string;
+  city?: string;
   createdAt: string;
   isVisibleToManager?: boolean;
 }
@@ -100,4 +101,5 @@ export interface Payment {
 export interface AppConfig {
   paidToOptions: string[];
   paymentModeOptions: string[];
+  cities: string[];
 }

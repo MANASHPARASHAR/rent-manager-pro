@@ -30,7 +30,12 @@ import {
   UserPlus,
   Activity,
   Save,
-  AlertCircle
+  AlertCircle,
+  PieChart,
+  ArrowUpRight,
+  Layers,
+  MapPin,
+  Navigation
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { PaymentStatus, UserRole, ColumnType, Payment, UnitHistory, ColumnDefinition } from '../types';
@@ -113,7 +118,7 @@ const RentCollection: React.FC = () => {
   const removePaymentModeOption = (opt: string) => {
     store.updateConfig({ paymentModeOptions: store.config.paymentModeOptions.filter((o: string) => o !== opt) });
   };
-  
+
   const [historyRecord, setHistoryRecord] = useState<any | null>(null);
 
   const visibleProperties = useMemo(() => {
@@ -232,7 +237,6 @@ const RentCollection: React.FC = () => {
         const dueDay = propertyType?.defaultDueDateDay || 5;
         const isRentPaid = isPaidInScope(record.id, 'RENT');
         
-        // Find if deposit is paid for the current TENANCY (within historical period)
         const depositPayment = store.payments.find(p => p.recordId === record.id && p.type === 'DEPOSIT' && p.status === PaymentStatus.PAID);
         const isDepositPaid = !!depositPayment;
         const isDepositRefunded = depositPayment?.isRefunded || false;
@@ -272,6 +276,46 @@ const RentCollection: React.FC = () => {
         return matchesSearch && matchesProperty;
       });
   }, [store.records, store.properties, store.propertyTypes, store.recordValues, store.unitHistory, store.payments, filterType, selectedMonth, selectedYear, endDate, searchTerm, selectedPropertyId, visiblePropertyIds]);
+
+  const summaryStats = useMemo(() => {
+    let totalDue = 0;
+    let totalCollected = 0;
+    let totalPending = 0;
+    let totalOverdue = 0;
+    let countPaid = 0;
+    let countPending = 0;
+    let countOverdue = 0;
+    const pendingByProperty: Record<string, { name: string, amount: number }> = {};
+
+    recordsWithRent.forEach(record => {
+      if (record.isVacant) return;
+
+      const amount = record.rentAmount || 0;
+      totalDue += amount;
+
+      if (record.statusBadge === 'PAID') {
+        totalCollected += amount;
+        countPaid++;
+      } else {
+        const pId = record.propertyId;
+        const pName = record.property?.name || 'Unknown Asset';
+        if (!pendingByProperty[pId]) pendingByProperty[pId] = { name: pName, amount: 0 };
+        pendingByProperty[pId].amount += amount;
+
+        if (record.statusBadge === 'OVERDUE') {
+          totalOverdue += amount;
+          countOverdue++;
+        } else if (record.statusBadge === 'PENDING') {
+          totalPending += amount;
+          countPending++;
+        }
+      }
+    });
+
+    const collectionRate = totalDue > 0 ? (totalCollected / totalDue) * 100 : 0;
+
+    return { totalDue, totalCollected, totalPending, totalOverdue, countPaid, countPending, countOverdue, collectionRate, pendingByProperty };
+  }, [recordsWithRent]);
 
   const ledgerColumns = useMemo(() => {
     const relevantTypes = selectedPropertyId === 'all' 
@@ -327,7 +371,6 @@ const RentCollection: React.FC = () => {
       });
       return;
     } else if (type === 'DEPOSIT' && record.isDepositRefunded) {
-        // Prevent action on already refunded deposits
         return;
     }
 
@@ -342,7 +385,6 @@ const RentCollection: React.FC = () => {
   };
 
   const handleTemporalAction = (record: any, type: TemporalActionType) => {
-    // REQ: Default Effective Event Date as rent date for onboarding
     const rentDateCol = record.propertyType.columns.find((c: any) => c.name.toLowerCase().includes('rent date'));
     const initialEffectiveDate = (type === 'TENANT' && rentDateCol && record.rawValuesMap[rentDateCol.id]) 
       ? record.rawValuesMap[rentDateCol.id] 
@@ -380,7 +422,6 @@ const RentCollection: React.FC = () => {
 
     if (type === 'STATUS') {
        updatedMap[statusColId] = 'Vacant';
-       // Empty all fields except occupancy status when shifting to vacant
        record.propertyType.columns.forEach((col: any) => {
          if (col.type !== ColumnType.OCCUPANCY_STATUS) {
             updatedMap[col.id] = '';
@@ -405,7 +446,6 @@ const RentCollection: React.FC = () => {
     const colIdForRecord = record.propertyType?.columns.find((c: any) => c.name === col.name)?.id;
     const value = record.rawValuesMap[colIdForRecord] || '';
 
-    // STRICT REQ: Empty all dynamic columns if unit is vacant
     if (record.isVacant && col.type !== ColumnType.OCCUPANCY_STATUS) {
        return <span className="text-slate-200">-</span>;
     }
@@ -463,6 +503,56 @@ const RentCollection: React.FC = () => {
         </div>
       )}
 
+      {/* ADMIN SETTINGS MODAL */}
+      {showSettings && isAdmin && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md animate-in fade-in">
+           <div className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[85vh]">
+              <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
+                 <div className="flex items-center gap-3">
+                    <div className="p-3 bg-indigo-600 text-white rounded-2xl shadow-lg"><Settings className="w-5 h-5" /></div>
+                    <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">System Configuration</h3>
+                 </div>
+                 <button onClick={() => setShowSettings(false)} className="p-2 hover:bg-white rounded-full transition-colors"><X className="w-6 h-6 text-slate-400" /></button>
+              </div>
+              <div className="p-8 space-y-10 overflow-y-auto custom-scrollbar">
+                 {/* Paid To Section */}
+                 <div className="space-y-4">
+                    <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Receiving Accounts</h4>
+                    <div className="flex gap-2">
+                       <input className="flex-1 bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-sm font-bold outline-none" placeholder="New Account Name" value={newPaidTo} onChange={e => setNewPaidTo(e.target.value)} />
+                       <button onClick={addPaidToOption} className="bg-indigo-600 text-white p-3 rounded-xl"><PlusCircle className="w-5 h-5" /></button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                       {store.config.paidToOptions.map((opt: string) => (
+                          <div key={opt} className="px-4 py-2 bg-white border border-slate-100 rounded-xl flex items-center gap-2 group hover:border-rose-200 transition-all shadow-sm">
+                             <span className="text-xs font-bold text-slate-600">{opt}</span>
+                             <button onClick={() => removePaidToOption(opt)} className="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all"><X className="w-3.5 h-3.5" /></button>
+                          </div>
+                       ))}
+                    </div>
+                 </div>
+
+                 {/* Payment Modes Section */}
+                 <div className="space-y-4">
+                    <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Payment Channels</h4>
+                    <div className="flex gap-2">
+                       <input className="flex-1 bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-sm font-bold outline-none" placeholder="New Method Name" value={newPaymentMode} onChange={e => setNewPaymentMode(e.target.value)} />
+                       <button onClick={addPaymentModeOption} className="bg-indigo-600 text-white p-3 rounded-xl"><PlusCircle className="w-5 h-5" /></button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                       {store.config.paymentModeOptions.map((opt: string) => (
+                          <div key={opt} className="px-4 py-2 bg-white border border-slate-100 rounded-xl flex items-center gap-2 group hover:border-rose-200 transition-all shadow-sm">
+                             <span className="text-xs font-bold text-slate-600">{opt}</span>
+                             <button onClick={() => removePaymentModeOption(opt)} className="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all"><X className="w-3.5 h-3.5" /></button>
+                          </div>
+                       ))}
+                    </div>
+                 </div>
+              </div>
+           </div>
+        </div>
+      )}
+
       {temporalAction.isOpen && temporalAction.record && (
         <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xl animate-in fade-in duration-300">
            <div className="bg-white w-full max-w-3xl rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
@@ -509,7 +599,6 @@ const RentCollection: React.FC = () => {
                                         const newVal = e.target.value;
                                         setTemporalAction(prev => {
                                             const updatedValues = { ...prev.formValues, [col.id]: newVal };
-                                            // Special Logic: If user updates Rent Date, sync the Effective Event Date by default
                                             let updatedEffDate = prev.effectiveDate;
                                             if (col.name.toLowerCase().includes('rent date') && prev.type === 'TENANT') {
                                                 updatedEffDate = newVal;
@@ -585,11 +674,108 @@ const RentCollection: React.FC = () => {
         </div>
       </header>
 
+      {/* RENT SUMMARY SECTION */}
+      {filterType === 'monthly' && (
+        <div className="space-y-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl shadow-sm"><Target className="w-6 h-6" /></div>
+                  <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Total Due</span>
+                </div>
+                <h3 className="text-3xl font-black text-slate-950">${summaryStats.totalDue.toLocaleString()}</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">Portfolio Target</p>
+              </div>
+              <div className="mt-6 pt-4 border-t border-slate-50 flex items-center justify-between">
+                <span className="text-[10px] font-black text-slate-400 uppercase">Efficiency</span>
+                <span className="text-[10px] font-black text-indigo-600">{summaryStats.collectionRate.toFixed(1)}%</span>
+              </div>
+            </div>
+
+            <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl shadow-sm"><CheckCircle2 className="w-6 h-6" /></div>
+                  <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Settled</span>
+                </div>
+                <h3 className="text-3xl font-black text-slate-950 text-emerald-600">${summaryStats.totalCollected.toLocaleString()}</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">{summaryStats.countPaid} Units Resolved</p>
+              </div>
+              <div className="mt-6 w-full h-1.5 bg-slate-50 rounded-full overflow-hidden">
+                <div className="h-full bg-emerald-500 transition-all duration-1000" style={{ width: `${summaryStats.collectionRate}%` }}></div>
+              </div>
+            </div>
+
+            <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <div className="p-3 bg-amber-50 text-amber-600 rounded-2xl shadow-sm"><Clock className="w-6 h-6" /></div>
+                  <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Pending</span>
+                </div>
+                <h3 className="text-3xl font-black text-slate-950">${summaryStats.totalPending.toLocaleString()}</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">{summaryStats.countPending} Units Awaiting</p>
+              </div>
+              <div className="mt-6 pt-4 border-t border-slate-50 flex items-center justify-between">
+                <span className="text-[10px] font-black text-slate-400 uppercase">Awaiting Settlement</span>
+                <ArrowUpRight className="w-4 h-4 text-amber-500" />
+              </div>
+            </div>
+
+            <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col justify-between ring-2 ring-rose-500/5">
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <div className="p-3 bg-rose-50 text-rose-600 rounded-2xl shadow-sm"><AlertTriangle className="w-6 h-6" /></div>
+                  <span className="text-[10px] font-black text-rose-500 uppercase tracking-widest">Overdue</span>
+                </div>
+                <h3 className="text-3xl font-black text-rose-600 animate-pulse">${summaryStats.totalOverdue.toLocaleString()}</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">{summaryStats.countOverdue} Units Critical</p>
+              </div>
+              <div className="mt-6 p-2 bg-rose-50/50 rounded-xl border border-rose-100">
+                <p className="text-[9px] font-black text-rose-600 uppercase text-center tracking-widest">Risk Exposure Identified</p>
+              </div>
+            </div>
+          </div>
+
+          {(summaryStats.totalPending + summaryStats.totalOverdue > 0) && (
+            <div className="bg-white border border-amber-100 rounded-[2.5rem] p-8 shadow-sm animate-in slide-in-from-top-4 duration-500">
+              <div className="flex items-center gap-3 mb-8">
+                <div className="p-3 bg-amber-50 text-amber-600 rounded-2xl"><Layers className="w-5 h-5" /></div>
+                <div>
+                  <h2 className="text-lg font-black text-slate-900 uppercase tracking-tight">Pending Revenue Breakdown</h2>
+                  <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest mt-0.5">Asset-specific uncollected inflows</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+                {Object.values(summaryStats.pendingByProperty).map((item: any, i: number) => (
+                  <div key={i} className="bg-slate-50 border border-transparent hover:border-amber-200 p-6 rounded-3xl transition-all group flex flex-col justify-between min-h-[140px]">
+                    <div className="flex items-start justify-between">
+                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-relaxed line-clamp-2 max-w-[80%]">{item.name}</p>
+                      <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0"></div>
+                    </div>
+                    <div className="mt-4">
+                      <span className="text-2xl font-black text-slate-950 tracking-tighter">${item.amount.toLocaleString()}</span>
+                      <p className="text-[8px] font-black text-amber-600 uppercase tracking-widest mt-1">Outstanding</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-xl overflow-hidden">
         <div className="p-8 border-b border-slate-50 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="relative w-full md:w-96">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
-            <input className="w-full pl-11 pr-4 py-4 bg-gray-50 border border-transparent rounded-2xl text-sm outline-none font-bold placeholder:text-slate-400" placeholder="Filter ledger..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+          <div className="flex items-center gap-4 w-full md:w-auto">
+            <div className="relative w-full md:w-96">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
+              <input className="w-full pl-11 pr-4 py-4 bg-gray-50 border border-transparent rounded-2xl text-sm outline-none font-bold placeholder:text-slate-400" placeholder="Filter ledger..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+            </div>
+            <select className="bg-slate-50 border border-slate-100 rounded-2xl px-5 py-4 text-xs font-black uppercase outline-none cursor-pointer hidden md:block" value={selectedPropertyId} onChange={e => setSelectedPropertyId(e.target.value)}>
+               <option value="all">All Properties</option>
+               {visibleProperties.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
           </div>
         </div>
 
