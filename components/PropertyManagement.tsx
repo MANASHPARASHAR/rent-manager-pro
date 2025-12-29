@@ -26,7 +26,6 @@ const PropertyManagement: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   
-  // Confirmation Modal State
   const [confirmConfig, setConfirmConfig] = useState<{
     isOpen: boolean;
     title: string;
@@ -111,13 +110,12 @@ const PropertyManagement: React.FC = () => {
   const filteredProperties = store.properties.filter((p: any) => {
     const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                         p.address.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesRole = !isManager || p.isVisibleToManager;
+    const matchesRole = !isManager || p.isVisibleToManager !== false;
     return matchesSearch && matchesRole;
   });
 
   return (
     <div className="space-y-8 max-w-6xl mx-auto pb-20">
-      {/* Confirmation Modal Overlay */}
       {confirmConfig.isOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md animate-in fade-in duration-300">
           <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl border border-white/20 overflow-hidden animate-in zoom-in-95 duration-200">
@@ -227,7 +225,7 @@ const PropertyManagement: React.FC = () => {
         {filteredProperties.map((prop: any) => {
           const type = store.propertyTypes.find((t: any) => t.id === prop.propertyTypeId);
           const unitCount = store.records.filter((r: any) => r.propertyId === prop.id).length;
-          const isHidden = !prop.isVisibleToManager;
+          const isHidden = prop.isVisibleToManager === false;
           
           return (
             <div key={prop.id} className="group bg-white rounded-[2.5rem] border border-gray-100 shadow-sm hover:shadow-2xl hover:border-indigo-100 transition-all duration-300 flex flex-col overflow-hidden">

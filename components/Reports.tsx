@@ -1,4 +1,3 @@
-
 import React, { useMemo, useState } from 'react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
@@ -102,6 +101,11 @@ const Reports: React.FC = () => {
         if (p.isRefunded) {
           totalRefunds += p.amount;
           byDate[date].refund += p.amount;
+          // Refunds reduce net liquidity for deposits
+          if (activeModality === 'DEPOSIT') {
+            byProperty[prop] = (byProperty[prop] || 0) - p.amount;
+            byRecipient[recipient] = (byRecipient[recipient] || 0) - p.amount;
+          }
         } else {
           totalDeposits += p.amount;
           byDate[date].deposit += p.amount;
@@ -259,7 +263,7 @@ const Reports: React.FC = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {[
-          { label: 'Total Settled', val: activeModality === 'RENT' ? analyticsData.totalRent : analyticsData.totalDeposits, sub: 'Confirmed transactions', icon: Wallet, color: 'text-indigo-600', bg: 'bg-indigo-50' },
+          { label: 'Total Settled', val: activeModality === 'RENT' ? analyticsData.totalRent : (analyticsData.totalDeposits - analyticsData.totalRefunds), sub: 'Confirmed transactions', icon: Wallet, color: 'text-indigo-600', bg: 'bg-indigo-50' },
           { label: 'Rent Contribution', val: analyticsData.totalRent, sub: 'Lease liquidity', icon: DollarSign, color: 'text-emerald-600', bg: 'bg-emerald-50' },
           { label: 'Deposit Assets', val: analyticsData.totalDeposits, sub: 'Held security funds', icon: ShieldCheck, color: 'text-amber-600', bg: 'bg-amber-50' },
           { label: 'Refund/Loss', val: analyticsData.totalRefunds, sub: 'Outflow from audit', icon: TrendingDown, color: 'text-rose-600', bg: 'bg-rose-50' },
@@ -451,7 +455,7 @@ const Reports: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-slate-50">
                  {analyticsData.propertyData.length > 0 ? analyticsData.propertyData.map((item, i) => {
-                    const totalVal = activeModality === 'RENT' ? analyticsData.totalRent : analyticsData.totalDeposits;
+                    const totalVal = activeModality === 'RENT' ? analyticsData.totalRent : (analyticsData.totalDeposits - analyticsData.totalRefunds);
                     const pct = totalVal > 0 ? (item.value / totalVal) * 100 : 0;
                     return (
                        <tr key={i} className="group hover:bg-slate-50/50 transition-colors">

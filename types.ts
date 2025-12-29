@@ -1,4 +1,3 @@
-
 export enum UserRole {
   ADMIN = 'ADMIN',
   MANAGER = 'MANAGER',
@@ -12,13 +11,15 @@ export enum ColumnType {
   DROPDOWN = 'dropdown',
   CURRENCY = 'currency',
   RENT_DUE_DAY = 'rent_due_day',
-  SECURITY_DEPOSIT = 'security_deposit'
+  SECURITY_DEPOSIT = 'security_deposit',
+  OCCUPANCY_STATUS = 'occupancy_status'
 }
 
 export enum PaymentStatus {
   PAID = 'PAID',
   PENDING = 'PENDING',
-  OVERDUE = 'OVERDUE'
+  OVERDUE = 'OVERDUE',
+  VACANT = 'VACANT'
 }
 
 export type PaymentType = 'RENT' | 'DEPOSIT';
@@ -39,6 +40,7 @@ export interface ColumnDefinition {
   required: boolean;
   isRentCalculatable: boolean;
   isSecurityDeposit?: boolean;
+  isDefaultInLedger?: boolean;
   options?: string[];
   order: number;
 }
@@ -71,6 +73,14 @@ export interface RecordValue {
   recordId: string;
   columnId: string;
   value: string;
+}
+
+export interface UnitHistory {
+  id: string;
+  recordId: string;
+  values: Record<string, string>;
+  effectiveFrom: string;
+  effectiveTo: string | null;
 }
 
 export interface Payment {

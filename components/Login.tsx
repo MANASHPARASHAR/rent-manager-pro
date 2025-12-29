@@ -28,24 +28,23 @@ const Login: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Derive state logic clearly
   const hasTeamDirectory = store.users.length > 0;
   const isCloudAuthorized = !!store.googleUser;
   const isCloudConfigured = !!store.googleClientId;
 
   const isInitializing = useMemo(() => {
-    // We only initialize if there's no team found locally and we aren't waiting for a cloud auth
     if (hasTeamDirectory) return false;
+    // CRITICAL: If a spreadsheet ID is already in storage, we are NOT initializing from scratch.
+    // We are simply syncing. Do not show the Super Admin setup.
+    if (store.spreadsheetId) return false;
     if (isCloudConfigured && !isCloudAuthorized) return false;
     return true;
-  }, [hasTeamDirectory, isCloudConfigured, isCloudAuthorized]);
+  }, [hasTeamDirectory, isCloudConfigured, isCloudAuthorized, store.spreadsheetId]);
 
   const isCloudAuthRequired = useMemo(() => {
-    // If we have no local team but cloud is configured, we need to auth to fetch the team
     return !hasTeamDirectory && isCloudConfigured && !isCloudAuthorized;
   }, [hasTeamDirectory, isCloudConfigured, isCloudAuthorized]);
 
-  // Boot screen
   if (store.isBooting) {
     return (
       <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center p-4 relative overflow-hidden font-sans">

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { 
@@ -18,7 +17,11 @@ import {
   ArrowLeft,
   DollarSign,
   AlertTriangle,
-  ListOrdered
+  ListOrdered,
+  Activity,
+  Phone,
+  User,
+  Table
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { ColumnType, ColumnDefinition, UserRole, PropertyType } from '../types';
@@ -69,7 +72,7 @@ const PropertyTypeManager: React.FC = () => {
           <div className="relative bg-white p-8 rounded-[3rem] shadow-2xl border border-red-100">
              <ShieldAlert className="w-24 h-24 text-red-500" />
           </div>
-          <div className="absolute -bottom-4 -right-4 bg-slate-900 p-4 rounded-3xl shadow-xl">
+          <div className="absolute -bottom-4 -right-4 bg-slate-950 p-4 rounded-3xl shadow-xl">
              <Lock className="w-8 h-8 text-white" />
           </div>
         </div>
@@ -87,12 +90,12 @@ const PropertyTypeManager: React.FC = () => {
     setNewTypeName('');
     setDefaultDueDateDay(5);
     setTempColumns([
-      { id: generateId('col_'), name: 'Unit Name', type: ColumnType.TEXT, required: true, isRentCalculatable: false, order: 0 },
-      { id: generateId('col_'), name: 'Tenant Name', type: ColumnType.TEXT, required: true, isRentCalculatable: false, order: 1 },
-      { id: generateId('col_'), name: 'Monthly Rent', type: ColumnType.CURRENCY, required: true, isRentCalculatable: true, order: 2 },
-      { id: generateId('col_'), name: 'Security Deposit', type: ColumnType.SECURITY_DEPOSIT, required: true, isRentCalculatable: false, order: 3 },
-      { id: generateId('col_'), name: 'Rent Date', type: ColumnType.DATE, required: true, isRentCalculatable: false, order: 4 },
-      { id: generateId('col_'), name: 'Status', type: ColumnType.DROPDOWN, required: true, isRentCalculatable: false, options: ['Active', 'Vacant'], order: 5 },
+      { id: generateId('col_'), name: 'Tenant Name', type: ColumnType.TEXT, required: true, isRentCalculatable: false, isDefaultInLedger: true, order: 0 },
+      { id: generateId('col_'), name: 'Tenant Number', type: ColumnType.NUMBER, required: true, isRentCalculatable: false, isDefaultInLedger: true, order: 1 },
+      { id: generateId('col_'), name: 'Monthly Rent', type: ColumnType.CURRENCY, required: true, isRentCalculatable: true, isDefaultInLedger: true, order: 2 },
+      { id: generateId('col_'), name: 'Security Deposit', type: ColumnType.SECURITY_DEPOSIT, required: true, isRentCalculatable: false, isDefaultInLedger: false, order: 3 },
+      { id: generateId('col_'), name: 'Rent Date', type: ColumnType.DATE, required: true, isRentCalculatable: false, isDefaultInLedger: true, order: 4 },
+      { id: generateId('col_'), name: 'Occupancy Status', type: ColumnType.OCCUPANCY_STATUS, required: true, isRentCalculatable: false, isDefaultInLedger: true, options: ['Active', 'Vacant'], order: 5 },
     ]);
   };
 
@@ -110,6 +113,7 @@ const PropertyTypeManager: React.FC = () => {
       type: ColumnType.TEXT,
       required: false,
       isRentCalculatable: false,
+      isDefaultInLedger: false,
       order: tempColumns.length
     }]);
   };
@@ -119,19 +123,40 @@ const PropertyTypeManager: React.FC = () => {
       if (c.id === id) {
         let updated = { ...c, ...updates };
         
-        // Logical constraints for Security Deposit: Force required and non-rent calculatable
-        if (updated.type === ColumnType.SECURITY_DEPOSIT) {
+        // Block modification of core system fields logic
+        const systemTypes = [
+          ColumnType.SECURITY_DEPOSIT, 
+          ColumnType.OCCUPANCY_STATUS, 
+          ColumnType.RENT_DUE_DAY
+        ];
+
+        const nameLower = updated.name.toLowerCase();
+        const isMandatoryDefault = 
+          nameLower === 'tenant name' || 
+          nameLower === 'tenant number' || 
+          nameLower === 'monthly rent' || 
+          nameLower === 'rent date';
+
+        if (systemTypes.includes(updated.type) || isMandatoryDefault) {
           updated.required = true;
-          updated.isRentCalculatable = false;
+          if (nameLower !== 'monthly rent') {
+            updated.isRentCalculatable = false;
+          } else {
+            updated.isRentCalculatable = true;
+            updated.type = ColumnType.CURRENCY;
+          }
+          // Special handling for tenant number to remain numeric
+          if (nameLower === 'tenant number') {
+            updated.type = ColumnType.NUMBER;
+          }
         }
 
-        if (updated.type === ColumnType.RENT_DUE_DAY) {
-           updated.required = true;
-           updated.isRentCalculatable = false;
+        if (updated.type === ColumnType.OCCUPANCY_STATUS && (!updated.options || updated.options.length === 0)) {
+           updated.options = ['Active', 'Vacant'];
         }
         
         if (updated.type === ColumnType.DROPDOWN && (!updated.options || updated.options.length === 0)) {
-          updated.options = ['Active', 'Vacant'];
+          updated.options = ['Option 1', 'Option 2'];
         }
         
         return updated;
@@ -141,46 +166,24 @@ const PropertyTypeManager: React.FC = () => {
   };
 
   const getDropdownOptionsError = (col: ColumnDefinition) => {
-    if (col.type !== ColumnType.DROPDOWN) return null;
+    if (col.type !== ColumnType.DROPDOWN && col.type !== ColumnType.OCCUPANCY_STATUS) return null;
     if (!col.options || col.options.length === 0) return "At least one option is required.";
     
     const options = col.options;
-    
-    // Check for empty or whitespace-only options
-    if (options.some(o => o.trim() === "")) {
-      return "All dropdown options must contain text. Empty values are not allowed.";
-    }
-
-    // Check for duplicate options (case-insensitive for better UX)
+    if (options.some(o => o.trim() === "")) return "Empty values are not allowed.";
     const trimmedAndLower = options.map(o => o.trim().toLowerCase());
     const duplicates = trimmedAndLower.filter((item, index) => trimmedAndLower.indexOf(item) !== index);
-    if (duplicates.length > 0) {
-      const originalDup = options[trimmedAndLower.indexOf(duplicates[0])];
-      return `Duplicate option detected: "${originalDup}". All options must be unique.`;
-    }
-
+    if (duplicates.length > 0) return `Duplicate option detected: "${options[trimmedAndLower.indexOf(duplicates[0])]}".`;
     return null;
   };
 
   const validateSchema = (typeName: string, cols: ColumnDefinition[]) => {
-    if (!typeName.trim()) { 
-      setError("Property Type name is required."); 
-      return false; 
-    }
-    
-    if (cols.some(c => !c.name.trim())) { 
-      setError("Please ensure all fields have names."); 
-      return false; 
-    }
-
+    if (!typeName.trim()) { setError("Property Type name is required."); return false; }
+    if (cols.some(c => !c.name.trim())) { setError("Please ensure all fields have names."); return false; }
     for (const col of cols) {
       const dropdownError = getDropdownOptionsError(col);
-      if (dropdownError) {
-        setError(`Error in field "${col.name}": ${dropdownError}`);
-        return false;
-      }
+      if (dropdownError) { setError(`Error in field "${col.name}": ${dropdownError}`); return false; }
     }
-
     return true;
   };
 
@@ -205,8 +208,8 @@ const PropertyTypeManager: React.FC = () => {
     setConfirmConfig({
       isOpen: true,
       title: "Update Schema Structure",
-      message: `Warning: Structural changes to "${type.name}" will be applied to all linked units immediately.`,
-      actionLabel: "Save Structural Changes",
+      message: `Warning: Structural changes will be applied to all linked units immediately.`,
+      actionLabel: "Save Changes",
       onConfirm: () => {
         store.updatePropertyType({ ...type, columns: tempColumns, defaultDueDateDay });
         setEditingId(null);
@@ -260,7 +263,7 @@ const PropertyTypeManager: React.FC = () => {
   };
 
   return (
-    <div className="space-y-8 max-w-5xl mx-auto pb-20">
+    <div className="space-y-8 max-w-6xl mx-auto pb-20">
       {confirmConfig.isOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md animate-in fade-in duration-300">
           <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl border border-white/20 overflow-hidden animate-in zoom-in-95 duration-200">
@@ -272,18 +275,8 @@ const PropertyTypeManager: React.FC = () => {
               <p className="text-slate-500 font-medium leading-relaxed">{confirmConfig.message}</p>
             </div>
             <div className="p-8 flex gap-4 bg-white">
-              <button 
-                onClick={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))}
-                className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-200 transition-all"
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={confirmConfig.onConfirm}
-                className={`flex-1 py-4 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl transition-all active:scale-95 ${confirmConfig.isDanger ? 'bg-red-500 shadow-red-200 hover:bg-red-600' : 'bg-indigo-600 shadow-indigo-200 hover:bg-indigo-700'}`}
-              >
-                {confirmConfig.actionLabel}
-              </button>
+              <button onClick={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-200">Cancel</button>
+              <button onClick={confirmConfig.onConfirm} className={`flex-1 py-4 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl transition-all active:scale-95 ${confirmConfig.isDanger ? 'bg-red-500' : 'bg-indigo-600'}`}>{confirmConfig.actionLabel}</button>
             </div>
           </div>
         </div>
@@ -331,91 +324,79 @@ const PropertyTypeManager: React.FC = () => {
           </div>
 
           <div className="space-y-4">
-             <div className="flex items-center px-8 py-3 bg-gray-50 rounded-2xl mb-2">
-                <span className="flex-1 text-[8px] font-black text-gray-400 uppercase tracking-widest text-center pl-10">Field Identity</span>
-                <span className="w-48 text-[8px] font-black text-gray-400 uppercase tracking-widest text-center">Data Type</span>
-                <span className="w-48 text-[8px] font-black text-gray-400 uppercase tracking-widest text-center">Settings</span>
-                <span className="w-12"></span>
-             </div>
              {tempColumns.map((col, index) => {
                const dropdownError = getDropdownOptionsError(col);
-               const isSecurityDeposit = col.type === ColumnType.SECURITY_DEPOSIT;
+               
+               const nameLower = col.name.toLowerCase();
+               const isMandatoryDefault = 
+                 nameLower === 'tenant name' || 
+                 nameLower === 'tenant number' || 
+                 nameLower === 'monthly rent' || 
+                 nameLower === 'rent date';
+
+               const isSystemType = 
+                 col.type === ColumnType.SECURITY_DEPOSIT || 
+                 col.type === ColumnType.OCCUPANCY_STATUS || 
+                 col.type === ColumnType.RENT_DUE_DAY;
+
+               const isBlocked = isMandatoryDefault || isSystemType;
                
                return (
-                 <div key={col.id} draggable onDragStart={(e) => handleDragStart(e, index)} onDragOver={(e) => handleDragOver(e, index)} className={`grid grid-cols-12 gap-x-4 items-center bg-white p-5 rounded-3xl border ${dropdownError ? 'border-red-400 ring-2 ring-red-400/20 shadow-lg' : isSecurityDeposit ? 'border-amber-200 bg-amber-50/10 shadow-sm' : 'border-gray-100 shadow-sm'} hover:border-indigo-200 transition-all group`}>
+                 <div key={col.id} draggable={!isBlocked} onDragStart={(e) => handleDragStart(e, index)} onDragOver={(e) => handleDragOver(e, index)} className={`grid grid-cols-12 gap-x-4 items-center bg-white p-5 rounded-3xl border ${dropdownError ? 'border-red-400 ring-2 ring-red-400/20 shadow-lg' : isBlocked ? 'border-amber-200 bg-amber-50/10 shadow-sm' : 'border-gray-100 shadow-sm'} hover:border-indigo-200 transition-all group`}>
                    <div className="col-span-1 flex items-center justify-center cursor-grab active:cursor-grabbing">
-                      {isSecurityDeposit ? <ShieldCheck className="w-6 h-6 text-amber-500 animate-in zoom-in" /> : col.type === ColumnType.DROPDOWN ? <ListOrdered className="w-5 h-5 text-indigo-500" /> : <GripVertical className="w-6 h-6 text-gray-300" />}
+                      {isBlocked ? <Activity className={`w-6 h-6 ${col.type === ColumnType.SECURITY_DEPOSIT ? 'text-amber-500' : 'text-indigo-500'}`} /> : <GripVertical className="w-6 h-6 text-gray-300" />}
                    </div>
-                   <div className="col-span-4"><input className="w-full bg-gray-50 border border-gray-100 p-3 rounded-xl text-sm font-black outline-none group-hover:bg-white transition-colors" value={col.name} onChange={e => handleUpdateColumn(col.id, {name: e.target.value})} /></div>
-                   <div className="col-span-3">
-                     <select className="w-full border border-gray-100 p-3 rounded-xl text-sm font-black bg-gray-50 outline-none group-hover:bg-white transition-colors" value={col.type} onChange={e => handleUpdateColumn(col.id, {type: e.target.value as ColumnType})}>
+                   <div className="col-span-4">
+                      <div className="relative">
+                         <input className={`w-full bg-gray-50 border border-gray-100 p-3 rounded-xl text-sm font-black outline-none group-hover:bg-white transition-colors ${isBlocked ? 'text-slate-400' : ''}`} value={col.name} onChange={e => handleUpdateColumn(col.id, {name: e.target.value})} disabled={isBlocked} />
+                         {isBlocked && <Lock className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-300" />}
+                      </div>
+                   </div>
+                   <div className="col-span-2">
+                     <select className="w-full border border-gray-100 p-3 rounded-xl text-sm font-black bg-gray-50 outline-none group-hover:bg-white transition-colors disabled:opacity-60" value={col.type} onChange={e => handleUpdateColumn(col.id, {type: e.target.value as ColumnType})} disabled={isBlocked}>
                        {Object.values(ColumnType).map(t => (
                          <option key={t} value={t}>
-                           {t === ColumnType.RENT_DUE_DAY ? 'Rent Due Day' : 
-                            t === ColumnType.SECURITY_DEPOSIT ? 'Security Deposit' : 
-                            t.charAt(0).toUpperCase() + t.slice(1).toUpperCase()}
+                           {t.split('_').map(w => w.toUpperCase()).join(' ')}
                          </option>
                        ))}
                      </select>
                    </div>
-                   <div className="col-span-3 flex justify-around">
-                      <label className={`flex flex-col items-center gap-1 transition-opacity ${isSecurityDeposit ? 'opacity-50' : 'opacity-100'}`}>
+                   <div className="col-span-4 flex justify-around">
+                      <label className={`flex flex-col items-center gap-1 transition-opacity ${isBlocked && nameLower !== 'monthly rent' ? 'opacity-50' : 'opacity-100'}`}>
                         <span className="text-[8px] font-black text-gray-400 uppercase">Rent Calc</span>
-                        <input 
-                          type="checkbox" 
-                          disabled={isSecurityDeposit || col.type === ColumnType.RENT_DUE_DAY}
-                          checked={col.isRentCalculatable} 
-                          onChange={e => handleUpdateColumn(col.id, {isRentCalculatable: e.target.checked})} 
-                          className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:cursor-not-allowed" 
-                        />
+                        <input type="checkbox" disabled={isBlocked} checked={col.isRentCalculatable} onChange={e => handleUpdateColumn(col.id, {isRentCalculatable: e.target.checked})} className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
                       </label>
-                      <label className={`flex flex-col items-center gap-1 transition-opacity ${isSecurityDeposit ? 'opacity-50' : 'opacity-100'}`}>
+                      <label className={`flex flex-col items-center gap-1 transition-opacity ${isBlocked ? 'opacity-50' : 'opacity-100'}`}>
                         <span className="text-[8px] font-black text-gray-400 uppercase">Required</span>
-                        <input 
-                          type="checkbox" 
-                          disabled={isSecurityDeposit || col.type === ColumnType.RENT_DUE_DAY}
-                          checked={col.required} 
-                          onChange={e => handleUpdateColumn(col.id, {required: e.target.checked})} 
-                          className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:cursor-not-allowed" 
-                        />
+                        <input type="checkbox" disabled={isBlocked} checked={col.required} onChange={e => handleUpdateColumn(col.id, {required: e.target.checked})} className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                      </label>
+                      <label className="flex flex-col items-center gap-1">
+                        <span className="text-[8px] font-black text-gray-400 uppercase">Ledger</span>
+                        <input type="checkbox" checked={col.isDefaultInLedger} onChange={e => handleUpdateColumn(col.id, {isDefaultInLedger: e.target.checked})} className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" title="Show as column in Rent Collection ledger" />
                       </label>
                    </div>
                    <div className="col-span-1 text-right">
-                     <button onClick={() => handleDeleteColumn(col.id, col.name)} className="p-3 text-gray-300 hover:text-red-500 transition-colors"><Trash2 className="w-5 h-5" /></button>
+                     {!isBlocked && <button onClick={() => handleDeleteColumn(col.id, col.name)} className="p-3 text-gray-300 hover:text-red-500 transition-colors"><Trash2 className="w-5 h-5" /></button>}
                    </div>
 
-                   {col.type === ColumnType.DROPDOWN && (
+                   {(col.type === ColumnType.DROPDOWN || col.type === ColumnType.OCCUPANCY_STATUS) && (
                       <div className="col-span-12 mt-4 ml-11 p-6 bg-indigo-50/50 rounded-2xl border border-indigo-100 animate-in slide-in-from-top-2">
                          <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-2 block">Selection Options (Comma Separated)</label>
-                         <input 
-                            className={`w-full bg-white border ${dropdownError ? 'border-red-500 ring-2 ring-red-500/20' : 'border-indigo-200'} p-4 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all shadow-sm`}
-                            placeholder="e.g. Active, Vacant, Maintenance"
-                            value={col.options?.join(', ') || ''}
-                            onChange={e => handleUpdateColumn(col.id, { options: e.target.value.split(',').map(s => s.trim()) })}
-                         />
-                         {dropdownError ? (
-                           <div className="mt-3 p-3 bg-red-100 border border-red-200 rounded-xl flex items-center gap-2.5 animate-in slide-in-from-left-2">
-                             <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
-                             <p className="text-[10px] text-red-700 font-black uppercase tracking-tight">
-                               {dropdownError}
-                             </p>
-                           </div>
-                         ) : (
-                           <p className="mt-2 text-[9px] text-gray-400 font-medium italic">All options must be unique and non-empty. Separate items using a comma.</p>
-                         )}
+                         <input className={`w-full bg-white border ${dropdownError ? 'border-red-500 ring-2 ring-red-500/20' : 'border-indigo-200'} p-4 rounded-xl text-xs font-bold outline-none shadow-sm`} placeholder="e.g. Active, Vacant" value={col.options?.join(', ') || ''} onChange={e => handleUpdateColumn(col.id, { options: e.target.value.split(',').map(s => s.trim()) })} />
+                         {dropdownError && <p className="mt-3 text-[10px] text-red-700 font-black uppercase">{dropdownError}</p>}
                       </div>
                    )}
                  </div>
                );
              })}
-             <button onClick={handleAddColumn} className="w-full py-6 border-4 border-dashed border-indigo-50 rounded-3xl text-indigo-400 font-black text-xs uppercase hover:bg-indigo-50 hover:border-indigo-100 transition-all flex items-center justify-center gap-3 active:scale-[0.99]">
+             <button onClick={handleAddColumn} className="w-full py-6 border-4 border-dashed border-indigo-50 rounded-3xl text-indigo-400 font-black text-xs uppercase hover:bg-indigo-50 transition-all flex items-center justify-center gap-3">
                <Plus className="w-6 h-6" /> Add Custom Field
              </button>
           </div>
           
           <div className="flex justify-end gap-4 pt-8 border-t border-gray-100">
-            <button onClick={() => { setIsAdding(false); setEditingId(null); }} className="px-8 py-3.5 text-gray-500 font-black text-xs uppercase tracking-widest hover:text-slate-800 transition-colors">Cancel</button>
-            <button onClick={() => isAdding ? saveNewType() : saveEditChanges(editingId!)} className="bg-indigo-600 text-white px-12 py-3.5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-xl hover:bg-indigo-700 transition-all active:scale-95">
+            <button onClick={() => { setIsAdding(false); setEditingId(null); }} className="px-8 py-3.5 text-gray-500 font-black text-xs uppercase tracking-widest hover:text-slate-800">Cancel</button>
+            <button onClick={() => isAdding ? saveNewType() : saveEditChanges(editingId!)} className="bg-indigo-600 text-white px-12 py-3.5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-xl hover:bg-indigo-700">
               {isAdding ? 'Create Schema' : 'Update Schema'}
             </button>
           </div>
@@ -432,14 +413,7 @@ const PropertyTypeManager: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="text-2xl font-black text-gray-900 tracking-tight uppercase">{type.name}</h3>
-                  <div className="flex items-center gap-3 mt-1">
-                     <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">{type.columns.length} Fields Defined • Due Day: {type.defaultDueDateDay}</p>
-                     {type.columns.some(c => c.type === ColumnType.SECURITY_DEPOSIT) && (
-                        <div className="flex items-center gap-1.5 px-2 py-0.5 bg-amber-50 text-amber-600 rounded-md text-[8px] font-black uppercase tracking-tighter border border-amber-100">
-                           <ShieldCheck className="w-3 h-3" /> Secure Assets
-                        </div>
-                     )}
-                  </div>
+                  <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">{type.columns.length} Fields Defined • Due Day: {type.defaultDueDateDay}</p>
                 </div>
               </div>
             </div>

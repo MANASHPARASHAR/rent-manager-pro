@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -41,12 +41,28 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const location = useLocation();
   const store = useRentalStore();
   
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 1024);
   const [isSetupOpen, setIsSetupOpen] = useState(false);
   const [tempClientId, setTempClientId] = useState(store.googleClientId || '');
   const [activeStep, setActiveStep] = useState<number | null>(1);
 
   const isAdmin = store.user?.role === UserRole.ADMIN;
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth >= 1024) setIsSidebarOpen(true);
+      else setIsSidebarOpen(false);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Close sidebar on navigation on mobile
+  useEffect(() => {
+    if (window.innerWidth < 1024) {
+      setIsSidebarOpen(false);
+    }
+  }, [location.pathname]);
 
   const menuItems = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -80,6 +96,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   return (
     <div className="min-h-screen bg-slate-50 flex font-sans antialiased text-slate-900 overflow-x-hidden">
+      {/* Mobile Sidebar Backdrop */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm z-[45] lg:hidden animate-in fade-in duration-300"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
       {/* Cloud Setup Modal */}
       {isSetupOpen && isAdmin && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-md animate-in fade-in duration-300">
@@ -152,12 +176,18 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         </button>
 
         {/* Sidebar Header */}
-        <div className={`p-10 flex items-center gap-4 shrink-0 ${isSidebarOpen ? 'opacity-100' : 'opacity-0 lg:hidden'}`}>
-            <div className="bg-indigo-600 p-3 rounded-2xl shadow-xl shadow-indigo-600/20"><Building className="w-7 h-7" /></div>
-            <div>
-              <span className="text-2xl font-black tracking-tighter uppercase leading-none block">Master</span>
-              <span className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.3em] block mt-1">Rental Pro</span>
+        <div className={`p-10 flex items-center justify-between shrink-0 ${isSidebarOpen ? 'opacity-100' : 'opacity-0 lg:hidden'}`}>
+            <div className="flex items-center gap-4">
+              <div className="bg-indigo-600 p-3 rounded-2xl shadow-xl shadow-indigo-600/20"><Building className="w-7 h-7" /></div>
+              <div>
+                <span className="text-2xl font-black tracking-tighter uppercase leading-none block">Master</span>
+                <span className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.3em] block mt-1">Rental Pro</span>
+              </div>
             </div>
+            {/* Mobile Close Button */}
+            <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden p-2 hover:bg-white/10 rounded-full transition-colors text-slate-500">
+              <X className="w-6 h-6" />
+            </button>
         </div>
 
         {/* Sidebar Content */}
