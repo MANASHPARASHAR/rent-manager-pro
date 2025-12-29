@@ -45,17 +45,14 @@ const Reports: React.FC = () => {
       recordIds.includes(p.recordId) && p.status === PaymentStatus.PAID
     );
 
-    // Apply Filters (Optimized for One-Time vs Monthly payments)
     if (filterType === 'monthly') {
       filteredPayments = filteredPayments.filter(p => {
         if (p.type === 'RENT') return p.month === selectedMonth;
-        // For Deposits, check the actual payment date
         return p.paidAt?.startsWith(selectedMonth);
       });
     } else if (filterType === 'annual') {
       filteredPayments = filteredPayments.filter(p => {
         if (p.type === 'RENT') return p.month.startsWith(selectedYear);
-        // For Deposits, check the actual payment date
         return p.paidAt?.startsWith(selectedYear);
       });
     } else if (filterType === 'custom') {
@@ -101,7 +98,6 @@ const Reports: React.FC = () => {
         if (p.isRefunded) {
           totalRefunds += p.amount;
           byDate[date].refund += p.amount;
-          // Refunds reduce net liquidity for deposits
           if (activeModality === 'DEPOSIT') {
             byProperty[prop] = (byProperty[prop] || 0) - p.amount;
             byRecipient[recipient] = (byRecipient[recipient] || 0) - p.amount;
@@ -197,23 +193,29 @@ const Reports: React.FC = () => {
 
           <div className="bg-slate-50 border border-slate-100 px-4 py-2 rounded-2xl flex items-center gap-2 min-h-[50px]">
             {filterType === 'monthly' && (
-              <div className="flex items-center gap-2">
-                <button onClick={() => navigateMonth(-1)} className="p-1 hover:text-indigo-600 transition-colors">
+              <div 
+                className="flex items-center gap-2 cursor-pointer hover:bg-slate-100 px-2 py-1 rounded-xl transition-colors group/month"
+                onClick={(e) => { try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(err) {} }}
+              >
+                <button 
+                  onClick={(e) => { e.stopPropagation(); navigateMonth(-1); }} 
+                  className="p-1 hover:text-indigo-600 transition-colors"
+                >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
-                <label 
-                   className="flex items-center gap-3 cursor-pointer group/date"
-                   onClick={(e) => { try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(e) {} }}
-                >
-                  <CalendarDays className="w-4 h-4 text-indigo-500 group-hover/date:scale-110 transition-transform" />
+                <div className="flex items-center gap-3">
+                  <CalendarDays className="w-4 h-4 text-indigo-500 group-hover/month:scale-110 transition-transform" />
                   <input 
                     type="month"
                     className="bg-transparent border-none text-xs font-black uppercase text-slate-900 outline-none cursor-pointer"
                     value={selectedMonth}
                     onChange={(e) => setSelectedMonth(e.target.value)}
                   />
-                </label>
-                <button onClick={() => navigateMonth(1)} className="p-1 hover:text-indigo-600 transition-colors">
+                </div>
+                <button 
+                  onClick={(e) => { e.stopPropagation(); navigateMonth(1); }} 
+                  className="p-1 hover:text-indigo-600 transition-colors"
+                >
                   <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
@@ -247,13 +249,19 @@ const Reports: React.FC = () => {
               <div className="flex items-center gap-3">
                 <CalendarDays className="w-4 h-4 text-indigo-500" />
                 <div className="flex items-center gap-2">
-                  <label className="cursor-pointer group/date" onClick={(e) => { try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(e) {} }}>
+                  <div 
+                    className="cursor-pointer hover:bg-slate-100 px-2 py-1 rounded-xl transition-colors group/start"
+                    onClick={(e) => { try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(err) {} }}
+                  >
                      <input type="date" className="bg-transparent border-none text-[10px] font-black uppercase text-slate-900 outline-none cursor-pointer" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-                  </label>
+                  </div>
                   <div className="text-slate-300">→</div>
-                  <label className="cursor-pointer group/date" onClick={(e) => { try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(e) {} }}>
+                  <div 
+                    className="cursor-pointer hover:bg-slate-100 px-2 py-1 rounded-xl transition-colors group/end"
+                    onClick={(e) => { try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(err) {} }}
+                  >
                      <input type="date" className="bg-transparent border-none text-[10px] font-black uppercase text-slate-900 outline-none cursor-pointer" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-                  </label>
+                  </div>
                 </div>
               </div>
             )}

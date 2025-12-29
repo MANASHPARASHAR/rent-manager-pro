@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { 
@@ -258,19 +257,34 @@ const PropertyDetails: React.FC = () => {
                   {columns.map(col => (
                     <td key={col.id} className="px-8 py-8 align-top">
                       {(col.type === ColumnType.DROPDOWN || col.type === ColumnType.OCCUPANCY_STATUS) ? (
-                        <select className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500' : 'border-gray-200'} rounded-2xl px-5 py-4 text-sm font-bold shadow-sm outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all`} value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)}>
+                        <select className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500' : 'border-gray-200'} rounded-2xl px-5 py-4 text-sm font-bold shadow-sm outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all cursor-pointer`} value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)}>
                           <option value="">Select...</option>
                           {col.options?.map(o => <option key={o} value={o}>{o}</option>)}
                         </select>
                       ) : (
-                        <input className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500' : 'border-gray-200'} rounded-2xl px-5 py-4 text-sm font-bold shadow-sm outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all`} type={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.SECURITY_DEPOSIT ? 'number' : col.type === ColumnType.DATE ? 'date' : 'text'} value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)} placeholder={`Enter ${col.name}`} />
+                        <div 
+                          className={`relative group ${col.type === ColumnType.DATE ? 'cursor-pointer' : ''}`}
+                          onClick={(e) => {
+                            if (col.type === ColumnType.DATE) {
+                              try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(err) {}
+                            }
+                          }}
+                        >
+                          <input 
+                            className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500' : 'border-gray-200'} rounded-2xl px-5 py-4 text-sm font-bold shadow-sm outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all ${col.type === ColumnType.DATE ? 'cursor-pointer group-hover:bg-slate-50' : ''}`} 
+                            type={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.SECURITY_DEPOSIT ? 'number' : col.type === ColumnType.DATE ? 'date' : 'text'} 
+                            value={formData[col.id] || ''} 
+                            onChange={e => handleInputChange(col.id, e.target.value)} 
+                            placeholder={`Enter ${col.name}`} 
+                          />
+                        </div>
                       )}
                     </td>
                   ))}
                   <td className="px-8 py-8 text-right align-top">
                     <div className="flex justify-end gap-3">
-                      <button onClick={handleSave} className="p-4 bg-indigo-600 text-white rounded-2xl shadow-xl"><Save className="w-6 h-6" /></button>
-                      <button onClick={() => { setIsAdding(false); setFormData({}); }} className="p-4 bg-white border border-gray-200 rounded-2xl text-gray-400"><X className="w-6 h-6" /></button>
+                      <button onClick={handleSave} className="p-4 bg-indigo-600 text-white rounded-2xl shadow-xl hover:bg-indigo-700 transition-colors"><Save className="w-6 h-6" /></button>
+                      <button onClick={() => { setIsAdding(false); setFormData({}); }} className="p-4 bg-white border border-gray-200 rounded-2xl text-gray-400 hover:bg-slate-50 transition-colors"><X className="w-6 h-6" /></button>
                     </div>
                   </td>
                 </tr>
@@ -289,12 +303,26 @@ const PropertyDetails: React.FC = () => {
                         <td key={col.id} className="px-8 py-7 text-sm font-bold text-gray-700 whitespace-nowrap align-top">
                           {isEditing ? (
                             (col.type === ColumnType.DROPDOWN || col.type === ColumnType.OCCUPANCY_STATUS) ? (
-                              <select className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500' : 'border-indigo-200'} rounded-2xl px-5 py-4 text-sm font-bold shadow-sm outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all`} value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)}>
+                              <select className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500' : 'border-indigo-200'} rounded-2xl px-5 py-4 text-sm font-bold shadow-sm outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all cursor-pointer`} value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)}>
                                 <option value="">Select...</option>
                                 {col.options?.map(o => <option key={o} value={o}>{o}</option>)}
                               </select>
                             ) : (
-                              <input className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500' : 'border-indigo-200'} rounded-2xl px-5 py-4 text-sm font-bold shadow-sm outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all`} type={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.SECURITY_DEPOSIT ? 'number' : col.type === ColumnType.DATE ? 'date' : 'text'} value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)} />
+                              <div 
+                                className={`relative group ${col.type === ColumnType.DATE ? 'cursor-pointer' : ''}`}
+                                onClick={(e) => {
+                                  if (col.type === ColumnType.DATE) {
+                                    try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(err) {}
+                                  }
+                                }}
+                              >
+                                <input 
+                                  className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500' : 'border-indigo-200'} rounded-2xl px-5 py-4 text-sm font-bold shadow-sm outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all ${col.type === ColumnType.DATE ? 'cursor-pointer group-hover:bg-slate-50' : ''}`} 
+                                  type={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.SECURITY_DEPOSIT ? 'number' : col.type === ColumnType.DATE ? 'date' : 'text'} 
+                                  value={formData[col.id] || ''} 
+                                  onChange={e => handleInputChange(col.id, e.target.value)} 
+                                />
+                              </div>
                             )
                           ) : renderCellContent(val, col, record.id)}
                         </td>
@@ -303,7 +331,7 @@ const PropertyDetails: React.FC = () => {
                     {canEdit && (
                       <td className="px-8 py-7 text-right align-top">
                         {isEditing ? (
-                          <div className="flex justify-end gap-3"><button onClick={handleSave} className="p-4 bg-indigo-600 text-white rounded-2xl shadow-xl"><Save className="w-6 h-6" /></button><button onClick={() => { setEditingRecordId(null); setFormData({}); }} className="p-4 bg-white border border-gray-200 rounded-2xl text-gray-400"><X className="w-6 h-6" /></button></div>
+                          <div className="flex justify-end gap-3"><button onClick={handleSave} className="p-4 bg-indigo-600 text-white rounded-2xl shadow-xl hover:bg-indigo-700 transition-colors"><Save className="w-6 h-6" /></button><button onClick={() => { setEditingRecordId(null); setFormData({}); }} className="p-4 bg-white border border-gray-200 rounded-2xl text-gray-400 hover:bg-slate-50 transition-colors"><X className="w-6 h-6" /></button></div>
                         ) : (
                           <div className="flex justify-end gap-3 opacity-0 group-hover:opacity-100 transition-all">
                             <button onClick={() => { 

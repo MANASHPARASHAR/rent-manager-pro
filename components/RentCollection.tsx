@@ -137,7 +137,8 @@ const RentCollection: React.FC = () => {
     paymentMode: '',
     month: '',
     type: 'RENT' as 'RENT' | 'DEPOSIT',
-    amount: 0
+    amount: 0,
+    paidAt: new Date().toISOString().split('T')[0]
   });
 
   const availableYears = useMemo(() => {
@@ -380,7 +381,8 @@ const RentCollection: React.FC = () => {
       paymentMode: store.config.paymentModeOptions[0] || '',
       month: type === 'RENT' ? selectedMonth : 'ONE_TIME',
       type,
-      amount: type === 'RENT' ? record.rentAmount : record.depositAmount
+      amount: type === 'RENT' ? record.rentAmount : record.depositAmount,
+      paidAt: new Date().toISOString().split('T')[0]
     });
   };
 
@@ -476,10 +478,10 @@ const RentCollection: React.FC = () => {
 
   const confirmCollection = () => {
     if (!collectingRecord) return;
-    const { paidTo, paymentMode, amount, type, month } = collectionData;
+    const { paidTo, paymentMode, amount, type, month, paidAt } = collectionData;
     const { id: recordId, dueDay } = collectingRecord;
     const dueDateString = type === 'RENT' ? `${month}-${String(dueDay).padStart(2, '0')}` : 'N/A';
-    store.togglePayment(recordId, month, amount, dueDateString, { paidTo, paymentMode }, type);
+    store.togglePayment(recordId, month, amount, dueDateString, { paidTo, paymentMode, paidAt }, type);
     setCollectingRecord(null);
   };
 
@@ -575,9 +577,17 @@ const RentCollection: React.FC = () => {
                  <div className="space-y-6">
                     <div className="space-y-1.5">
                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Effective Event Date</label>
-                       <div className="relative">
-                          <input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 text-sm font-black text-indigo-900 outline-none focus:ring-4 focus:ring-indigo-500/10" value={temporalAction.effectiveDate} onChange={e => setTemporalAction({...temporalAction, effectiveDate: e.target.value})} />
-                          <Calendar className="absolute right-6 top-1/2 -translate-y-1/2 w-5 h-5 text-indigo-400" />
+                       <div 
+                          className="relative group cursor-pointer"
+                          onClick={(e) => { try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(err) {} }}
+                       >
+                          <input 
+                            type="date" 
+                            className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 text-sm font-black text-indigo-900 outline-none focus:ring-4 focus:ring-indigo-500/10 group-hover:bg-slate-100 transition-colors cursor-pointer" 
+                            value={temporalAction.effectiveDate} 
+                            onChange={e => setTemporalAction({...temporalAction, effectiveDate: e.target.value})} 
+                          />
+                          <Calendar className="absolute right-6 top-1/2 -translate-y-1/2 w-5 h-5 text-indigo-400 pointer-events-none" />
                        </div>
                        <p className="text-[9px] text-slate-400 font-bold uppercase ml-1 italic">* Ledger data prior to this date remains preserved as per history.</p>
                     </div>
@@ -589,29 +599,41 @@ const RentCollection: React.FC = () => {
                             return (
                             <div key={col.id} className="space-y-1.5">
                                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{col.name} {col.required && !isVacancy && <span className="text-rose-500">*</span>}</label>
-                                <input 
-                                    className={`w-full bg-slate-50 border ${temporalAction.formErrors[col.id] ? 'border-red-500' : 'border-slate-200'} rounded-2xl px-5 py-4 text-sm font-bold outline-none ${isVacancy ? 'opacity-50 grayscale cursor-not-allowed' : ''}`}
-                                    placeholder={isVacancy ? 'Wipe Field' : `Enter ${col.name.toLowerCase()}...`}
-                                    type={col.type === ColumnType.CURRENCY || col.type === ColumnType.SECURITY_DEPOSIT || col.type === ColumnType.NUMBER ? 'number' : col.type === ColumnType.DATE ? 'date' : 'text'}
-                                    disabled={isVacancy}
-                                    value={isVacancy ? '' : (temporalAction.formValues[col.id] || '')}
-                                    onChange={e => {
-                                        const newVal = e.target.value;
-                                        setTemporalAction(prev => {
-                                            const updatedValues = { ...prev.formValues, [col.id]: newVal };
-                                            let updatedEffDate = prev.effectiveDate;
-                                            if (col.name.toLowerCase().includes('rent date') && prev.type === 'TENANT') {
-                                                updatedEffDate = newVal;
-                                            }
-                                            return {
-                                                ...prev,
-                                                formValues: updatedValues,
-                                                effectiveDate: updatedEffDate,
-                                                formErrors: { ...prev.formErrors, [col.id]: '' }
-                                            };
-                                        });
-                                    }}
-                                />
+                                <div 
+                                  className={`relative group ${col.type === ColumnType.DATE && !isVacancy ? 'cursor-pointer' : ''}`}
+                                  onClick={(e) => { 
+                                    if (col.type === ColumnType.DATE && !isVacancy) {
+                                      try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(err) {} 
+                                    }
+                                  }}
+                                >
+                                  <input 
+                                      className={`w-full bg-slate-50 border ${temporalAction.formErrors[col.id] ? 'border-red-500' : 'border-slate-200'} rounded-2xl px-5 py-4 text-sm font-bold outline-none ${isVacancy ? 'opacity-50 grayscale cursor-not-allowed' : 'group-hover:bg-slate-100 cursor-pointer'} transition-colors`}
+                                      placeholder={isVacancy ? 'Wipe Field' : `Enter ${col.name.toLowerCase()}...`}
+                                      type={col.type === ColumnType.CURRENCY || col.type === ColumnType.SECURITY_DEPOSIT || col.type === ColumnType.NUMBER ? 'number' : col.type === ColumnType.DATE ? 'date' : 'text'}
+                                      disabled={isVacancy}
+                                      value={isVacancy ? '' : (temporalAction.formValues[col.id] || '')}
+                                      onChange={e => {
+                                          const newVal = e.target.value;
+                                          setTemporalAction(prev => {
+                                              const updatedValues = { ...prev.formValues, [col.id]: newVal };
+                                              let updatedEffDate = prev.effectiveDate;
+                                              if (col.name.toLowerCase().includes('rent date') && prev.type === 'TENANT') {
+                                                  updatedEffDate = newVal;
+                                              }
+                                              return {
+                                                  ...prev,
+                                                  formValues: updatedValues,
+                                                  effectiveDate: updatedEffDate,
+                                                  formErrors: { ...prev.formErrors, [col.id]: '' }
+                                              };
+                                          });
+                                      }}
+                                  />
+                                  {col.type === ColumnType.DATE && !isVacancy && (
+                                    <Calendar className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-400 pointer-events-none opacity-60" />
+                                  )}
+                                </div>
                                 {temporalAction.formErrors[col.id] && <p className="text-[9px] text-rose-500 font-black uppercase mt-1 ml-1 flex items-center gap-1"><AlertCircle className="w-3 h-3" /> {temporalAction.formErrors[col.id]}</p>}
                             </div>
                             );
@@ -661,13 +683,68 @@ const RentCollection: React.FC = () => {
           </div>
           <div className="flex flex-col items-center xl:items-end gap-4 w-full">
             {filterType === 'monthly' && (
+              <div 
+                className="bg-white border border-slate-100 px-4 py-2 rounded-2xl flex items-center gap-2 min-h-[50px] shadow-sm whitespace-nowrap cursor-pointer hover:bg-slate-50 transition-colors group/period"
+                onClick={(e) => { try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(err) {} }}
+              >
+                <button 
+                  onClick={(e) => { e.stopPropagation(); navigateMonth(-1); }} 
+                  className="p-1 hover:text-indigo-600 transition-colors active:scale-90"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <div className="flex items-center gap-2 px-1">
+                  <CalendarDays className="w-4 h-4 text-indigo-500 group-hover/period:scale-110 transition-transform" />
+                  <input 
+                    type="month" 
+                    className="bg-transparent border-none text-[10px] font-black uppercase text-slate-900 outline-none cursor-pointer" 
+                    value={selectedMonth} 
+                    onChange={(e) => setSelectedMonth(e.target.value)} 
+                  />
+                </div>
+                <button 
+                  onClick={(e) => { e.stopPropagation(); navigateMonth(1); }} 
+                  className="p-1 hover:text-indigo-600 transition-colors active:scale-90"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+            {filterType === 'annual' && (
               <div className="bg-white border border-slate-100 px-4 py-2 rounded-2xl flex items-center gap-2 min-h-[50px] shadow-sm whitespace-nowrap">
-                <button onClick={() => navigateMonth(-1)} className="p-1 hover:text-indigo-600 transition-colors active:scale-90"><ChevronLeft className="w-4 h-4" /></button>
-                <label className="flex items-center gap-2 cursor-pointer group/date" onClick={(e) => { try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(e) {} }}>
-                  <CalendarDays className="w-4 h-4 text-indigo-500 group-hover/date:scale-110 transition-transform" />
-                  <input type="month" className="bg-transparent border-none text-[10px] font-black uppercase text-slate-900 outline-none cursor-pointer" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} />
-                </label>
-                <button onClick={() => navigateMonth(1)} className="p-1 hover:text-indigo-600 transition-colors active:scale-90"><ChevronRight className="w-4 h-4" /></button>
+                <button onClick={() => navigateYear(-1)} className="p-1 hover:text-indigo-600 transition-colors active:scale-90"><ChevronLeft className="w-4 h-4" /></button>
+                <div className="flex items-center gap-2 px-1 relative group/year">
+                  <TrendingUp className="w-4 h-4 text-indigo-500" />
+                  <select 
+                    className="bg-transparent border-none text-[10px] font-black uppercase text-slate-900 outline-none cursor-pointer appearance-none pr-6" 
+                    value={selectedYear} 
+                    onChange={(e) => setSelectedYear(e.target.value)} 
+                  >
+                    {availableYears.map(year => (
+                      <option key={year} value={year.toString()}>{year}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-0 w-3 h-3 text-slate-400 pointer-events-none" />
+                </div>
+                <button onClick={() => navigateYear(1)} className="p-1 hover:text-indigo-600 transition-colors active:scale-90"><ChevronRight className="w-4 h-4" /></button>
+              </div>
+            )}
+            {filterType === 'custom' && (
+              <div className="flex flex-col sm:flex-row items-center gap-3">
+                <div 
+                  className="bg-white border border-slate-100 px-4 py-2 rounded-2xl flex items-center gap-3 min-h-[50px] shadow-sm whitespace-nowrap cursor-pointer hover:bg-slate-50 transition-colors group/start"
+                  onClick={(e) => { try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(err) {} }}
+                >
+                  <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">From</span>
+                  <input type="date" className="bg-transparent border-none text-[10px] font-black uppercase text-slate-900 outline-none cursor-pointer" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                </div>
+                <div 
+                  className="bg-white border border-slate-100 px-4 py-2 rounded-2xl flex items-center gap-3 min-h-[50px] shadow-sm whitespace-nowrap cursor-pointer hover:bg-slate-50 transition-colors group/end"
+                  onClick={(e) => { try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(err) {} }}
+                >
+                  <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">To</span>
+                  <input type="date" className="bg-transparent border-none text-[10px] font-black uppercase text-slate-900 outline-none cursor-pointer" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                </div>
               </div>
             )}
           </div>
@@ -675,7 +752,7 @@ const RentCollection: React.FC = () => {
       </header>
 
       {/* RENT SUMMARY SECTION */}
-      {filterType === 'monthly' && (
+      {(filterType === 'monthly' || filterType === 'custom') && (
         <div className="space-y-8">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col justify-between">
@@ -854,22 +931,52 @@ const RentCollection: React.FC = () => {
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md animate-in fade-in duration-300">
            <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
               <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
-                 <h3 className="text-xl font-black text-slate-900 uppercase">Settlement Portal</h3>
+                 <div>
+                    <h3 className="text-xl font-black text-slate-900 uppercase leading-none">Settlement Portal</h3>
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1.5">{collectionData.type} Transaction Entry</p>
+                 </div>
                  <button onClick={() => setCollectingRecord(null)} className="p-2 hover:bg-white rounded-full transition-colors"><X className="w-6 h-6 text-slate-400" /></button>
               </div>
-              <div className="p-8 space-y-6">
-                 <div className={`${collectionData.type === 'DEPOSIT' ? 'bg-amber-50 border-amber-100 text-amber-900' : 'bg-indigo-50 border-indigo-100 text-indigo-900'} p-8 rounded-[2.5rem] border text-center shadow-inner`}>
-                    <p className="text-[10px] font-black uppercase tracking-widest opacity-60 mb-2">{collectionData.type} Amount</p>
-                    <p className="text-5xl font-black tracking-tighter">${collectionData.amount.toLocaleString()}</p>
+              <div className="p-8 space-y-8">
+                 <div className={`${collectionData.type === 'DEPOSIT' ? 'bg-amber-50 border-amber-100' : 'bg-indigo-50 border-indigo-100'} p-8 rounded-[2.5rem] border shadow-inner space-y-4`}>
+                    <div className="text-center">
+                       <p className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-2">Adjust Settlement Amount</p>
+                       <div className="relative inline-block w-full">
+                          <DollarSign className="absolute left-6 top-1/2 -translate-y-1/2 w-8 h-8 text-slate-400" />
+                          <input 
+                            type="number"
+                            className="w-full bg-transparent text-center text-5xl font-black tracking-tighter text-slate-950 outline-none pr-12 pl-16 py-2"
+                            value={collectionData.amount}
+                            onChange={(e) => setCollectionData({...collectionData, amount: parseFloat(e.target.value) || 0})}
+                          />
+                       </div>
+                    </div>
                  </div>
                  
-                 <div className="space-y-4">
+                 <div className="space-y-6">
+                    <div className="space-y-1.5">
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Receipt Date</label>
+                       <div 
+                         className="relative group cursor-pointer"
+                         onClick={(e) => { try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(err) {} }}
+                       >
+                         <input 
+                           type="date"
+                           className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-5 py-4 text-sm font-bold outline-none cursor-pointer group-hover:bg-slate-100 transition-colors"
+                           value={collectionData.paidAt}
+                           onChange={e => setCollectionData({...collectionData, paidAt: e.target.value})}
+                         />
+                         <Calendar className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-400 pointer-events-none opacity-60" />
+                       </div>
+                    </div>
+
                     <div className="space-y-1.5">
                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Receive Into Account</label>
                        <select className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-5 py-4 text-sm font-bold outline-none cursor-pointer" value={collectionData.paidTo} onChange={e => setCollectionData({...collectionData, paidTo: e.target.value})}>
                           {store.config.paidToOptions.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
                        </select>
                     </div>
+
                     <div className="space-y-1.5">
                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Method of Transfer</label>
                        <select className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-5 py-4 text-sm font-bold outline-none cursor-pointer" value={collectionData.paymentMode} onChange={e => setCollectionData({...collectionData, paymentMode: e.target.value})}>
