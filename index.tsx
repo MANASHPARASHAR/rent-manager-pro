@@ -2,6 +2,11 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 
+/**
+ * RentMaster Pro - Root Entry Point
+ * Mounts the React application to the DOM.
+ */
+
 const container = document.getElementById('root');
 
 if (container) {
@@ -12,5 +17,5 @@ if (container) {
     </React.StrictMode>
   );
 } else {
-  console.error("Critical: Could not find the root element to mount the application.");
+  console.error("Critical Error: 'root' element not found in index.html.");
 }
