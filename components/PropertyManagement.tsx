@@ -54,6 +54,7 @@ const PropertyManagement: React.FC = () => {
   const isAdmin = store.user?.role === UserRole.ADMIN;
   const isManager = store.user?.role === UserRole.MANAGER;
   const isViewer = store.user?.role === UserRole.VIEWER;
+  const isRestricted = isManager || isViewer;
 
   const [newProp, setNewProp] = useState({
     name: '',
@@ -66,13 +67,11 @@ const PropertyManagement: React.FC = () => {
     e.preventDefault();
     setError(null);
 
-    // Validate that all fields are filled
     if (!newProp.name.trim() || !newProp.address.trim() || !newProp.city.trim() || !newProp.typeId.trim()) {
-      setError("Please fill in all required fields: Name, Address, City, and Schema.");
+      setError("Please fill in all required fields.");
       return;
     }
 
-    // BUG-B FIX: Property Name validation
     if (!/^[A-Za-z\s]+$/.test(newProp.name)) {
       setError("Property name must contain only alphabets and spaces");
       return;
@@ -81,7 +80,7 @@ const PropertyManagement: React.FC = () => {
     setConfirmConfig({
       isOpen: true,
       title: "Add Property",
-      message: `Are you sure you want to add "${newProp.name}" to your current portfolio? This will initialize a new property entry.`,
+      message: `Are you sure you want to add "${newProp.name}"?`,
       actionLabel: "Add Property",
       icon: <Building2 className="w-10 h-10" />,
       onConfirm: () => {
@@ -107,7 +106,7 @@ const PropertyManagement: React.FC = () => {
       isOpen: true,
       isDanger: true,
       title: "Delete Property",
-      message: `CRITICAL: Permanent deletion of "${name}". This action will remove ALL associated unit data and historical ledgers across the entire system.`,
+      message: `CRITICAL: Deleting "${name}" will remove all associated data permanently.`,
       actionLabel: "Permanently Delete",
       icon: <AlertTriangle className="w-10 h-10" />,
       onConfirm: () => {
@@ -122,7 +121,7 @@ const PropertyManagement: React.FC = () => {
     setConfirmConfig({
       isOpen: true,
       title: "Change Visibility",
-      message: `Are you sure you want to ${action} "${name}" for managers? This affects what properties managers can access in their dashboard.`,
+      message: `Are you sure you want to ${action} "${name}" for managers?`,
       actionLabel: `Confirm ${action}`,
       icon: isCurrentlyHidden ? <Eye className="w-10 h-10" /> : <EyeOff className="w-10 h-10" />,
       onConfirm: () => {
@@ -134,12 +133,9 @@ const PropertyManagement: React.FC = () => {
 
   const addCity = () => {
     setError(null);
-    if (!newCityInput.trim()) {
-      setError("Please enter a city name");
-      return;
-    }
+    if (!newCityInput.trim()) return;
     if (store.config.cities.includes(newCityInput.trim())) {
-      setError("This city already exists in the configuration");
+      setError("This city already exists");
       return;
     }
     store.updateConfig({ cities: [...store.config.cities, newCityInput.trim()] });
@@ -154,17 +150,16 @@ const PropertyManagement: React.FC = () => {
     const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                         p.address.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCity = selectedCity === 'all' || p.city === selectedCity;
-    const matchesRole = !isManager || p.isVisibleToManager !== false;
+    // Admins see everything, Managers/Viewers see only if flagged visible
+    const matchesRole = !isRestricted || p.isVisibleToManager !== false;
     return matchesSearch && matchesCity && matchesRole;
   });
-
-  const isDeleteButtonDisabled = confirmConfig.isDanger && confirmDeleteInput !== expectedDeleteName;
 
   return (
     <div className="space-y-8 max-w-6xl mx-auto pb-20">
       {confirmConfig.isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md animate-in fade-in duration-300">
-          <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl border border-white/20 overflow-hidden animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md animate-in fade-in">
+          <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl border border-white/20 overflow-hidden animate-in zoom-in-95">
             <div className={`p-10 text-center ${confirmConfig.isDanger ? 'bg-red-50/50' : 'bg-indigo-50/50'}`}>
               <div className={`w-20 h-20 rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-xl ${confirmConfig.isDanger ? 'bg-red-500 text-white shadow-red-500/20' : 'bg-indigo-600 text-white shadow-indigo-500/20'}`}>
                 {confirmConfig.icon}
@@ -173,11 +168,11 @@ const PropertyManagement: React.FC = () => {
               <p className="text-slate-500 font-medium leading-relaxed mb-6">{confirmConfig.message}</p>
               
               {confirmConfig.isDanger && (
-                <div className="mt-4 text-left space-y-2 animate-in slide-in-from-bottom-2 duration-300">
+                <div className="mt-4 text-left space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Type property name to confirm</label>
                   <input 
                     autoFocus
-                    className="w-full bg-white border-2 border-red-100 rounded-2xl px-5 py-4 text-sm font-black text-slate-900 outline-none focus:border-red-500 transition-all placeholder:font-normal placeholder:text-slate-300"
+                    className="w-full bg-white border-2 border-red-100 rounded-2xl px-5 py-4 text-sm font-black text-slate-900 outline-none focus:border-red-500"
                     placeholder={expectedDeleteName}
                     value={confirmDeleteInput}
                     onChange={e => setConfirmDeleteInput(e.target.value)}
@@ -186,17 +181,8 @@ const PropertyManagement: React.FC = () => {
               )}
             </div>
             <div className="p-8 flex gap-4 bg-white">
-              <button 
-                onClick={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))}
-                className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-200 transition-all"
-              >
-                Cancel
-              </button>
-              <button 
-                disabled={isDeleteButtonDisabled}
-                onClick={confirmConfig.onConfirm}
-                className={`flex-1 py-4 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed ${confirmConfig.isDanger ? 'bg-red-500 shadow-red-200 hover:bg-red-600' : 'bg-indigo-600 shadow-indigo-200 hover:bg-indigo-700'}`}
-              >
+              <button onClick={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest">Cancel</button>
+              <button disabled={confirmConfig.isDanger && confirmDeleteInput !== expectedDeleteName} onClick={confirmConfig.onConfirm} className={`flex-1 py-4 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl disabled:opacity-30 ${confirmConfig.isDanger ? 'bg-red-500' : 'bg-indigo-600'}`}>
                 {confirmConfig.actionLabel}
               </button>
             </div>
@@ -205,50 +191,33 @@ const PropertyManagement: React.FC = () => {
       )}
 
       {showCityConfig && isAdmin && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
-           <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+           <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
               <div className="p-8 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
                  <div className="flex items-center gap-3">
                     <div className="p-3 bg-indigo-600 text-white rounded-2xl"><Map className="w-5 h-5" /></div>
                     <h3 className="text-xl font-black text-gray-900 uppercase">Manage Cities</h3>
                  </div>
-                 <button onClick={() => { setShowCityConfig(false); setError(null); }} className="p-2 hover:bg-white rounded-full transition-colors">
-                    <X className="w-6 h-6 text-gray-400" />
-                 </button>
+                 <button onClick={() => setShowCityConfig(false)} className="p-2 hover:bg-white rounded-full transition-colors text-gray-400"><X className="w-6 h-6" /></button>
               </div>
               <div className="p-8 space-y-6">
-                 {error && (
-                    <div className="bg-red-50 border border-red-200 p-4 rounded-xl flex items-center gap-3 text-red-700 animate-in shake">
-                       <AlertCircle className="w-5 h-5 shrink-0" /><p className="text-xs font-bold">{error}</p>
-                    </div>
-                 )}
+                 {error && <div className="bg-red-50 border border-red-200 p-4 rounded-xl text-red-700 text-xs font-bold">{error}</div>}
                  <div className="space-y-4">
                     <div className="flex gap-2">
-                       <input 
-                          className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500" 
-                          placeholder="New City Name" 
-                          value={newCityInput} 
-                          onChange={e => setNewCityInput(e.target.value)} 
-                          onKeyDown={e => e.key === 'Enter' && addCity()}
-                       />
-                       <button onClick={addCity} className="bg-indigo-600 text-white p-3 rounded-xl hover:bg-indigo-700 active:scale-95 transition-all"><PlusCircle className="w-5 h-5" /></button>
+                       <input className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold outline-none" placeholder="New City Name" value={newCityInput} onChange={e => setNewCityInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && addCity()} />
+                       <button onClick={addCity} className="bg-indigo-600 text-white p-3 rounded-xl"><PlusCircle className="w-5 h-5" /></button>
                     </div>
-                    <div className="flex flex-wrap gap-2 max-h-[300px] overflow-y-auto custom-scrollbar p-1">
+                    <div className="flex flex-wrap gap-2 max-h-[300px] overflow-y-auto p-1 custom-scrollbar">
                        {store.config.cities.map((city: string) => (
                           <div key={city} className="px-4 py-2 bg-slate-50 border border-slate-100 rounded-xl flex items-center gap-2 group hover:border-rose-200 transition-all shadow-sm">
-                             <span className="text-[11px] font-black uppercase text-slate-700 tracking-wider">{city}</span>
-                             <button onClick={() => removeCity(city)} className="text-slate-300 hover:text-rose-500 transition-all"><Trash2 className="w-3.5 h-3.5" /></button>
+                             <span className="text-[11px] font-black uppercase text-slate-700">{city}</span>
+                             <button onClick={() => removeCity(city)} className="text-slate-300 hover:text-rose-500"><Trash2 className="w-3.5 h-3.5" /></button>
                           </div>
                        ))}
-                       {store.config.cities.length === 0 && (
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest py-10 text-center w-full">No cities configured</p>
-                       )}
                     </div>
                  </div>
               </div>
-              <div className="p-8 bg-gray-50 border-t border-gray-100">
-                 <button onClick={() => { setShowCityConfig(false); setError(null); }} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700">Close Manager</button>
-              </div>
+              <div className="p-8 bg-gray-50 border-t border-gray-100"><button onClick={() => setShowCityConfig(false)} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest">Close</button></div>
            </div>
         </div>
       )}
@@ -259,93 +228,25 @@ const PropertyManagement: React.FC = () => {
           <p className="text-gray-500 mt-1 font-medium">Manage all rental locations and their inventories.</p>
         </div>
         <div className="flex items-center gap-3">
-          {isAdmin && (
-            <button 
-              onClick={() => { setShowCityConfig(true); setError(null); }}
-              className="p-3 bg-white border border-gray-200 text-gray-400 rounded-xl hover:text-indigo-600 hover:border-indigo-100 transition-all shadow-sm active:scale-95"
-              title="Manage Cities"
-            >
-              <Settings className="w-5 h-5" />
-            </button>
-          )}
-          {isAdmin && (
-            <button 
-              onClick={() => { setIsAdding(true); setError(null); }}
-              className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 font-black uppercase text-[10px] tracking-widest"
-            >
-              <Plus className="w-5 h-5" /> Add Property
-            </button>
-          )}
+          {isAdmin && <button onClick={() => setShowCityConfig(true)} className="p-3 bg-white border border-gray-200 text-gray-400 rounded-xl hover:text-indigo-600 shadow-sm active:scale-95"><Settings className="w-5 h-5" /></button>}
+          {isAdmin && <button onClick={() => setIsAdding(true)} className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl flex items-center gap-2 hover:bg-indigo-700 shadow-lg font-black uppercase text-[10px] tracking-widest"><Plus className="w-5 h-5" /> Add Property</button>}
         </div>
       </header>
 
       {isAdding && isAdmin && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
             <div className="p-8 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
               <h3 className="text-xl font-black text-gray-900 uppercase">New Property</h3>
-              <button onClick={() => setIsAdding(false)} className="p-2 hover:bg-white rounded-full transition-colors">
-                <X className="w-6 h-6 text-gray-400" />
-              </button>
+              <button onClick={() => setIsAdding(false)} className="p-2 hover:bg-white rounded-full transition-colors text-gray-400"><X className="w-6 h-6" /></button>
             </div>
-            <form onSubmit={handleAddProperty} className="p-8 space-y-6 max-h-[70vh] overflow-y-auto custom-scrollbar">
-              {error && (
-                <div className="bg-red-50 border border-red-200 p-4 rounded-xl flex items-center gap-3 text-red-700 animate-in shake">
-                  <AlertCircle className="w-5 h-5 shrink-0" /><p className="text-xs font-bold">{error}</p>
-                </div>
-              )}
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Property Name</label>
-                <input 
-                  required
-                  className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
-                  placeholder="e.g. Skyline Towers"
-                  value={newProp.name}
-                  onChange={e => setNewProp({...newProp, name: e.target.value})}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Location Address</label>
-                <input 
-                  required
-                  className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
-                  placeholder="Street, City, State"
-                  value={newProp.address}
-                  onChange={e => setNewProp({...newProp, address: e.target.value})}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">City</label>
-                <select 
-                  required
-                  className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 transition-all appearance-none"
-                  value={newProp.city}
-                  onChange={e => setNewProp({...newProp, city: e.target.value})}
-                >
-                  <option value="">Select City...</option>
-                  {store.config.cities.map((city: string) => (
-                    <option key={city} value={city}>{city}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Schema Template</label>
-                <select 
-                  required
-                  className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 transition-all appearance-none"
-                  value={newProp.typeId}
-                  onChange={e => setNewProp({...newProp, typeId: e.target.value})}
-                >
-                  <option value="">Select Schema...</option>
-                  {store.propertyTypes.map((pt: any) => (
-                    <option key={pt.id} value={pt.id}>{pt.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="pt-4 flex gap-4">
-                <button type="button" onClick={() => setIsAdding(false)} className="flex-1 py-4 bg-gray-100 text-gray-500 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-gray-200 transition-all">Cancel</button>
-                <button type="submit" className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all active:scale-95">Create Entry</button>
-              </div>
+            <form onSubmit={handleAddProperty} className="p-8 space-y-6">
+              {error && <div className="bg-red-50 border border-red-200 p-4 rounded-xl text-red-700 text-xs font-bold">{error}</div>}
+              <div className="space-y-1.5"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Property Name</label><input required className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500" placeholder="e.g. Skyline Towers" value={newProp.name} onChange={e => setNewProp({...newProp, name: e.target.value})} /></div>
+              <div className="space-y-1.5"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Location Address</label><input required className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Street, City, State" value={newProp.address} onChange={e => setNewProp({...newProp, address: e.target.value})} /></div>
+              <div className="space-y-1.5"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">City</label><select required className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-4 text-sm font-bold outline-none cursor-pointer" value={newProp.city} onChange={e => setNewProp({...newProp, city: e.target.value})}><option value="">Select City...</option>{store.config.cities.map((city: string) => <option key={city} value={city}>{city}</option>)}</select></div>
+              <div className="space-y-1.5"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Schema Template</label><select required className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-4 text-sm font-bold outline-none cursor-pointer" value={newProp.typeId} onChange={e => setNewProp({...newProp, typeId: e.target.value})}><option value="">Select Schema...</option>{store.propertyTypes.map((pt: any) => <option key={pt.id} value={pt.id}>{pt.name}</option>)}</select></div>
+              <div className="pt-4 flex gap-4"><button type="button" onClick={() => setIsAdding(false)} className="flex-1 py-4 bg-gray-100 text-gray-500 rounded-2xl font-black uppercase text-[10px] tracking-widest">Cancel</button><button type="submit" className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95">Create Entry</button></div>
             </form>
           </div>
         </div>
@@ -354,25 +255,11 @@ const PropertyManagement: React.FC = () => {
       <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-white p-4 rounded-[2rem] border border-gray-100 shadow-sm">
         <div className="relative w-full md:w-96">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input 
-            className="w-full pl-11 pr-4 py-3.5 bg-gray-50 border border-transparent rounded-xl outline-none focus:bg-white focus:border-indigo-100 transition-all font-semibold text-sm"
-            placeholder="Search portfolio..."
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-          />
+          <input className="w-full pl-11 pr-4 py-3.5 bg-gray-50 border border-transparent rounded-xl outline-none focus:bg-white focus:border-indigo-100 transition-all font-semibold text-sm" placeholder="Search portfolio..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
         </div>
         <div className="flex items-center gap-3 w-full md:w-auto">
           <Filter className="w-4 h-4 text-slate-400" />
-          <select 
-            className="bg-gray-50 border border-transparent rounded-xl px-4 py-3.5 text-[10px] font-black uppercase tracking-widest outline-none cursor-pointer hover:bg-gray-100 transition-all"
-            value={selectedCity}
-            onChange={e => setSelectedCity(e.target.value)}
-          >
-            <option value="all">All Cities</option>
-            {store.config.cities.map((city: string) => (
-              <option key={city} value={city}>{city}</option>
-            ))}
-          </select>
+          <select className="bg-gray-50 border border-transparent rounded-xl px-4 py-3.5 text-[10px] font-black uppercase tracking-widest outline-none cursor-pointer hover:bg-gray-100" value={selectedCity} onChange={e => setSelectedCity(e.target.value)}><option value="all">All Cities</option>{store.config.cities.map((city: string) => <option key={city} value={city}>{city}</option>)}</select>
         </div>
       </div>
 
@@ -386,24 +273,11 @@ const PropertyManagement: React.FC = () => {
             <div key={prop.id} className="group bg-white rounded-[2.5rem] border border-gray-100 shadow-sm hover:shadow-2xl hover:border-indigo-100 transition-all duration-300 flex flex-col overflow-hidden">
               <div className="p-8 flex-1">
                 <div className="flex justify-between items-start mb-6">
-                  <div className="p-4 bg-indigo-50 rounded-2xl group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300">
-                    <Building2 className="w-8 h-8" />
-                  </div>
+                  <div className="p-4 bg-indigo-50 rounded-2xl group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300"><Building2 className="w-8 h-8" /></div>
                   {isAdmin && (
                     <div className="flex gap-2">
-                      <button 
-                        onClick={() => handleToggleVisibility(prop.id, prop.name, isHidden)}
-                        className={`p-2 rounded-xl border ${isHidden ? 'bg-gray-100 text-gray-400 border-gray-200' : 'bg-indigo-50 text-indigo-600 border-indigo-100 hover:bg-indigo-100'}`}
-                        title={isHidden ? "Hidden from Manager" : "Visible to Manager"}
-                      >
-                        {isHidden ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                      </button>
-                      <button 
-                        onClick={() => handleDeleteProperty(prop.id, prop.name)}
-                        className="p-2 text-gray-300 hover:text-red-500 transition-colors"
-                      >
-                        <Trash2 className="w-5 h-5" />
-                      </button>
+                      <button onClick={() => handleToggleVisibility(prop.id, prop.name, isHidden)} className={`p-2 rounded-xl border ${isHidden ? 'bg-gray-100 text-gray-400 border-gray-200' : 'bg-indigo-50 text-indigo-600 border-indigo-100 hover:bg-indigo-100'}`} title={isHidden ? "Hidden from Manager" : "Visible to Manager"}>{isHidden ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}</button>
+                      <button onClick={() => handleDeleteProperty(prop.id, prop.name)} className="p-2 text-gray-300 hover:text-red-500 transition-colors"><Trash2 className="w-5 h-5" /></button>
                     </div>
                   )}
                 </div>
@@ -414,36 +288,17 @@ const PropertyManagement: React.FC = () => {
                 </div>
                 
                 <div className="mt-2 flex flex-col gap-1.5">
-                    <div className="flex items-center gap-2 text-gray-400 font-bold text-[10px] uppercase tracking-widest">
-                        <MapPin className="w-3 h-3 text-indigo-400" />
-                        <span className="truncate">{prop.address || 'Address not listed'}</span>
-                    </div>
-                    {prop.city && (
-                        <div className="flex items-center gap-2 text-indigo-400 font-black text-[9px] uppercase tracking-widest">
-                            <Navigation className="w-3 h-3" />
-                            <span>{prop.city}</span>
-                        </div>
-                    )}
+                    <div className="flex items-center gap-2 text-gray-400 font-bold text-[10px] uppercase tracking-widest"><MapPin className="w-3 h-3 text-indigo-400" /><span className="truncate">{prop.address || 'No Address'}</span></div>
+                    {prop.city && <div className="flex items-center gap-2 text-indigo-400 font-black text-[9px] uppercase tracking-widest"><Navigation className="w-3 h-3" /><span>{prop.city}</span></div>}
                 </div>
 
                 <div className="mt-10 flex items-center justify-between border-t border-gray-50 pt-6">
-                  <div className="space-y-1">
-                    <p className="text-[10px] uppercase font-black text-gray-300 tracking-[0.2em]">Schema</p>
-                    <span className="px-3 py-1 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-black uppercase tracking-tighter">{type?.name || 'Standard'}</span>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[10px] uppercase font-black text-gray-300 tracking-[0.2em]">Inventory</p>
-                    <span className="text-2xl font-black text-gray-900">{unitCount} <span className="text-[10px] text-gray-400 font-bold">Units</span></span>
-                  </div>
+                  <div className="space-y-1"><p className="text-[10px] uppercase font-black text-gray-300 tracking-[0.2em]">Schema</p><span className="px-3 py-1 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-black uppercase tracking-tighter">{type?.name || 'Standard'}</span></div>
+                  <div className="text-right"><p className="text-[10px] uppercase font-black text-gray-300 tracking-[0.2em]">Inventory</p><span className="text-2xl font-black text-gray-900">{unitCount} <span className="text-[10px] text-gray-400 font-bold">Units</span></span></div>
                 </div>
               </div>
               
-              <Link 
-                to={`/properties/${prop.id}`}
-                className="p-5 bg-gray-50 flex items-center justify-center gap-2 text-indigo-600 font-black uppercase text-[10px] tracking-widest hover:bg-indigo-600 hover:text-white transition-all"
-              >
-                {isViewer ? 'View Units' : 'Manage Units'} <ChevronRight className="w-4 h-4" />
-              </Link>
+              <Link to={`/properties/${prop.id}`} className="p-5 bg-gray-50 flex items-center justify-center gap-2 text-indigo-600 font-black uppercase text-[10px] tracking-widest hover:bg-indigo-600 hover:text-white transition-all">{isViewer ? 'View Units' : 'Manage Units'} <ChevronRight className="w-4 h-4" /></Link>
             </div>
           );
         })}
