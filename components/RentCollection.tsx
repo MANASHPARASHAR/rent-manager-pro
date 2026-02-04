@@ -34,7 +34,9 @@ import {
   Layers,
   Sparkles,
   Save,
-  User
+  User,
+  MapPin,
+  ClipboardList
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { PaymentStatus, ColumnType, Payment, UnitHistory, ColumnDefinition, RecordValue } from '../types';
@@ -192,15 +194,29 @@ const RentCollection: React.FC = () => {
     return { collected, pending, heldDeposits };
   }, [recordsWithRent]);
 
-  const unitPayments = useMemo(() => {
+  // UNIFIED TIMELINE (HISTORY + PAYMENTS)
+  const unitTimeline = useMemo(() => {
     if (!historyModal.record) return [];
-    return store.payments.filter((p: Payment) => p.recordId === historyModal.record.id)
-      .sort((a: any, b: any) => {
-        const dateA = new Date(a.paidAt || a.dueDate).getTime();
-        const dateB = new Date(b.paidAt || b.dueDate).getTime();
-        return dateB - dateA;
-      });
-  }, [store.payments, historyModal.record]);
+    
+    const recordId = historyModal.record.id;
+    const pHistory = store.payments
+      .filter((p: Payment) => p.recordId === recordId)
+      .map(p => ({ 
+        ...p, 
+        eventType: 'PAYMENT', 
+        timestamp: new Date(p.paidAt || p.dueDate).getTime() 
+      }));
+
+    const uHistory = store.unitHistory
+      .filter((h: UnitHistory) => h.recordId === recordId)
+      .map(h => ({ 
+        ...h, 
+        eventType: 'TENANT_CHANGE', 
+        timestamp: new Date(h.effectiveFrom).getTime() 
+      }));
+
+    return [...pHistory, ...uHistory].sort((a, b) => b.timestamp - a.timestamp);
+  }, [store.payments, store.unitHistory, historyModal.record]);
 
   const handleOpenPayment = (record: any, type: 'RENT' | 'DEPOSIT') => {
     setPaymentModal({
@@ -435,13 +451,15 @@ const RentCollection: React.FC = () => {
                        <td className="px-6 py-4 text-right">
                           <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                              <button onClick={() => setHistoryModal({ isOpen: true, record })} className="p-2 text-slate-400 hover:text-indigo-600 transition-colors"><History className="w-4 h-4" /></button>
-                             {/* ONBOARD BUTTON */}
+                             {/* ONBOARD BUTTON: Now resets all fields */}
                              <button 
                                onClick={() => {
-                                 const nameCol = record.propertyType?.columns.find((c: any) => c.name.toLowerCase().includes('name'));
                                  const statusCol = record.propertyType?.columns.find((c: any) => c.type === ColumnType.OCCUPANCY_STATUS);
-                                 const freshValues = { ...record.rawValuesMap };
-                                 if (nameCol) freshValues[nameCol.id] = '';
+                                 // Reset all values to empty for new tenant
+                                 const freshValues: any = {};
+                                 record.propertyType?.columns.forEach((col: any) => {
+                                   freshValues[col.id] = '';
+                                 });
                                  if (statusCol) freshValues[statusCol.id] = 'Active';
                                  
                                  setTemporalAction({
@@ -456,7 +474,7 @@ const RentCollection: React.FC = () => {
                              >
                                <UserPlus className="w-4 h-4" />
                              </button>
-                             {/* VACATE BUTTON */}
+                             {/* VACATE BUTTON: Stays focused on status */}
                              <button 
                                onClick={() => {
                                  const statusCol = record.propertyType?.columns.find((c: any) => c.type === ColumnType.OCCUPANCY_STATUS);
@@ -484,17 +502,17 @@ const RentCollection: React.FC = () => {
          </div>
       </div>
 
-      {/* TEMPORAL ACTION MODAL (Onboard/Vacate) */}
+      {/* TEMPORAL ACTION MODAL: Updated to show ALL fields for Onboarding */}
       {temporalAction.isOpen && (
         <div className="fixed inset-0 z-[1100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
            <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
-              <div className={`p-8 text-white flex justify-between items-center ${temporalAction.type === 'TENANT' ? 'bg-emerald-600' : 'bg-rose-600'}`}>
+              <div className={`p-8 text-white flex justify-between items-center ${temporalAction.type === 'TENANT' ? 'bg-indigo-600' : 'bg-rose-600'}`}>
                  <div className="flex items-center gap-4">
                     <div className="p-3 bg-white/20 rounded-xl backdrop-blur-md">
                        {temporalAction.type === 'TENANT' ? <UserPlus className="w-6 h-6" /> : <Activity className="w-6 h-6" />}
                     </div>
                     <div>
-                       <h3 className="text-xl font-black uppercase leading-none">{temporalAction.type === 'TENANT' ? 'Onboard Tenant' : 'Unit Status Change'}</h3>
+                       <h3 className="text-xl font-black uppercase leading-none">{temporalAction.type === 'TENANT' ? 'New Tenant Protocol' : 'Contract Terminated'}</h3>
                        <p className="text-[10px] font-bold text-white/60 uppercase mt-1">Property: {temporalAction.record.property?.name}</p>
                     </div>
                  </div>
@@ -502,33 +520,31 @@ const RentCollection: React.FC = () => {
               </div>
 
               <div className="p-8 space-y-6 max-h-[70vh] overflow-y-auto custom-scrollbar">
-                 <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl space-y-1.5">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Calendar className="w-3 h-3 text-indigo-500" /> Effective Date of Change</label>
+                 <div className="p-5 bg-slate-50 border border-slate-100 rounded-3xl space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Calendar className="w-3.5 h-3.5 text-indigo-500" /> Contract Effective Date</label>
                     <input 
                       type="date"
-                      className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none"
+                      className="w-full bg-white border border-slate-200 rounded-2xl px-5 py-3.5 text-sm font-bold outline-none shadow-sm focus:ring-4 focus:ring-indigo-500/5"
                       value={temporalAction.effectiveDate}
                       onChange={e => setTemporalAction({...temporalAction, effectiveDate: e.target.value})}
                     />
-                    <p className="text-[8px] font-medium text-slate-400 uppercase tracking-tighter">This will preserve previous data in the audit trail.</p>
+                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-tight text-center mt-1 italic">This change creates a historical snapshot in the Audit Trail.</p>
                  </div>
 
-                 <div className="space-y-4">
+                 <div className="space-y-5">
                     {temporalAction.record.propertyType?.columns.map((col: ColumnDefinition) => {
-                      // Filter logic: Only show relevant fields for onboarding or status change
+                      // Logic: If 'TENANT' (onboarding), show ALL fields. If 'STATUS' (vacate), show only status.
                       const isStatus = col.type === ColumnType.OCCUPANCY_STATUS;
-                      const isName = col.name.toLowerCase().includes('name');
-                      const isRent = col.isRentCalculatable;
-                      const isRelevant = temporalAction.type === 'TENANT' ? (isStatus || isName || isRent) : isStatus;
+                      const isRelevant = temporalAction.type === 'TENANT' ? true : isStatus;
 
                       if (!isRelevant) return null;
 
                       return (
                         <div key={col.id} className="space-y-1.5 animate-in slide-in-from-top-2">
-                           <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">{col.name}</label>
+                           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{col.name}</label>
                            {col.options ? (
                              <select 
-                               className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/5"
+                               className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all cursor-pointer"
                                value={temporalAction.formValues[col.id] || ''}
                                onChange={e => setTemporalAction({
                                  ...temporalAction, 
@@ -539,15 +555,20 @@ const RentCollection: React.FC = () => {
                                {col.options.map(o => <option key={o} value={o}>{o}</option>)}
                              </select>
                            ) : (
-                             <input 
-                               className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/5"
-                               placeholder={`Enter ${col.name}`}
-                               value={temporalAction.formValues[col.id] || ''}
-                               onChange={e => setTemporalAction({
-                                 ...temporalAction, 
-                                 formValues: { ...temporalAction.formValues, [col.id]: e.target.value }
-                               })}
-                             />
+                             <div className="relative group">
+                                <div className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-indigo-500 transition-colors">
+                                   {col.name.toLowerCase().includes('phone') ? <RotateCcw className="w-4 h-4 rotate-90" /> : col.name.toLowerCase().includes('name') ? <User className="w-4 h-4" /> : <ClipboardList className="w-4 h-4" />}
+                                </div>
+                                <input 
+                                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl pl-12 pr-5 py-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/5 focus:border-indigo-400 transition-all"
+                                  placeholder={`Enter ${col.name}`}
+                                  value={temporalAction.formValues[col.id] || ''}
+                                  onChange={e => setTemporalAction({
+                                    ...temporalAction, 
+                                    formValues: { ...temporalAction.formValues, [col.id]: e.target.value }
+                                  })}
+                                />
+                             </div>
                            )}
                         </div>
                       );
@@ -556,10 +577,98 @@ const RentCollection: React.FC = () => {
 
                  <button 
                   onClick={handleSaveTemporalAction}
-                  className={`w-full py-5 text-white rounded-2xl font-black uppercase text-[11px] tracking-widest shadow-xl transition-all active:scale-95 flex items-center justify-center gap-3 ${temporalAction.type === 'TENANT' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'}`}
+                  className={`w-full py-6 text-white rounded-[2rem] font-black uppercase text-[11px] tracking-widest shadow-xl transition-all active:scale-95 flex items-center justify-center gap-3 ${temporalAction.type === 'TENANT' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-rose-600 hover:bg-rose-700'}`}
                  >
-                    <Save className="w-5 h-5" /> Commit Change to History
+                    <Save className="w-5 h-5" /> {temporalAction.type === 'TENANT' ? 'Complete Onboarding' : 'Commit Status Change'}
                  </button>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* UNIFIED AUDIT TIMELINE MODAL */}
+      {historyModal.isOpen && (
+        <div className="fixed inset-0 z-[1200] flex justify-end p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+           <div className="bg-white w-full max-w-lg h-full rounded-[2rem] shadow-2xl overflow-hidden flex flex-col border border-slate-100 animate-in slide-in-from-right-8 duration-500">
+              <div className="p-10 bg-slate-950 text-white flex justify-between items-center relative overflow-hidden">
+                 <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 blur-3xl rounded-full"></div>
+                 <div className="flex items-center gap-5 relative z-10">
+                    <div className="w-14 h-14 bg-white/10 rounded-2xl flex items-center justify-center border border-white/5 backdrop-blur-md">
+                       <History className="w-7 h-7 text-indigo-400" />
+                    </div>
+                    <div>
+                       <h3 className="text-2xl font-black uppercase tracking-tight">Audit Trail</h3>
+                       <p className="text-[10px] font-bold text-slate-400 uppercase mt-0.5 tracking-widest">Unit History & Financials</p>
+                    </div>
+                 </div>
+                 <button onClick={() => setHistoryModal({ isOpen: false, record: null })} className="p-3 hover:bg-white/10 rounded-full transition-colors text-slate-400 relative z-10"><X className="w-7 h-7" /></button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto custom-scrollbar p-10 space-y-8 bg-slate-50/30">
+                 {unitTimeline.length > 0 ? (
+                    unitTimeline.map((item: any, idx) => (
+                       <div key={idx} className="relative pl-8">
+                          {/* Timeline Line */}
+                          {idx !== unitTimeline.length - 1 && <div className="absolute left-[13px] top-8 bottom-[-32px] w-0.5 bg-slate-200"></div>}
+                          
+                          {/* Indicator Dot */}
+                          <div className={`absolute left-0 top-1 w-7 h-7 rounded-full border-4 border-white shadow-md flex items-center justify-center z-10 ${item.eventType === 'TENANT_CHANGE' ? 'bg-indigo-600' : item.type === 'RENT' ? 'bg-emerald-500' : 'bg-amber-500'}`}>
+                             {item.eventType === 'TENANT_CHANGE' ? <User className="w-3 h-3 text-white" /> : <DollarSign className="w-3 h-3 text-white" />}
+                          </div>
+
+                          <div className="bg-white border border-slate-100 rounded-[2rem] p-6 shadow-sm hover:shadow-md transition-all">
+                             <div className="flex items-center justify-between mb-3">
+                                <span className={`text-[8px] font-black uppercase tracking-wider px-3 py-1 rounded-full text-white ${item.eventType === 'TENANT_CHANGE' ? 'bg-slate-900' : item.type === 'RENT' ? 'bg-emerald-600' : 'bg-amber-600'}`}>
+                                   {item.eventType === 'TENANT_CHANGE' ? 'Unit Migration' : `${item.type} Settle`}
+                                </span>
+                                <span className="text-[10px] font-black text-slate-400 uppercase">{new Date(item.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                             </div>
+
+                             {item.eventType === 'TENANT_CHANGE' ? (
+                                <div className="space-y-4">
+                                   <div className="p-4 bg-indigo-50/50 border border-indigo-100 rounded-2xl">
+                                      <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-2">Snapshot Data</p>
+                                      <div className="grid grid-cols-2 gap-y-3">
+                                         {Object.entries(item.values).map(([colId, val]: [string, any]) => {
+                                            const col = historyModal.record?.propertyType?.columns.find((c: any) => c.id === colId);
+                                            if (!col || !val) return null;
+                                            return (
+                                              <div key={colId} className="space-y-0.5">
+                                                 <p className="text-[7px] font-black text-slate-400 uppercase">{col.name}</p>
+                                                 <p className="text-[11px] font-black text-slate-900 truncate">{val}</p>
+                                              </div>
+                                            );
+                                         })}
+                                      </div>
+                                   </div>
+                                </div>
+                             ) : (
+                                <div className="flex flex-col gap-4">
+                                   <div className="flex items-center justify-between">
+                                      <div className="flex flex-col">
+                                         <p className="text-[11px] font-black text-slate-900">{item.paymentMode || 'Cash Channel'}</p>
+                                         <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{item.paidTo || 'Default Account'}</p>
+                                      </div>
+                                      <div className="text-right">
+                                         <p className="text-sm font-black text-indigo-600">${item.amount.toLocaleString()}</p>
+                                         {item.month !== 'ONE_TIME' && <p className="text-[8px] font-black text-slate-400 uppercase">{item.month}</p>}
+                                      </div>
+                                   </div>
+                                </div>
+                             )}
+                          </div>
+                       </div>
+                    ))
+                 ) : (
+                    <div className="flex flex-col items-center justify-center h-full text-center py-20 opacity-40">
+                       <History className="w-16 h-16 text-slate-200 mb-6" />
+                       <p className="text-xs font-black uppercase tracking-widest text-slate-400">Zero Historical Records</p>
+                    </div>
+                 )}
+              </div>
+
+              <div className="p-8 bg-white border-t border-slate-100">
+                 <button onClick={() => setHistoryModal({ isOpen: false, record: null })} className="w-full py-5 bg-slate-950 text-white rounded-[1.5rem] font-black uppercase text-[11px] tracking-widest shadow-xl active:scale-95 transition-all">Close Audit Panel</button>
               </div>
            </div>
         </div>
@@ -568,19 +677,19 @@ const RentCollection: React.FC = () => {
       {/* REVERT DIALOG */}
       {revertModal.isOpen && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-           <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95">
-              <div className="p-8 text-center bg-rose-50 border-b border-rose-100">
-                 <div className="w-16 h-16 bg-rose-600 text-white rounded-2xl flex items-center justify-center mx-auto mb-4">
-                    <RotateCcw className="w-8 h-8" />
+           <div className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
+              <div className="p-10 text-center bg-rose-50 border-b border-rose-100">
+                 <div className="w-20 h-20 bg-rose-600 text-white rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-xl shadow-rose-600/20">
+                    <RotateCcw className="w-10 h-10" />
                  </div>
-                 <h3 className="text-xl font-black uppercase text-slate-900">Undo Payment?</h3>
-                 <p className="text-xs font-medium text-slate-500 mt-2">
-                   Mark this transaction as pending again for <strong>{revertModal.record.tenantName}</strong>?
+                 <h3 className="text-2xl font-black uppercase text-slate-900 tracking-tight">Reverse Protocol?</h3>
+                 <p className="text-xs font-bold text-slate-500 mt-3 leading-relaxed">
+                   Roll back transaction for <strong>{revertModal.record.tenantName}</strong>? This cannot be easily undone.
                  </p>
               </div>
-              <div className="p-6 flex gap-3 bg-white">
-                 <button onClick={() => setRevertModal({...revertModal, isOpen: false})} className="flex-1 py-3 bg-slate-100 text-slate-500 rounded-xl font-black uppercase text-[10px] tracking-widest">Cancel</button>
-                 <button onClick={handleConfirmRevert} className="flex-1 py-3 bg-rose-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg active:scale-95 transition-all">Yes, Undo</button>
+              <div className="p-8 flex gap-4 bg-white">
+                 <button onClick={() => setRevertModal({...revertModal, isOpen: false})} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-200">Abort</button>
+                 <button onClick={handleConfirmRevert} className="flex-1 py-4 bg-rose-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Confirm Rollback</button>
               </div>
            </div>
         </div>
@@ -589,117 +698,62 @@ const RentCollection: React.FC = () => {
       {/* SETTLEMENT MODAL */}
       {paymentModal.isOpen && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-           <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95">
-              <div className={`p-8 text-white flex justify-between items-center ${paymentModal.type === 'RENT' ? 'bg-indigo-600' : 'bg-emerald-600'}`}>
-                 <div className="flex items-center gap-4">
-                    <div className="p-3 bg-white/20 rounded-xl backdrop-blur-md">
-                       {paymentModal.type === 'RENT' ? <Wallet className="w-6 h-6" /> : <ShieldCheck className="w-6 h-6" />}
+           <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
+              <div className={`p-10 text-white flex justify-between items-center ${paymentModal.type === 'RENT' ? 'bg-indigo-600' : 'bg-emerald-600'}`}>
+                 <div className="flex items-center gap-5">
+                    <div className="p-4 bg-white/20 rounded-2xl backdrop-blur-md border border-white/10 shadow-lg">
+                       {paymentModal.type === 'RENT' ? <Wallet className="w-7 h-7" /> : <ShieldCheck className="w-7 h-7" />}
                     </div>
                     <div>
-                       <h3 className="text-xl font-black uppercase leading-none">Settle {paymentModal.type}</h3>
-                       <p className="text-[10px] font-bold text-white/60 uppercase mt-1">Tenant: {paymentModal.record.tenantName}</p>
+                       <h3 className="text-2xl font-black uppercase leading-none tracking-tight">Settle {paymentModal.type}</h3>
+                       <p className="text-[11px] font-bold text-white/60 uppercase mt-2">Member: {paymentModal.record.tenantName}</p>
                     </div>
                  </div>
-                 <button onClick={() => setPaymentModal({...paymentModal, isOpen: false})} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X className="w-6 h-6 text-white/60" /></button>
+                 <button onClick={() => setPaymentModal({...paymentModal, isOpen: false})} className="p-3 hover:bg-white/10 rounded-full transition-colors text-white/60"><X className="w-7 h-7" /></button>
               </div>
 
-              <div className="p-8 space-y-6">
-                 <div className="space-y-1.5">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Amount to Settle</label>
+              <div className="p-10 space-y-8">
+                 <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Capital Amount</label>
                     <div className="relative">
-                       <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300" />
+                       <DollarSign className="absolute left-6 top-1/2 -translate-y-1/2 w-6 h-6 text-slate-300" />
                        <input 
                          type="number" 
-                         className="w-full bg-slate-50 border border-slate-200 rounded-2xl pl-12 pr-4 py-4 text-2xl font-black outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all" 
+                         className="w-full bg-slate-50 border border-slate-200 rounded-[2rem] pl-16 pr-6 py-6 text-3xl font-black outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-400 transition-all shadow-inner" 
                          value={paymentModal.amount}
                          onChange={e => setPaymentModal({...paymentModal, amount: parseFloat(e.target.value) || 0})}
                        />
                     </div>
                  </div>
 
-                 <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                       <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Channel</label>
-                       <select className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-[11px] font-black uppercase outline-none" value={paymentModal.mode} onChange={e => setPaymentModal({...paymentModal, mode: e.target.value})}>
+                 <div className="grid grid-cols-2 gap-5">
+                    <div className="space-y-2">
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Channel</label>
+                       <select className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 text-xs font-black uppercase outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all cursor-pointer" value={paymentModal.mode} onChange={e => setPaymentModal({...paymentModal, mode: e.target.value})}>
                           {store.config.paymentModeOptions.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
                        </select>
                     </div>
-                    <div className="space-y-1.5">
-                       <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Target Account</label>
-                       <select className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-[11px] font-black uppercase outline-none" value={paymentModal.paidTo} onChange={e => setPaymentModal({...paymentModal, paidTo: e.target.value})}>
+                    <div className="space-y-2">
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Target Account</label>
+                       <select className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 text-xs font-black uppercase outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all cursor-pointer" value={paymentModal.paidTo} onChange={e => setPaymentModal({...paymentModal, paidTo: e.target.value})}>
                           {store.config.paidToOptions.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
                        </select>
                     </div>
                  </div>
 
-                 <div className="space-y-1.5">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Payment Date</label>
+                 <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Calendar className="w-4 h-4 text-indigo-500" /> Settlement Date</label>
                     <input 
                       type="date" 
-                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold outline-none" 
+                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-6 py-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all" 
                       value={paymentModal.date} 
                       onChange={e => setPaymentModal({...paymentModal, date: e.target.value})} 
                     />
                  </div>
 
-                 <button onClick={handleCollect} className={`w-full py-5 text-white rounded-2xl font-black uppercase text-[11px] tracking-widest shadow-xl transition-all active:scale-95 ${paymentModal.type === 'RENT' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
-                    Confirm Settlement
+                 <button onClick={handleCollect} className={`w-full py-6 text-white rounded-[2rem] font-black uppercase text-[11px] tracking-widest shadow-xl transition-all active:scale-95 ${paymentModal.type === 'RENT' ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-100' : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-100'}`}>
+                    Authorize Transaction
                  </button>
-              </div>
-           </div>
-        </div>
-      )}
-
-      {/* HISTORY AUDIT PANEL */}
-      {historyModal.isOpen && (
-        <div className="fixed inset-0 z-[1200] flex justify-end p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-           <div className="bg-white w-full max-w-lg h-full rounded-[2rem] shadow-2xl overflow-hidden flex flex-col border border-slate-100">
-              <div className="p-8 bg-slate-900 text-white flex justify-between items-center">
-                 <div className="flex items-center gap-4">
-                    <History className="w-6 h-6 text-indigo-400" />
-                    <div>
-                       <h3 className="text-xl font-black uppercase">Audit Trail</h3>
-                       <p className="text-[9px] font-bold text-slate-400 uppercase mt-0.5">{historyModal.record?.tenantName}</p>
-                    </div>
-                 </div>
-                 <button onClick={() => setHistoryModal({ isOpen: false, record: null })} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X className="w-6 h-6 text-slate-400" /></button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto custom-scrollbar p-8 space-y-6 bg-slate-50/30">
-                 {unitPayments.length > 0 ? (
-                    unitPayments.map((payment: any) => (
-                       <div key={payment.id} className="p-5 bg-white border border-slate-100 rounded-2xl shadow-sm hover:shadow-md transition-all">
-                          <div className="flex items-center justify-between mb-4">
-                             <div className="flex items-center gap-2">
-                                <span className={`text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md ${payment.type === 'RENT' ? 'bg-indigo-600 text-white' : 'bg-emerald-600 text-white'}`}>
-                                   {payment.type}
-                                </span>
-                                {payment.month !== 'ONE_TIME' && <span className="text-[9px] font-black text-slate-400 uppercase">{payment.month}</span>}
-                             </div>
-                             <span className="text-sm font-black text-slate-900">${payment.amount.toLocaleString()}</span>
-                          </div>
-                          <div className="grid grid-cols-2 gap-3 pt-3 border-t border-slate-50">
-                             <div className="space-y-0.5">
-                                <p className="text-[7px] font-black text-slate-300 uppercase">Paid At</p>
-                                <p className="text-[10px] font-bold text-slate-600">{new Date(payment.paidAt || payment.dueDate).toLocaleDateString()}</p>
-                             </div>
-                             <div className="space-y-0.5">
-                                <p className="text-[7px] font-black text-slate-300 uppercase">Mode</p>
-                                <p className="text-[10px] font-bold text-slate-600">{payment.paymentMode || 'N/A'}</p>
-                             </div>
-                          </div>
-                       </div>
-                    ))
-                 ) : (
-                    <div className="flex flex-col items-center justify-center h-full text-center opacity-40">
-                       <History className="w-12 h-12 text-slate-200 mb-4" />
-                       <p className="text-[10px] font-black uppercase tracking-widest">No History</p>
-                    </div>
-                 )}
-              </div>
-
-              <div className="p-6 bg-white border-t border-slate-100">
-                 <button onClick={() => setHistoryModal({ isOpen: false, record: null })} className="w-full py-4 bg-slate-950 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl">Close Log</button>
               </div>
            </div>
         </div>
