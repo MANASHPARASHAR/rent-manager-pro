@@ -150,9 +150,10 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         localStorage.setItem(TOMBSTONES_KEY, JSON.stringify(Array.from(tombstones)));
         
         if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+        // Reduced to 1000ms for "real-time" responsiveness
         syncTimeoutRef.current = setTimeout(() => {
           syncAll();
-        }, 3000); 
+        }, 1000); 
     }
   }, [users, propertyTypes, properties, records, recordValues, unitHistory, payments, config, tombstones, syncAll]);
 
