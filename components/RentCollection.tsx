@@ -32,10 +32,12 @@ import {
   Zap,
   Briefcase,
   Layers,
-  Sparkles
+  Sparkles,
+  Save,
+  User
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
-import { PaymentStatus, ColumnType, Payment, UnitHistory, ColumnDefinition } from '../types';
+import { PaymentStatus, ColumnType, Payment, UnitHistory, ColumnDefinition, RecordValue } from '../types';
 
 const RentCollection: React.FC = () => {
   const store = useRentalStore();
@@ -71,7 +73,13 @@ const RentCollection: React.FC = () => {
     record: null
   });
 
-  const [temporalAction, setTemporalAction] = useState<any>({ isOpen: false, type: 'STATUS', record: null, formValues: {}, effectiveDate: '' });
+  const [temporalAction, setTemporalAction] = useState<any>({ 
+    isOpen: false, 
+    type: 'STATUS', 
+    record: null, 
+    formValues: {}, 
+    effectiveDate: new Date().toISOString().split('T')[0] 
+  });
 
   const navigateMonth = (direction: number) => {
     const [year, month] = selectedMonth.split('-').map(Number);
@@ -82,7 +90,6 @@ const RentCollection: React.FC = () => {
 
   const jumpToToday = () => {
     const d = new Date();
-    // Fix: replaced 'date' with 'd' to match variable definition
     setSelectedMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
   };
 
@@ -93,9 +100,6 @@ const RentCollection: React.FC = () => {
 
   const visiblePropertyIds = useMemo(() => visibleProperties.map((p: any) => p.id), [visibleProperties]);
 
-  // DYNAMIC COLUMN LOGIC
-  // 1. Find all columns across visible properties that have isDefaultInLedger: true
-  // 2. We deduplicate them by name so "Phone" from Type A and "Phone" from Type B share a column
   const dynamicLedgerHeaders = useMemo(() => {
     const typesToConsider = selectedPropertyId === 'all' 
       ? store.propertyTypes.filter((t: any) => visibleProperties.some((p: any) => p.propertyTypeId === t.id))
@@ -107,7 +111,6 @@ const RentCollection: React.FC = () => {
     typesToConsider.forEach((type: any) => {
       type.columns.forEach((col: ColumnDefinition) => {
         if (col.isDefaultInLedger && !seenNames.has(col.name.toLowerCase())) {
-          // Special Case: We skip things already in the "Unit & Tenant" core column (like Tenant Name)
           const lowerName = col.name.toLowerCase();
           if (lowerName !== 'tenant name' && lowerName !== 'unit' && lowerName !== 'occupancy') {
              columns.push({ name: col.name, id: col.id });
@@ -240,6 +243,19 @@ const RentCollection: React.FC = () => {
     setPaymentModal({ ...paymentModal, isOpen: false });
   };
 
+  const handleSaveTemporalAction = () => {
+    const { record, formValues, effectiveDate } = temporalAction;
+    const values: RecordValue[] = Object.entries(formValues).map(([colId, val]) => ({
+      id: 'v' + Date.now() + Math.random().toString(36).substr(2, 5),
+      recordId: record.id,
+      columnId: colId,
+      value: String(val)
+    }));
+    
+    store.updateRecord(record.id, values, effectiveDate);
+    setTemporalAction({ ...temporalAction, isOpen: false });
+  };
+
   const [monthYearName, yearName] = useMemo(() => {
     const [y, m] = selectedMonth.split('-').map(Number);
     const date = new Date(y, m - 1);
@@ -248,7 +264,7 @@ const RentCollection: React.FC = () => {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 max-w-7xl mx-auto pb-20">
-      {/* HEADER SECTION - Compacted */}
+      {/* HEADER SECTION */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
@@ -294,7 +310,7 @@ const RentCollection: React.FC = () => {
         </div>
       </div>
 
-      {/* STATS OVERVIEW - Smaller Cards */}
+      {/* STATS OVERVIEW */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {[
           { label: 'Settled', value: ledgerStats.collected, icon: Wallet, color: 'emerald', sub: `${Math.round((ledgerStats.collected / (ledgerStats.collected + ledgerStats.pending || 1)) * 100)}% Rate` },
@@ -316,7 +332,7 @@ const RentCollection: React.FC = () => {
         ))}
       </div>
 
-      {/* MAIN LEDGER AREA - DYNAMIC COLUMNS IMPLEMENTED */}
+      {/* MAIN LEDGER AREA */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
          <div className="px-6 py-4 border-b border-slate-50 flex items-center justify-between bg-slate-50/30">
             <div className="flex items-center gap-3">
@@ -341,14 +357,11 @@ const RentCollection: React.FC = () => {
                <thead className="sticky top-0 z-10 bg-white border-b border-slate-100">
                   <tr className="bg-white">
                      <th className="px-6 py-4 text-[9px] font-black text-slate-400 uppercase tracking-widest sticky left-0 z-20 bg-white shadow-[2px_0_5px_rgba(0,0,0,0.05)]">Unit & Tenant</th>
-                     
-                     {/* RENDER CHECKED DYNAMIC COLUMNS FROM SCHEMA */}
                      {dynamicLedgerHeaders.map(header => (
                         <th key={header.id} className="px-6 py-4 text-[9px] font-black text-slate-400 uppercase tracking-widest text-center whitespace-nowrap">
                            {header.name}
                         </th>
                      ))}
-
                      <th className="px-6 py-4 text-[9px] font-black text-slate-400 uppercase tracking-widest text-center">Rent Status</th>
                      <th className="px-6 py-4 text-[9px] font-black text-slate-400 uppercase tracking-widest text-center">Security</th>
                      <th className="px-6 py-4 text-[9px] font-black text-slate-400 uppercase tracking-widest text-right">Actions</th>
@@ -372,20 +385,15 @@ const RentCollection: React.FC = () => {
                              </div>
                           </div>
                        </td>
-
-                       {/* RENDER VALUES FOR CHECKED DYNAMIC COLUMNS */}
                        {dynamicLedgerHeaders.map(header => {
-                          // We need to find the specific column ID in THIS record's property type that matches the header name
                           const matchingCol = record.propertyType?.columns.find((c: any) => c.name.toLowerCase() === header.name.toLowerCase());
                           const val = matchingCol ? record.rawValuesMap[matchingCol.id] : '-';
-                          
                           return (
                             <td key={header.id} className="px-6 py-4 text-center">
                                <span className="text-[10px] font-bold text-slate-600 uppercase tracking-tight">{val || '-'}</span>
                             </td>
                           );
                        })}
-                       
                        <td className="px-6 py-4 text-center">
                           <button 
                             disabled={record.isVacant}
@@ -405,7 +413,6 @@ const RentCollection: React.FC = () => {
                              )}
                           </button>
                        </td>
-
                        <td className="px-6 py-4 text-center">
                           <button 
                             disabled={record.isVacant}
@@ -425,12 +432,49 @@ const RentCollection: React.FC = () => {
                              )}
                           </button>
                        </td>
-
                        <td className="px-6 py-4 text-right">
                           <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                              <button onClick={() => setHistoryModal({ isOpen: true, record })} className="p-2 text-slate-400 hover:text-indigo-600 transition-colors"><History className="w-4 h-4" /></button>
-                             <button onClick={() => setTemporalAction({isOpen: true, type: 'TENANT', record, formValues: record.rawValuesMap, effectiveDate: new Date().toISOString().split('T')[0]})} className="p-2 text-slate-400 hover:text-emerald-600 transition-colors"><UserPlus className="w-4 h-4" /></button>
-                             <button onClick={() => setTemporalAction({isOpen: true, type: 'STATUS', record, formValues: record.rawValuesMap, effectiveDate: new Date().toISOString().split('T')[0]})} className="p-2 text-slate-400 hover:text-rose-600 transition-colors"><Activity className="w-4 h-4" /></button>
+                             {/* ONBOARD BUTTON */}
+                             <button 
+                               onClick={() => {
+                                 const nameCol = record.propertyType?.columns.find((c: any) => c.name.toLowerCase().includes('name'));
+                                 const statusCol = record.propertyType?.columns.find((c: any) => c.type === ColumnType.OCCUPANCY_STATUS);
+                                 const freshValues = { ...record.rawValuesMap };
+                                 if (nameCol) freshValues[nameCol.id] = '';
+                                 if (statusCol) freshValues[statusCol.id] = 'Active';
+                                 
+                                 setTemporalAction({
+                                   isOpen: true, 
+                                   type: 'TENANT', 
+                                   record, 
+                                   formValues: freshValues, 
+                                   effectiveDate: new Date().toISOString().split('T')[0]
+                                 });
+                               }} 
+                               className="p-2 text-slate-400 hover:text-emerald-600 transition-colors"
+                             >
+                               <UserPlus className="w-4 h-4" />
+                             </button>
+                             {/* VACATE BUTTON */}
+                             <button 
+                               onClick={() => {
+                                 const statusCol = record.propertyType?.columns.find((c: any) => c.type === ColumnType.OCCUPANCY_STATUS);
+                                 const vacatingValues = { ...record.rawValuesMap };
+                                 if (statusCol) vacatingValues[statusCol.id] = 'Vacant';
+                                 
+                                 setTemporalAction({
+                                   isOpen: true, 
+                                   type: 'STATUS', 
+                                   record, 
+                                   formValues: vacatingValues, 
+                                   effectiveDate: new Date().toISOString().split('T')[0]
+                                 });
+                               }} 
+                               className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
+                             >
+                               <Activity className="w-4 h-4" />
+                             </button>
                           </div>
                        </td>
                     </tr>
@@ -440,7 +484,88 @@ const RentCollection: React.FC = () => {
          </div>
       </div>
 
-      {/* REVERT DIALOG - Compact */}
+      {/* TEMPORAL ACTION MODAL (Onboard/Vacate) */}
+      {temporalAction.isOpen && (
+        <div className="fixed inset-0 z-[1100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+           <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
+              <div className={`p-8 text-white flex justify-between items-center ${temporalAction.type === 'TENANT' ? 'bg-emerald-600' : 'bg-rose-600'}`}>
+                 <div className="flex items-center gap-4">
+                    <div className="p-3 bg-white/20 rounded-xl backdrop-blur-md">
+                       {temporalAction.type === 'TENANT' ? <UserPlus className="w-6 h-6" /> : <Activity className="w-6 h-6" />}
+                    </div>
+                    <div>
+                       <h3 className="text-xl font-black uppercase leading-none">{temporalAction.type === 'TENANT' ? 'Onboard Tenant' : 'Unit Status Change'}</h3>
+                       <p className="text-[10px] font-bold text-white/60 uppercase mt-1">Property: {temporalAction.record.property?.name}</p>
+                    </div>
+                 </div>
+                 <button onClick={() => setTemporalAction({...temporalAction, isOpen: false})} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X className="w-6 h-6 text-white/60" /></button>
+              </div>
+
+              <div className="p-8 space-y-6 max-h-[70vh] overflow-y-auto custom-scrollbar">
+                 <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl space-y-1.5">
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Calendar className="w-3 h-3 text-indigo-500" /> Effective Date of Change</label>
+                    <input 
+                      type="date"
+                      className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none"
+                      value={temporalAction.effectiveDate}
+                      onChange={e => setTemporalAction({...temporalAction, effectiveDate: e.target.value})}
+                    />
+                    <p className="text-[8px] font-medium text-slate-400 uppercase tracking-tighter">This will preserve previous data in the audit trail.</p>
+                 </div>
+
+                 <div className="space-y-4">
+                    {temporalAction.record.propertyType?.columns.map((col: ColumnDefinition) => {
+                      // Filter logic: Only show relevant fields for onboarding or status change
+                      const isStatus = col.type === ColumnType.OCCUPANCY_STATUS;
+                      const isName = col.name.toLowerCase().includes('name');
+                      const isRent = col.isRentCalculatable;
+                      const isRelevant = temporalAction.type === 'TENANT' ? (isStatus || isName || isRent) : isStatus;
+
+                      if (!isRelevant) return null;
+
+                      return (
+                        <div key={col.id} className="space-y-1.5 animate-in slide-in-from-top-2">
+                           <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">{col.name}</label>
+                           {col.options ? (
+                             <select 
+                               className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/5"
+                               value={temporalAction.formValues[col.id] || ''}
+                               onChange={e => setTemporalAction({
+                                 ...temporalAction, 
+                                 formValues: { ...temporalAction.formValues, [col.id]: e.target.value }
+                               })}
+                             >
+                               <option value="">Select Option...</option>
+                               {col.options.map(o => <option key={o} value={o}>{o}</option>)}
+                             </select>
+                           ) : (
+                             <input 
+                               className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/5"
+                               placeholder={`Enter ${col.name}`}
+                               value={temporalAction.formValues[col.id] || ''}
+                               onChange={e => setTemporalAction({
+                                 ...temporalAction, 
+                                 formValues: { ...temporalAction.formValues, [col.id]: e.target.value }
+                               })}
+                             />
+                           )}
+                        </div>
+                      );
+                    })}
+                 </div>
+
+                 <button 
+                  onClick={handleSaveTemporalAction}
+                  className={`w-full py-5 text-white rounded-2xl font-black uppercase text-[11px] tracking-widest shadow-xl transition-all active:scale-95 flex items-center justify-center gap-3 ${temporalAction.type === 'TENANT' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'}`}
+                 >
+                    <Save className="w-5 h-5" /> Commit Change to History
+                 </button>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* REVERT DIALOG */}
       {revertModal.isOpen && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
            <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95">
@@ -461,7 +586,7 @@ const RentCollection: React.FC = () => {
         </div>
       )}
 
-      {/* SETTLEMENT MODAL - Compact */}
+      {/* SETTLEMENT MODAL */}
       {paymentModal.isOpen && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
            <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95">
@@ -525,7 +650,7 @@ const RentCollection: React.FC = () => {
         </div>
       )}
 
-      {/* HISTORY AUDIT PANEL - Compact Sidebar Style */}
+      {/* HISTORY AUDIT PANEL */}
       {historyModal.isOpen && (
         <div className="fixed inset-0 z-[1200] flex justify-end p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
            <div className="bg-white w-full max-w-lg h-full rounded-[2rem] shadow-2xl overflow-hidden flex flex-col border border-slate-100">
