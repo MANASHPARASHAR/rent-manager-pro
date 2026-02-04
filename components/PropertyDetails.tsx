@@ -26,7 +26,8 @@ import {
   Settings,
   Eye,
   Check,
-  ShieldAlert
+  ShieldAlert,
+  Loader2
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { ColumnType, ColumnDefinition, UserRole, PaymentStatus, Property } from '../types';
@@ -61,14 +62,20 @@ const PropertyDetails: React.FC = () => {
   const isRestricted = isManager || isViewer;
   const canEdit = isAdmin || isManager;
 
+  // INITIAL LOAD GUARD
+  if (store.isBooting) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center p-8 bg-white rounded-[3rem] border border-gray-100 shadow-sm animate-in fade-in duration-500 text-center">
+        <Loader2 className="w-12 h-12 text-indigo-500 animate-spin mb-6" />
+        <h3 className="text-xl font-black text-gray-900 uppercase tracking-tight">Accessing Unit Database...</h3>
+      </div>
+    );
+  }
+
   const property = useMemo(() => {
     const p = (store.properties || []).find((prop: any) => prop.id === id);
     if (!p) return null;
-    
-    // Visibility guard: Admins see everything. 
-    // Others only see if NOT explicitly hidden.
     if (isRestricted && p.isVisibleToManager === false) return null;
-    
     return p;
   }, [store.properties, id, isRestricted]);
 
@@ -88,42 +95,20 @@ const PropertyDetails: React.FC = () => {
 
   const values = store.recordValues || [];
 
-  const summaryStats = useMemo(() => {
-    if (!propertyType) return { totalRent: 0, activeUnits: 0, vacantUnits: 0, heldDeposits: 0, totalUnits: 0 };
-    
-    const rentColIds = (propertyType.columns || []).filter(c => c.isRentCalculatable).map(c => c.id);
-    const occupancyColId = propertyType.columns?.find(c => c.type === ColumnType.OCCUPANCY_STATUS)?.id || propertyType.columns?.find(c => c.name.toLowerCase().includes('occupancy') || c.name.toLowerCase().includes('status'))?.id;
-    
-    let totalRent = 0;
-    let activeUnits = 0;
-    let vacantUnits = 0;
-    let heldDeposits = 0;
-
-    records.forEach(record => {
-      const rValues = values.filter((v: any) => v.recordId === record.id);
-      const status = rValues.find((v: any) => v.columnId === occupancyColId)?.value || 'Active';
-      const isVacant = status.toLowerCase().includes('vacant');
-
-      const depositPayment = (store.payments || []).find((p: any) => p.recordId === record.id && p.type === 'DEPOSIT' && p.status === PaymentStatus.PAID);
-      if (depositPayment && !depositPayment.isRefunded) {
-        heldDeposits += depositPayment.amount;
-      }
-
-      if (isVacant) {
-        vacantUnits++;
-      } else {
-        activeUnits++;
-        rentColIds.forEach(cid => {
-          const val = rValues.find((v: any) => v.columnId === cid)?.value;
-          totalRent += parseFloat(val || '0') || 0;
-        });
-      }
-    });
-
-    return { totalRent, activeUnits, vacantUnits, heldDeposits, totalUnits: records.length };
-  }, [records, values, propertyType, store.payments]);
-
   const [formData, setFormData] = useState<Record<string, string>>({});
+
+  if (!property || !propertyType) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center p-8 bg-white rounded-[3rem] border border-gray-100 shadow-sm animate-in fade-in duration-500 text-center">
+        <ShieldAlert className="w-16 h-16 text-rose-500 mb-6" />
+        <h2 className="text-3xl font-black text-gray-900 uppercase tracking-tight">Access Restricted</h2>
+        <p className="text-slate-500 font-medium mt-3 max-w-sm mx-auto">
+           Property cluster not found or unauthorized for your account.
+        </p>
+        <Link to="/properties" className="mt-8 px-8 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase tracking-widest text-[10px]">Return to Portfolio</Link>
+      </div>
+    );
+  }
 
   const handleInputChange = (colId: string, value: string) => {
     setFormData(prev => ({ ...prev, [colId]: value }));
@@ -136,52 +121,13 @@ const PropertyDetails: React.FC = () => {
     }
   };
 
-  if (!property || !propertyType) {
-    return (
-      <div className="min-h-[60vh] flex flex-col items-center justify-center p-8 bg-white rounded-[3rem] border border-gray-100 shadow-sm animate-in fade-in duration-500 text-center">
-        <div className="w-24 h-24 bg-rose-50 rounded-[2rem] flex items-center justify-center mb-8 shadow-inner">
-           <ShieldAlert className="w-12 h-12 text-rose-500" />
-        </div>
-        <h2 className="text-3xl font-black text-gray-900 uppercase tracking-tight">Access Restricted</h2>
-        <p className="text-slate-500 font-medium mt-3 max-w-sm mx-auto leading-relaxed">
-           This asset cluster is either unauthorized for your clearance level or does not exist in the current directory.
-        </p>
-        <Link 
-          to="/properties" 
-          className="mt-10 px-8 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-indigo-600 transition-all shadow-xl active:scale-95"
-        >
-          Return to Portfolio
-        </Link>
-      </div>
-    );
-  }
-
   const handleSave = () => {
     if (!canEdit) return;
     const errors: Record<string, string> = {};
-    
     columns.forEach(col => {
       const val = formData[col.id]?.trim() || "";
-      const nameLower = col.name.toLowerCase();
-
       if (col.required && val === "") {
         errors[col.id] = `${col.name} is required`;
-        return;
-      } 
-      
-      if (val !== "") {
-        if (nameLower.includes('name') && !/^[A-Za-z\s]+$/.test(val)) {
-          errors[col.id] = "Alphabets and spaces only";
-        }
-        else if ((nameLower.includes('number') || nameLower.includes('phone')) && col.type !== ColumnType.CURRENCY && !/^\d{10,}$/.test(val)) {
-          errors[col.id] = "Digits only (min 10)";
-        }
-        else if (col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.RENT_DUE_DAY || col.type === ColumnType.SECURITY_DEPOSIT || nameLower.includes('rent') || nameLower.includes('amount')) {
-          if (!/^\d+(\.\d+)?$/.test(val)) errors[col.id] = "Numeric values only";
-        }
-        else if (nameLower.includes('email') && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) {
-          errors[col.id] = "Invalid email format";
-        }
       }
     });
 
@@ -193,7 +139,7 @@ const PropertyDetails: React.FC = () => {
     setConfirmConfig({
       isOpen: true,
       title: editingRecordId ? "Update Record" : "Add Unit",
-      message: editingRecordId ? "Confirm changes to this record?" : "Add this unit to inventory?",
+      message: "Finalize changes to this property record?",
       actionLabel: "Confirm",
       icon: <ShieldCheck className="w-10 h-10" />,
       onConfirm: () => {
@@ -229,7 +175,7 @@ const PropertyDetails: React.FC = () => {
     });
   };
 
-  const renderCellContent = (value: string, col: ColumnDefinition, recordId: string) => {
+  const renderCellContent = (value: string, col: ColumnDefinition) => {
     if (col.type === ColumnType.CURRENCY || col.type === ColumnType.SECURITY_DEPOSIT) {
       return <span className="text-indigo-600 font-black">${parseFloat(value || '0').toLocaleString()}</span>;
     }
@@ -295,19 +241,12 @@ const PropertyDetails: React.FC = () => {
                   <tr key={record.id} className={`${isEditing ? 'bg-indigo-50/20' : 'hover:bg-indigo-50/10'} group transition-all duration-300`}>
                     {columns.map(col => {
                       const val = recordValues.find((v: any) => v.columnId === col.id)?.value || '';
-                      return (<td key={col.id} className="px-8 py-7 text-sm font-bold text-gray-700 align-top">{isEditing ? (<><input className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500' : 'border-indigo-200'} rounded-2xl px-5 py-4 text-sm font-bold`} type={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER ? 'number' : col.type === ColumnType.DATE ? 'date' : 'text'} value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)} />{formErrors[col.id] && <p className="text-[9px] text-red-500 font-black uppercase mt-2 ml-1">{formErrors[col.id]}</p>}</>) : renderCellContent(val, col, record.id)}</td>);
+                      return (<td key={col.id} className="px-8 py-7 text-sm font-bold text-gray-700 align-top">{isEditing ? (<><input className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500' : 'border-indigo-200'} rounded-2xl px-5 py-4 text-sm font-bold`} type={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER ? 'number' : col.type === ColumnType.DATE ? 'date' : 'text'} value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)} />{formErrors[col.id] && <p className="text-[9px] text-red-500 font-black uppercase mt-2 ml-1">{formErrors[col.id]}</p>}</>) : renderCellContent(val, col)}</td>);
                     })}
                     {canEdit && (<td className="px-8 py-7 text-right align-top">{isEditing ? (<div className="flex justify-end gap-3"><button onClick={handleSave} className="p-4 bg-indigo-600 text-white rounded-2xl"><Save className="w-6 h-6" /></button><button onClick={() => { setEditingRecordId(null); setFormData({}); }} className="p-4 bg-white border border-gray-200 rounded-2xl"><X className="w-6 h-6" /></button></div>) : (<div className="flex justify-end gap-3 opacity-0 group-hover:opacity-100 transition-all"><button onClick={() => { const initial = recordValues.reduce((acc: any, v: any) => ({...acc, [v.columnId]: v.value}), {}); setFormData(initial); setEditingRecordId(record.id); }} className="p-3 text-gray-400 hover:text-indigo-600"><Edit2 className="w-5 h-5" /></button><button onClick={() => handleDeleteRecord(record.id)} className="p-3 text-gray-400 hover:text-red-600"><Trash2 className="w-5 h-5" /></button></div>)}</td>)}
                   </tr>
                 );
               })}
-              {records.length === 0 && !isAdding && (
-                <tr>
-                   <td colSpan={columns.length + (canEdit ? 1 : 0)} className="py-20 text-center opacity-30">
-                      <p className="text-xs font-black uppercase tracking-widest">No Unit Inventory Logged</p>
-                   </td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>

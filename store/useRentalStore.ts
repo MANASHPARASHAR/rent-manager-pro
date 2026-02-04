@@ -150,7 +150,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         localStorage.setItem(TOMBSTONES_KEY, JSON.stringify(Array.from(tombstones)));
         
         if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
-        // Reduced to 1000ms for "real-time" responsiveness
         syncTimeoutRef.current = setTimeout(() => {
           syncAll();
         }, 1000); 
@@ -202,11 +201,19 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const loadAllData = useCallback(async (id: string) => {
     const gapi = (window as any).gapi;
-    if (!gapi?.client?.sheets || !authSession) return;
+    if (!gapi?.client?.sheets || !authSession) {
+      setIsBooting(false);
+      hasLoadedInitialData.current = true;
+      return;
+    }
 
     try {
       const fileMeta = await gapi.client.drive.files.get({ fileId: id, fields: 'name, trashed' });
-      if (fileMeta.result.trashed) return;
+      if (fileMeta.result.trashed) {
+        setIsBooting(false);
+        hasLoadedInitialData.current = true;
+        return;
+      }
       
       setSpreadsheetName(fileMeta.result.name);
       localStorage.setItem('rentmaster_active_sheet_name', fileMeta.result.name);
@@ -217,7 +224,11 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
 
       const data = response.result.valueRanges;
-      if (!data) return;
+      if (!data) {
+        setIsBooting(false);
+        hasLoadedInitialData.current = true;
+        return;
+      }
 
       const parse = (index: number) => data[index]?.values?.slice(1) || [];
       const currentTombstones = new Set(JSON.parse(localStorage.getItem(TOMBSTONES_KEY) || '[]'));
@@ -324,13 +335,15 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   useEffect(() => { 
     initGoogleClient().then(() => {
-      if (authSession && spreadsheetId) bootstrapDatabase();
-      else if (!spreadsheetId) {
+      // CRITICAL FIX: Ensure booting screen resolves even if auth is missing
+      if (authSession) {
+        bootstrapDatabase();
+      } else {
         setIsBooting(false);
         hasLoadedInitialData.current = true;
       }
     });
-  }, [initGoogleClient, authSession, spreadsheetId, bootstrapDatabase]);
+  }, [initGoogleClient, authSession]);
 
   const updateRecord = async (recordId: string, values: RecordValue[], effectiveDate?: string) => {
     const effDate = effectiveDate ? new Date(effectiveDate).toISOString() : new Date().toISOString();

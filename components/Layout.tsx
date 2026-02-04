@@ -26,7 +26,8 @@ import {
   AlertCircle,
   ShieldCheck,
   Zap,
-  CheckCircle
+  CheckCircle,
+  AlertTriangle
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { UserRole } from '../types';
@@ -40,7 +41,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 1024);
   const [isSetupOpen, setIsSetupOpen] = useState(false);
   const [tempClientId, setTempClientId] = useState(store.googleClientId || '');
-  const [activeStep, setActiveStep] = useState<number | null>(1);
 
   const isAdmin = store.user?.role === UserRole.ADMIN;
 
@@ -78,21 +78,24 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   };
 
   const isReauthNeeded = store.syncStatus === 'reauth';
-  // ISSUE #1 FIX: Added strict check for Cloud Live status
+  const isSyncError = store.syncStatus === 'error';
   const isCloudActive = !!store.spreadsheetId && !!store.googleUser && store.syncStatus === 'synced';
+  const needsInitialCloudSetup = isAdmin && !store.spreadsheetId;
 
   return (
     <div className="min-h-screen bg-slate-50 flex font-sans antialiased text-slate-900 overflow-x-hidden">
-      {/* SILENT REAUTH TRIGGER */}
-      {isReauthNeeded && isAdmin && (
-        <div className="fixed top-0 inset-x-0 z-[200] bg-indigo-600 text-white p-3 flex items-center justify-center gap-4 animate-in slide-in-from-top duration-500 shadow-2xl">
-           <Zap className="w-5 h-5 text-amber-300 animate-pulse" />
-           <p className="text-[10px] font-black uppercase tracking-widest">Cloud Session Expired. Data saving locally until re-authorized.</p>
+      {/* ERROR STATUS BAR */}
+      {(isReauthNeeded || isSyncError) && isAdmin && (
+        <div className={`fixed top-0 inset-x-0 z-[200] ${isSyncError ? 'bg-rose-600' : 'bg-indigo-600'} text-white p-3 flex items-center justify-center gap-4 animate-in slide-in-from-top duration-500 shadow-2xl`}>
+           {isSyncError ? <AlertTriangle className="w-5 h-5 animate-pulse" /> : <Zap className="w-5 h-5 text-amber-300 animate-pulse" />}
+           <p className="text-[10px] font-black uppercase tracking-widest">
+             {isSyncError ? "CRITICAL: Cloud Sync Failed. Data is only saving locally!" : "Cloud Session Expired. Data saving locally until re-authorized."}
+           </p>
            <button 
              onClick={handleConnect}
              className="bg-white text-indigo-600 px-4 py-1.5 rounded-lg text-[9px] font-black uppercase hover:bg-indigo-50 transition-all active:scale-95 shadow-sm"
            >
-             Quick Reconnect
+             {isSyncError ? 'Retry Sync' : 'Quick Reconnect'}
            </button>
         </div>
       )}
@@ -118,7 +121,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                  <div className="p-6 bg-indigo-50 rounded-3xl flex items-start gap-4">
                     <Info className="w-6 h-6 text-indigo-600 shrink-0" />
                     <p className="text-xs font-bold text-indigo-900 leading-relaxed uppercase tracking-tight">
-                       Once linked, data syncs automatically in the background. No manual syncing required.
+                       Once linked, data syncs automatically in the background. Your local changes will be pushed to Google Sheets.
                     </p>
                  </div>
 
@@ -140,7 +143,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         </div>
       )}
 
-      <aside className={`fixed inset-y-0 left-0 z-50 bg-slate-900 text-white transition-all duration-500 border-r border-white/5 shadow-2xl flex flex-col ${isSidebarOpen ? 'w-80 translate-x-0' : 'w-24 -translate-x-full lg:translate-x-0'} lg:sticky lg:h-screen ${isReauthNeeded ? 'pt-16' : ''}`}>
+      <aside className={`fixed inset-y-0 left-0 z-50 bg-slate-900 text-white transition-all duration-500 border-r border-white/5 shadow-2xl flex flex-col ${isSidebarOpen ? 'w-80 translate-x-0' : 'w-24 -translate-x-full lg:translate-x-0'} lg:sticky lg:h-screen ${(isReauthNeeded || isSyncError) ? 'pt-16' : ''}`}>
         <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className={`absolute -right-4 top-12 bg-indigo-600 text-white p-2.5 rounded-full shadow-2xl hover:bg-indigo-500 transition-all hidden lg:flex items-center justify-center border-4 border-slate-50 ${!isSidebarOpen && 'rotate-180'}`}>
           <ChevronLeft className="w-4 h-4" />
         </button>
@@ -174,7 +177,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             })}
           </nav>
 
-          {/* ZERO-HEADACHE CLOUD STATUS */}
           {isSidebarOpen && (
              <div className="mx-2 mt-10 p-4 bg-slate-950/40 rounded-3xl border border-white/5 flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -203,7 +205,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         </div>
       </aside>
 
-      <main className={`flex-1 overflow-x-hidden min-h-screen flex flex-col relative ${isReauthNeeded ? 'pt-16' : ''}`}>
+      <main className={`flex-1 overflow-x-hidden min-h-screen flex flex-col relative ${(isReauthNeeded || isSyncError) ? 'pt-16' : ''}`}>
         <div className="lg:hidden p-6 bg-white border-b border-slate-100 flex items-center justify-between sticky top-0 z-30 shadow-sm">
             <div className="flex items-center gap-3">
               <div className="bg-indigo-600 p-2.5 rounded-xl text-white shadow-lg"><Building className="w-5 h-5" /></div>
@@ -211,6 +213,21 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             </div>
             <button onClick={() => setIsSidebarOpen(true)} className="p-3 bg-slate-950 text-white rounded-xl shadow-xl"><Menu className="w-6 h-6" /></button>
         </div>
+        
+        {/* ONE-TIME CLOUD PROMPT BANNER */}
+        {needsInitialCloudSetup && (
+           <div className="m-6 md:m-10 mb-0 bg-indigo-50 border border-indigo-100 p-6 rounded-[2rem] flex flex-col md:flex-row items-center justify-between gap-6 animate-in slide-in-from-top-4">
+              <div className="flex items-center gap-4">
+                 <div className="p-3 bg-indigo-600 text-white rounded-2xl shadow-xl"><Cloud className="w-6 h-6" /></div>
+                 <div>
+                    <h4 className="text-[11px] font-black uppercase tracking-widest text-indigo-400">Lifetime Cloud Sync</h4>
+                    <p className="text-sm font-bold text-indigo-900">Connect your Google account once to enable global database persistence.</p>
+                 </div>
+              </div>
+              <button onClick={() => setIsSetupOpen(true)} className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-black uppercase text-[9px] tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all">Link Now</button>
+           </div>
+        )}
+
         <div className="p-6 md:p-10 lg:p-14 max-w-[1500px] mx-auto w-full flex-1">{children}</div>
       </main>
     </div>

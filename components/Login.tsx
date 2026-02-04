@@ -4,12 +4,10 @@ import {
   Building, 
   ArrowRight, 
   AlertCircle, 
-  Database, 
   Lock, 
   User as UserIcon,
   ShieldCheck,
   Zap,
-  CheckCircle2,
   Fingerprint,
   UserPlus,
   Loader2,
@@ -28,27 +26,23 @@ const Login: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const hasTeamDirectory = store.users.length > 0;
+  const hasUsers = store.users && store.users.length > 0;
   const isCloudAuthorized = !!store.googleUser;
   const isCloudConfigured = !!store.googleClientId;
 
-  // Auto-trigger Cloud Auth if we have a client ID but no local data
-  useEffect(() => {
-    if (!hasTeamDirectory && isCloudConfigured && !isCloudAuthorized && !isLoading) {
-      handleCloudAuthorize(true); // Silent/Auto attempt
-    }
-  }, [hasTeamDirectory, isCloudConfigured, isCloudAuthorized]);
-
-  const isInitializing = useMemo(() => {
-    if (hasTeamDirectory) return false;
-    if (store.spreadsheetId) return false;
-    if (isCloudConfigured && !isCloudAuthorized) return false;
-    return true;
-  }, [hasTeamDirectory, isCloudConfigured, isCloudAuthorized, store.spreadsheetId]);
+  // Genesis Mode: Only active if absolutely no users exist in the directory
+  const isInitializing = useMemo(() => !hasUsers, [hasUsers]);
 
   const isCloudAuthRequired = useMemo(() => {
-    return !hasTeamDirectory && isCloudConfigured && !isCloudAuthorized;
-  }, [hasTeamDirectory, isCloudConfigured, isCloudAuthorized]);
+    return !hasUsers && isCloudConfigured && !isCloudAuthorized;
+  }, [hasUsers, isCloudConfigured, isCloudAuthorized]);
+
+  // Auto-trigger Cloud Auth attempt if configured but not authorized
+  useEffect(() => {
+    if (!hasUsers && isCloudConfigured && !isCloudAuthorized && !isLoading && store.spreadsheetId) {
+      handleCloudAuthorize(true);
+    }
+  }, [hasUsers, isCloudConfigured, isCloudAuthorized, store.spreadsheetId]);
 
   if (store.isBooting) {
     return (
@@ -62,7 +56,7 @@ const Login: React.FC = () => {
               <h2 className="text-2xl font-black text-white uppercase tracking-tighter">RentMaster Pro</h2>
               <div className="flex items-center justify-center gap-3 text-slate-400 text-[10px] font-black uppercase tracking-[0.3em]">
                  <Loader2 className="w-4 h-4 animate-spin text-indigo-500" /> 
-                 Verifying Workspace
+                 Syncing Workspace...
               </div>
            </div>
         </div>
@@ -75,15 +69,15 @@ const Login: React.FC = () => {
     setIsLoading(true);
     setError(null);
 
-    // BUG-B FIX: Genesis Mode name validation
-    if (isInitializing && !/^[A-Za-z\s]+$/.test(name)) {
-      setError("Admin name must contain only alphabets and spaces");
-      setIsLoading(false);
-      return;
-    }
-
     try {
       if (isInitializing) {
+        // Genesis Mode: Validation for first admin
+        if (!/^[A-Za-z\s]+$/.test(name)) {
+          setError("Name must contain only alphabets and spaces");
+          setIsLoading(false);
+          return;
+        }
+
         const newUser = {
           id: 'u-' + Math.random().toString(36).substr(2, 9),
           username: username.trim().toLowerCase(),
@@ -96,12 +90,12 @@ const Login: React.FC = () => {
       } else {
         const success = await store.login(username.trim(), password);
         if (!success) {
-          setError('Verification failed. Invalid credentials.');
-          setIsLoading(false);
+          setError('Invalid credentials. Access denied.');
         }
       }
     } catch (err) {
       setError('An authentication error occurred.');
+    } finally {
       setIsLoading(false);
     }
   };
@@ -110,10 +104,9 @@ const Login: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-        const success = await store.authenticate(undefined, silent);
-        if (!success && !silent) {
-            setError("Cloud authentication required to fetch team directory.");
-        }
+        await store.authenticate(undefined, silent);
+    } catch (err) {
+        if (!silent) setError("Could not connect to Cloud. Check Client ID.");
     } finally {
         setIsLoading(false);
     }
@@ -135,24 +128,22 @@ const Login: React.FC = () => {
             </div>
             
             <h1 className="text-5xl font-black leading-tight mb-6 tracking-tighter uppercase">
-              {isInitializing ? "Initialize Workspace" : isCloudAuthRequired ? "Cloud Link Required" : "Secure Entry Portal"}
+              {isInitializing ? "Genesis <br/> Setup" : "Secure <br/> Portal"}
             </h1>
             
             <p className="text-indigo-100/70 text-lg font-medium max-w-md leading-relaxed">
               {isInitializing 
-                ? "Your user directory is empty. Create the primary administrator account to define your workspace." 
-                : isCloudAuthRequired 
-                ? "This instance is linked to Google Sheets. Authorize your session to synchronize your directory."
-                : "Enter your credentials to manage your rental portfolio. Your session directory is active."}
+                ? "Your local directory is empty. Create the primary administrator account to begin." 
+                : "Enter your secure credentials to manage your rental portfolio assets."}
             </p>
           </div>
 
           <div className="relative z-10 grid grid-cols-2 gap-6">
              <div className="flex items-center gap-3 text-xs font-bold uppercase tracking-widest text-indigo-100/80">
-               <Zap className="w-4 h-4 text-amber-300" /> Real-time Analytics
+               <Zap className="w-4 h-4 text-amber-300" /> Auto-Cloud Sync
              </div>
              <div className="flex items-center gap-3 text-xs font-bold uppercase tracking-widest text-indigo-100/80">
-               <ShieldCheck className="w-4 h-4 text-emerald-300" /> Enterprise Security
+               <ShieldCheck className="w-4 h-4 text-emerald-300" /> AES-256 Vault
              </div>
           </div>
         </div>
@@ -160,13 +151,11 @@ const Login: React.FC = () => {
         <div className="p-8 lg:p-16 flex flex-col justify-center bg-slate-900/40">
           <div className="mb-10">
             <h2 className="text-3xl font-black text-white tracking-tight mb-2 uppercase">
-              {isInitializing ? "Account Setup" : isCloudAuthRequired ? "Cloud Connect" : "Identify User"}
+              {isInitializing ? "Root Access" : "Verify Identity"}
             </h2>
-            <div className="flex items-center gap-3">
-              <p className="text-slate-400 font-medium">
-                {isInitializing ? "Configure the master administrative account." : isCloudAuthRequired ? "Grant sheet permissions to fetch your data." : "Identify yourself to access the dashboard."}
-              </p>
-            </div>
+            <p className="text-slate-400 font-medium">
+              {isInitializing ? "Configure the first user for this instance." : "Enter your access keys to continue."}
+            </p>
           </div>
 
           <div className="space-y-6">
@@ -179,35 +168,32 @@ const Login: React.FC = () => {
 
             {isCloudAuthRequired ? (
               <div className="space-y-8 animate-in slide-in-from-bottom-4">
-                 <div className="p-6 bg-indigo-600/10 border border-indigo-600/20 rounded-3xl space-y-4">
-                    <div className="flex items-center gap-3 text-indigo-400">
-                       <Cloud className="w-6 h-6" />
-                       <span className="text-xs font-black uppercase tracking-widest">Database Linked</span>
-                    </div>
+                 <div className="p-6 bg-indigo-600/10 border border-indigo-600/20 rounded-3xl space-y-4 text-center">
+                    <Cloud className="w-10 h-10 text-indigo-400 mx-auto" />
                     <p className="text-slate-400 text-xs font-medium leading-relaxed">
-                       Detected Google Sheet integration but local directory is empty. Authorize to recover team data.
+                       Cloud database detected. Authorize to recover your team and properties.
                     </p>
                  </div>
                  <button 
                     onClick={() => handleCloudAuthorize(false)}
                     disabled={isLoading}
-                    className="w-full bg-white text-slate-950 font-black uppercase tracking-widest py-5 rounded-2xl shadow-xl transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-3 group"
+                    className="w-full bg-white text-slate-950 font-black uppercase tracking-widest py-5 rounded-2xl shadow-xl transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-3"
                  >
-                    {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Key className="w-5 h-5" /> Authorize & Sync Cloud</>}
+                    {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Key className="w-5 h-5" /> Sync Cloud Data</>}
                  </button>
               </div>
             ) : (
               <form onSubmit={handleLogin} className="space-y-6">
                 {isInitializing && (
                   <div className="space-y-1.5 animate-in slide-in-from-top-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Full Display Name</label>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Full Name</label>
                     <div className="relative group">
                       <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-indigo-500 transition-colors" />
                       <input 
                         type="text"
                         required
                         className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-4 text-white outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white/10 transition-all font-semibold"
-                        placeholder="Master Admin"
+                        placeholder="John Doe"
                         value={name}
                         onChange={e => setName(e.target.value)}
                       />
@@ -216,7 +202,7 @@ const Login: React.FC = () => {
                 )}
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Username (Login)</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Username</label>
                   <div className="relative group">
                     <Fingerprint className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-indigo-500 transition-colors" />
                     <input 
@@ -231,7 +217,7 @@ const Login: React.FC = () => {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Access Key</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Password</label>
                   <div className="relative group">
                     <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-indigo-500 transition-colors" />
                     <input 
@@ -247,14 +233,14 @@ const Login: React.FC = () => {
 
                 <button 
                   type="submit"
-                  disabled={isLoading || store.isCloudSyncing}
+                  disabled={isLoading}
                   className={`w-full ${isInitializing ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-500/20' : 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/20'} text-white font-black uppercase tracking-widest py-5 rounded-2xl shadow-xl transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-3 group`}
                 >
                   {isLoading ? (
-                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                    <Loader2 className="w-5 h-5 animate-spin" />
                   ) : (
                     <>
-                      {isInitializing ? "Initialize Super-Admin" : "Identify Session"} 
+                      {isInitializing ? "Initialize Workspace" : "Identify Session"} 
                       {isInitializing ? <UserPlus className="w-5 h-5" /> : <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />}
                     </>
                   )}
@@ -265,15 +251,15 @@ const Login: React.FC = () => {
           
           <div className="mt-8 p-4 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-between">
              <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${store.syncStatus === 'synced' ? 'bg-emerald-500' : store.syncStatus === 'reauth' ? 'bg-rose-500' : 'bg-slate-600'}`}></div>
+                <div className={`w-2 h-2 rounded-full ${store.syncStatus === 'synced' ? 'bg-emerald-500' : 'bg-slate-600'}`}></div>
                 <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">
-                  Cloud Status: {store.syncStatus === 'synced' ? "Sync Active" : store.syncStatus === 'reauth' ? "Re-auth Required" : "Unlinked"}
+                  Cloud: {store.syncStatus === 'synced' ? "Sync Ready" : "Local Cache"}
                 </span>
              </div>
              {isInitializing && (
                <div className="flex items-center gap-1.5 text-indigo-400">
                   <ShieldAlert className="w-3 h-3" />
-                  <span className="text-[8px] font-black uppercase">Genesis Mode</span>
+                  <span className="text-[8px] font-black uppercase">Admin First Setup</span>
                </div>
              )}
           </div>

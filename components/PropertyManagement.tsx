@@ -18,7 +18,8 @@ import {
   PlusCircle,
   Map,
   AlertCircle,
-  Layers
+  Layers,
+  Loader2
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { UserRole } from '../types';
@@ -55,15 +56,24 @@ const PropertyManagement: React.FC = () => {
   const isAdmin = store.user?.role === UserRole.ADMIN;
   const isManager = store.user?.role === UserRole.MANAGER;
   const isViewer = store.user?.role === UserRole.VIEWER;
-  const isRestricted = isManager || isViewer;
-
-  // INITIAL STATE FIX: Use optional chaining to prevent crash if store arrays are empty at first mount
+  
   const [newProp, setNewProp] = useState({
     name: '',
     address: '',
     typeId: '',
     city: ''
   });
+
+  // INITIAL LOAD GUARD: Prevent rendering crashes if store is still syncing
+  if (store.isBooting) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center p-8 bg-white rounded-[3rem] border border-gray-100 shadow-sm animate-in fade-in duration-500 text-center">
+        <Loader2 className="w-12 h-12 text-indigo-500 animate-spin mb-6" />
+        <h3 className="text-xl font-black text-gray-900 uppercase tracking-tight">Syncing Property Catalog...</h3>
+        <p className="text-slate-500 font-medium mt-2">Connecting to Google Cloud Database</p>
+      </div>
+    );
+  }
 
   // Sync form defaults once data loads
   useEffect(() => {
@@ -74,7 +84,7 @@ const PropertyManagement: React.FC = () => {
         city: store.config?.cities?.[0] || ''
       }));
     }
-  }, [store.propertyTypes, store.config, newProp.typeId]);
+  }, [store.propertyTypes, store.config]);
 
   const handleAddProperty = (e: React.FormEvent) => {
     e.preventDefault();
@@ -324,7 +334,7 @@ const PropertyManagement: React.FC = () => {
                   </div>
                 </div>
                 
-                <Link to={`/properties/${prop.id}`} className="p-5 bg-gray-50 flex items-center justify-center gap-2 text-indigo-600 font-black uppercase text-[10px] tracking-widest hover:bg-indigo-600 hover:text-white transition-all">{isViewer ? 'View Units' : 'Manage Units'} <ChevronRight className="w-4 h-4" /></Link>
+                <Link to={`/properties/${prop.id}`} className="p-5 bg-gray-50 flex items-center justify-center gap-2 text-indigo-600 font-black uppercase text-[10px] tracking-widest hover:bg-indigo-600 hover:text-white transition-all">Manage Units <ChevronRight className="w-4 h-4" /></Link>
               </div>
             );
           })}
