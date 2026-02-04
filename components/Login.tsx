@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Building, 
@@ -59,7 +60,7 @@ const Login: React.FC = () => {
            </div>
            <div className="space-y-3">
               <h2 className="text-2xl font-black text-white uppercase tracking-tighter">RentMaster Pro</h2>
-              <div className="flex items-center justify-center gap-3 text-slate-500 text-[10px] font-black uppercase tracking-[0.3em]">
+              <div className="flex items-center justify-center gap-3 text-slate-400 text-[10px] font-black uppercase tracking-[0.3em]">
                  <Loader2 className="w-4 h-4 animate-spin text-indigo-500" /> 
                  Verifying Workspace
               </div>
@@ -73,6 +74,13 @@ const Login: React.FC = () => {
     e.preventDefault();
     setIsLoading(true);
     setError(null);
+
+    // BUG-B FIX: Genesis Mode name validation
+    if (isInitializing && !/^[A-Za-z\s]+$/.test(name)) {
+      setError("Admin name must contain only alphabets and spaces");
+      setIsLoading(false);
+      return;
+    }
 
     try {
       if (isInitializing) {
@@ -140,10 +148,10 @@ const Login: React.FC = () => {
           </div>
 
           <div className="relative z-10 grid grid-cols-2 gap-6">
-             <div className="flex items-center gap-3 text-xs font-bold uppercase tracking-widest text-indigo-100/50">
+             <div className="flex items-center gap-3 text-xs font-bold uppercase tracking-widest text-indigo-100/80">
                <Zap className="w-4 h-4 text-amber-300" /> Real-time Analytics
              </div>
-             <div className="flex items-center gap-3 text-xs font-bold uppercase tracking-widest text-indigo-100/50">
+             <div className="flex items-center gap-3 text-xs font-bold uppercase tracking-widest text-indigo-100/80">
                <ShieldCheck className="w-4 h-4 text-emerald-300" /> Enterprise Security
              </div>
           </div>
@@ -192,7 +200,7 @@ const Login: React.FC = () => {
               <form onSubmit={handleLogin} className="space-y-6">
                 {isInitializing && (
                   <div className="space-y-1.5 animate-in slide-in-from-top-2">
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Full Display Name</label>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Full Display Name</label>
                     <div className="relative group">
                       <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-indigo-500 transition-colors" />
                       <input 
@@ -208,7 +216,7 @@ const Login: React.FC = () => {
                 )}
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Username (Login)</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Username (Login)</label>
                   <div className="relative group">
                     <Fingerprint className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-indigo-500 transition-colors" />
                     <input 
@@ -223,7 +231,7 @@ const Login: React.FC = () => {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Access Key</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Access Key</label>
                   <div className="relative group">
                     <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-indigo-500 transition-colors" />
                     <input 
@@ -258,7 +266,7 @@ const Login: React.FC = () => {
           <div className="mt-8 p-4 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-between">
              <div className="flex items-center gap-2">
                 <div className={`w-2 h-2 rounded-full ${store.syncStatus === 'synced' ? 'bg-emerald-500' : store.syncStatus === 'reauth' ? 'bg-rose-500' : 'bg-slate-600'}`}></div>
-                <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">
+                <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">
                   Cloud Status: {store.syncStatus === 'synced' ? "Sync Active" : store.syncStatus === 'reauth' ? "Re-auth Required" : "Unlinked"}
                 </span>
              </div>

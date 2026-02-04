@@ -13,7 +13,8 @@ import {
   Lock,
   ArrowLeft,
   AlertTriangle,
-  Loader2
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { UserRole } from '../types';
@@ -23,6 +24,7 @@ const UserManagement: React.FC = () => {
   const [isAdding, setIsAdding] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [newUser, setNewUser] = useState({ name: '', username: '', password: '', role: UserRole.MANAGER });
+  const [error, setError] = useState<string | null>(null);
   
   const [confirmConfig, setConfirmConfig] = useState<{
     isOpen: boolean;
@@ -52,6 +54,14 @@ const UserManagement: React.FC = () => {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
+
+    // BUG-B FIX: Team member name validation
+    if (!/^[A-Za-z\s]+$/.test(newUser.name)) {
+      setError("Team member name must contain only alphabets and spaces");
+      return;
+    }
+
     if (!newUser.username || !newUser.password) return;
 
     await store.addUser({
@@ -128,7 +138,7 @@ const UserManagement: React.FC = () => {
           <p className="text-slate-500 mt-2 font-medium">Manage access privileges for your rental portfolio.</p>
         </div>
         <button 
-          onClick={() => setIsAdding(true)}
+          onClick={() => { setIsAdding(true); setError(null); }}
           disabled={!!deletingId}
           className="bg-indigo-600 text-white px-8 py-4 rounded-2xl flex items-center gap-3 hover:bg-indigo-700 transition-all font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-100 active:scale-95 disabled:opacity-50"
         >
@@ -144,6 +154,11 @@ const UserManagement: React.FC = () => {
                  <button onClick={() => setIsAdding(false)} className="p-3 hover:bg-white rounded-full transition-colors"><X className="w-7 h-7 text-slate-400" /></button>
               </div>
               <form onSubmit={handleCreate} className="p-10 space-y-6">
+                 {error && (
+                   <div className="bg-red-50 border border-red-200 p-4 rounded-xl flex items-center gap-3 text-red-700 animate-in shake">
+                     <AlertCircle className="w-5 h-5 shrink-0" /><p className="text-xs font-bold">{error}</p>
+                   </div>
+                 )}
                  <div className="space-y-1.5">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Full Display Name</label>
                     <input required className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all" value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} />
@@ -166,7 +181,7 @@ const UserManagement: React.FC = () => {
                  </div>
                  <div className="pt-6 flex gap-4">
                     <button type="button" onClick={() => setIsAdding(false)} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest">Cancel</button>
-                    <button type="submit" className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-200">Create Account</button>
+                    <button type="submit" className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-100">Create Account</button>
                  </div>
               </form>
            </div>

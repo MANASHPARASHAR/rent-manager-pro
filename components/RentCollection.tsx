@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { 
   Search, 
@@ -8,152 +9,70 @@ import {
   Building2,
   DollarSign,
   X,
-  ShieldCheck,
-  RefreshCw,
-  Target,
-  AlertTriangle,
-  History,
+  Wallet,
   CalendarDays,
   TrendingUp,
-  ChevronDown,
-  Settings,
-  Trash2,
-  Wallet,
-  ArrowRight,
-  User,
-  PlusCircle,
   CreditCard,
-  Landmark,
-  Undo2,
-  Phone,
-  Calendar,
-  UserPlus,
+  ShieldCheck,
+  RotateCcw,
   Activity,
-  Save,
+  UserPlus,
   AlertCircle,
-  PieChart,
+  Check,
   ArrowUpRight,
-  Layers,
-  MapPin,
-  Navigation
+  Landmark,
+  History,
+  ArrowRight,
+  ChevronDown,
+  Info,
+  Calendar,
+  Filter,
+  MoreVertical,
+  Undo2,
+  Zap,
+  Briefcase
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
-import { PaymentStatus, UserRole, ColumnType, Payment, UnitHistory, ColumnDefinition } from '../types';
+import { PaymentStatus, ColumnType, Payment, UnitHistory, ColumnDefinition } from '../types';
 
 type FilterType = 'monthly' | 'annual' | 'custom';
 type TemporalActionType = 'STATUS' | 'TENANT';
 
 const RentCollection: React.FC = () => {
   const store = useRentalStore();
-  const isAdmin = store.user?.role === UserRole.ADMIN;
-  const isManager = store.user?.role === UserRole.MANAGER;
+  const isAdmin = store.user?.role === 'ADMIN';
+  const isManager = store.user?.role === 'MANAGER';
   
-  const [filterType, setFilterType] = useState<FilterType>('monthly');
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   });
-  const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear().toString());
-  const [startDate, setStartDate] = useState(() => {
-    const d = new Date();
-    d.setMonth(d.getMonth() - 1);
-    return d.toISOString().split('T')[0];
-  });
-  const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
-
-  const [confirmConfig, setConfirmConfig] = useState<{
-    isOpen: boolean;
-    title: string;
-    message: string;
-    onConfirm: () => void;
-    actionLabel: string;
-    isDanger?: boolean;
-    icon?: React.ReactNode;
-  }>({
-    isOpen: false,
-    title: '',
-    message: '',
-    onConfirm: () => {},
-    actionLabel: 'Confirm'
-  });
-
-  const [temporalAction, setTemporalAction] = useState<{
-    isOpen: boolean;
-    type: TemporalActionType;
-    record: any | null;
-    formValues: Record<string, string>;
-    formErrors: Record<string, string>;
-    effectiveDate: string;
-  }>({
-    isOpen: false,
-    type: 'STATUS',
-    record: null,
-    formValues: {},
-    formErrors: {},
-    effectiveDate: new Date().toISOString().split('T')[0]
-  });
-
-  const [showSettings, setShowSettings] = useState(false);
-  const [newPaidTo, setNewPaidTo] = useState('');
-  const [newPaymentMode, setNewPaymentMode] = useState('');
-
-  const addPaidToOption = () => {
-    if (!newPaidTo.trim()) return;
-    if (store.config.paidToOptions.includes(newPaidTo.trim())) return;
-    store.updateConfig({ paidToOptions: [...store.config.paidToOptions, newPaidTo.trim()] });
-    setNewPaidTo('');
-  };
-
-  const removePaidToOption = (opt: string) => {
-    store.updateConfig({ paidToOptions: store.config.paidToOptions.filter((o: string) => o !== opt) });
-  };
-
-  const addPaymentModeOption = () => {
-    if (!newPaymentMode.trim()) return;
-    if (store.config.paymentModeOptions.includes(newPaymentMode.trim())) return;
-    store.updateConfig({ paymentModeOptions: [...store.config.paymentModeOptions, newPaymentMode.trim()] });
-    setNewPaymentMode('');
-  };
-
-  const removePaymentModeOption = (opt: string) => {
-    store.updateConfig({ paymentModeOptions: store.config.paymentModeOptions.filter((o: string) => o !== opt) });
-  };
-
-  const [historyRecord, setHistoryRecord] = useState<any | null>(null);
-
-  const visibleProperties = useMemo(() => {
-    if (!isManager) return store.properties;
-    return store.properties.filter((p: any) => p.isVisibleToManager !== false);
-  }, [store.properties, isManager]);
-
-  const visiblePropertyIds = useMemo(() => visibleProperties.map((p: any) => p.id), [visibleProperties]);
-  
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPropertyId, setSelectedPropertyId] = useState<string>('all');
-
-  const [collectingRecord, setCollectingRecord] = useState<any | null>(null);
-  const [collectionData, setCollectionData] = useState({
-    paidTo: '',
-    paymentMode: '',
-    month: '',
-    type: 'RENT' as 'RENT' | 'DEPOSIT',
-    amount: 0,
-    paidAt: new Date().toISOString().split('T')[0]
+  
+  const [paymentModal, setPaymentModal] = useState<any>({ 
+    isOpen: false, 
+    record: null, 
+    type: 'RENT', 
+    amount: 0, 
+    paidTo: store.config.paidToOptions[0], 
+    mode: store.config.paymentModeOptions[0], 
+    date: new Date().toISOString().split('T')[0] 
   });
 
-  const availableYears = useMemo(() => {
-    const years = new Set<number>();
-    const currentYear = new Date().getFullYear();
-    years.add(currentYear);
-    store.payments.forEach((p: Payment) => {
-      if (p.paidAt) years.add(new Date(p.paidAt).getFullYear());
-      if (p.month && p.month !== 'ONE_TIME') {
-        const yearPart = parseInt(p.month.split('-')[0]);
-        if (!isNaN(yearPart)) years.add(yearPart);
-      }
-    });
-    return Array.from(years).sort((a, b) => b - a);
-  }, [store.payments]);
+  const [revertModal, setRevertModal] = useState<any>({
+    isOpen: false,
+    record: null,
+    type: 'RENT',
+    monthKey: ''
+  });
+
+  const [historyModal, setHistoryModal] = useState<{ isOpen: boolean; record: any | null }>({
+    isOpen: false,
+    record: null
+  });
+
+  const [temporalAction, setTemporalAction] = useState<any>({ isOpen: false, type: 'STATUS', record: null, formValues: {}, effectiveDate: '' });
 
   const navigateMonth = (direction: number) => {
     const [year, month] = selectedMonth.split('-').map(Number);
@@ -162,51 +81,22 @@ const RentCollection: React.FC = () => {
     setSelectedMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
   };
 
-  const navigateYear = (direction: number) => {
-    const year = parseInt(selectedYear);
-    setSelectedYear((year + direction).toString());
+  const jumpToToday = () => {
+    const d = new Date();
+    setSelectedMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
   };
 
-  const isPaidInScope = (recordId: string, type: 'RENT' | 'DEPOSIT') => {
-    const paymentsInScope = store.payments.filter((p: Payment) => 
-      p.recordId === recordId && 
-      p.type === type && 
-      (p.status === PaymentStatus.PAID || p.status === PaymentStatus.VACANT)
-    );
-    
-    if (filterType === 'monthly') {
-      return paymentsInScope.some(p => p.month === selectedMonth);
-    } else if (filterType === 'annual') {
-      return paymentsInScope.some(p => p.month.startsWith(selectedYear) || (p.type === 'DEPOSIT' && p.paidAt?.startsWith(selectedYear)));
-    } else {
-      const start = new Date(startDate); start.setHours(0,0,0,0);
-      const end = new Date(endDate); end.setHours(23,59,59,999);
-      return paymentsInScope.some(p => {
-        if (!p.paidAt) return false;
-        const pd = new Date(p.paidAt);
-        return pd >= start && pd <= end;
-      });
-    }
-  };
+  const visibleProperties = useMemo(() => {
+    if (!isManager) return store.properties;
+    return store.properties.filter((p: any) => p.isVisibleToManager !== false);
+  }, [store.properties, isManager]);
 
-  const getMonthlyPayment = (recordId: string, month: string) => {
-    return store.payments.find(p => p.recordId === recordId && p.month === month && p.type === 'RENT');
-  };
+  const visiblePropertyIds = useMemo(() => visibleProperties.map((p: any) => p.id), [visibleProperties]);
 
   const recordsWithRent = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    let contextDate: Date;
-    if (filterType === 'monthly') {
-      const [y, m] = selectedMonth.split('-').map(Number);
-      contextDate = new Date(y, m, 0, 23, 59, 59);
-    } else if (filterType === 'annual') {
-      contextDate = new Date(parseInt(selectedYear), 11, 31, 23, 59, 59);
-    } else {
-      contextDate = new Date(endDate);
-      contextDate.setHours(23, 59, 59);
-    }
+    const today = new Date(); today.setHours(0,0,0,0);
+    const [y, m] = selectedMonth.split('-').map(Number);
+    const contextDate = new Date(y, m, 0, 23, 59, 59);
 
     return store.records
       .filter((r: any) => visiblePropertyIds.includes(r.propertyId))
@@ -222,830 +112,560 @@ const RentCollection: React.FC = () => {
         });
 
         const activeValues = historicalState?.values || store.recordValues.filter((v: any) => v.recordId === record.id).reduce((acc: any, v: any) => ({...acc, [v.columnId]: v.value}), {});
+        const rentCol = propertyType?.columns.find(c => c.isRentCalculatable);
+        const depositCol = propertyType?.columns.find(c => c.type === ColumnType.SECURITY_DEPOSIT);
+        const occupancyCol = propertyType?.columns.find(c => c.type === ColumnType.OCCUPANCY_STATUS);
+        const nameCol = propertyType?.columns.find(c => c.name.toLowerCase().includes('name'));
         
-        const rentColId = propertyType?.columns.find(c => c.name.toLowerCase() === 'monthly rent')?.id;
-        const depositColId = propertyType?.columns.find(c => c.type === ColumnType.SECURITY_DEPOSIT)?.id;
-        const occupancyColId = propertyType?.columns.find(c => c.type === ColumnType.OCCUPANCY_STATUS)?.id;
+        const rentValue = activeValues[rentCol?.id || ''] || '0';
+        const depositValue = activeValues[depositCol?.id || ''] || '0';
+        const occupancyValue = activeValues[occupancyCol?.id || ''] || 'Active';
+        const tenantName = activeValues[nameCol?.id || ''] || 'Unknown';
+        const isVacant = occupancyValue.toLowerCase().includes('vacant');
 
-        const rentValue = activeValues[rentColId || ''] || '0';
-        const depositValue = activeValues[depositColId || ''] || '0';
-        const occupancyValue = activeValues[occupancyColId || ''] || 'Active';
-        
-        const isGloballyVacant = occupancyValue.toLowerCase().includes('vacant');
-        const monthlyPayment = getMonthlyPayment(record.id, selectedMonth);
-        const isMonthVacant = monthlyPayment?.status === PaymentStatus.VACANT;
+        const monthlyPayment = store.payments.find((p: any) => p.recordId === record.id && p.month === selectedMonth && p.type === 'RENT');
+        const isRentPaid = !!monthlyPayment && monthlyPayment.status === PaymentStatus.PAID;
 
-        const dueDay = propertyType?.defaultDueDateDay || 5;
-        const isRentPaid = isPaidInScope(record.id, 'RENT');
-        
-        const depositPayment = store.payments.find(p => p.recordId === record.id && p.type === 'DEPOSIT' && p.status === PaymentStatus.PAID);
-        const isDepositPaid = !!depositPayment;
-        const isDepositRefunded = depositPayment?.isRefunded || false;
+        const depositPayment = store.payments.find((p: any) => p.recordId === record.id && p.type === 'DEPOSIT');
+        const isDepositPaid = !!depositPayment && depositPayment.status === PaymentStatus.PAID;
 
-        let statusBadge: 'PAID' | 'PENDING' | 'OVERDUE' | 'VACANT' = 'PENDING';
-        if (isMonthVacant || isGloballyVacant) {
-          statusBadge = 'VACANT';
-        } else if (filterType === 'monthly') {
-          const [year, month] = selectedMonth.split('-').map(Number);
-          const deadline = new Date(year, month - 1, dueDay, 23, 59, 59);
-          if (isRentPaid) statusBadge = 'PAID';
-          else if (today > deadline) statusBadge = 'OVERDUE';
-        } else {
-          statusBadge = isRentPaid ? 'PAID' : 'PENDING';
+        let statusBadge: any = 'PENDING';
+        if (isVacant) statusBadge = 'VACANT';
+        else if (isRentPaid) statusBadge = 'PAID';
+        else {
+          const deadline = new Date(y, m - 1, propertyType?.defaultDueDateDay || 5, 23, 59, 59);
+          if (today > deadline) statusBadge = 'OVERDUE';
         }
 
-        return {
-          ...record, 
-          property, 
-          propertyType,
-          rentAmount: parseFloat(rentValue),
-          depositAmount: parseFloat(depositValue),
-          isRentPaid, 
-          isDepositPaid,
-          isDepositRefunded,
-          hasDepositOwed: parseFloat(depositValue) > 0,
-          isVacant: statusBadge === 'VACANT',
-          dueDay,
-          statusBadge,
-          rawValuesMap: activeValues,
-          assignmentHistory: store.unitHistory.filter((h: any) => h.recordId === record.id).sort((a: any, b: any) => new Date(b.effectiveFrom).getTime() - new Date(a.effectiveFrom).getTime()),
-          paymentHistory: store.payments.filter(p => p.recordId === record.id)
-        };
-      }).filter((r: any) => {
-        const matchesProperty = selectedPropertyId === 'all' || r.propertyId === selectedPropertyId;
-        const matchesSearch = searchTerm === '' || Object.values(r.rawValuesMap).some(v => String(v).toLowerCase().includes(searchTerm.toLowerCase())) || r.property?.name.toLowerCase().includes(searchTerm.toLowerCase());
-        return matchesSearch && matchesProperty;
+        return { ...record, property, propertyType, tenantName, rentAmount: parseFloat(rentValue), depositAmount: parseFloat(depositValue), isRentPaid, isDepositPaid, isVacant, statusBadge, rawValuesMap: activeValues };
+      })
+      .filter((r: any) => {
+        const matchesProp = selectedPropertyId === 'all' || r.propertyId === selectedPropertyId;
+        const matchesSearch = searchTerm === '' || Object.values(r.rawValuesMap).some(v => String(v).toLowerCase().includes(searchTerm.toLowerCase()));
+        return matchesProp && matchesSearch;
       });
-  }, [store.records, store.properties, store.propertyTypes, store.recordValues, store.unitHistory, store.payments, filterType, selectedMonth, selectedYear, endDate, searchTerm, selectedPropertyId, visiblePropertyIds]);
+  }, [store.records, store.properties, store.propertyTypes, store.recordValues, store.unitHistory, store.payments, selectedMonth, searchTerm, selectedPropertyId, visiblePropertyIds]);
 
-  const summaryStats = useMemo(() => {
-    let totalDue = 0;
-    let totalCollected = 0;
-    let totalPending = 0;
-    let totalOverdue = 0;
-    let countPaid = 0;
-    let countPending = 0;
-    let countOverdue = 0;
-    const pendingByProperty: Record<string, { name: string, amount: number }> = {};
+  const ledgerStats = useMemo(() => {
+    let collected = 0;
+    let pending = 0;
+    let heldDeposits = 0;
 
-    recordsWithRent.forEach(record => {
-      if (record.isVacant) return;
-
-      const amount = record.rentAmount || 0;
-      totalDue += amount;
-
-      if (record.statusBadge === 'PAID') {
-        totalCollected += amount;
-        countPaid++;
-      } else {
-        const pId = record.propertyId;
-        const pName = record.property?.name || 'Unknown Asset';
-        if (!pendingByProperty[pId]) pendingByProperty[pId] = { name: pName, amount: 0 };
-        pendingByProperty[pId].amount += amount;
-
-        if (record.statusBadge === 'OVERDUE') {
-          totalOverdue += amount;
-          countOverdue++;
-        } else if (record.statusBadge === 'PENDING') {
-          totalPending += amount;
-          countPending++;
-        }
+    recordsWithRent.forEach(r => {
+      if (!r.isVacant) {
+        if (r.isRentPaid) collected += r.rentAmount;
+        else pending += r.rentAmount;
       }
+      if (r.isDepositPaid) heldDeposits += r.depositAmount;
     });
 
-    const collectionRate = totalDue > 0 ? (totalCollected / totalDue) * 100 : 0;
-
-    return { totalDue, totalCollected, totalPending, totalOverdue, countPaid, countPending, countOverdue, collectionRate, pendingByProperty };
+    return { collected, pending, heldDeposits };
   }, [recordsWithRent]);
 
-  const ledgerColumns = useMemo(() => {
-    const relevantTypes = selectedPropertyId === 'all' 
-      ? store.propertyTypes.filter(pt => store.properties.some(p => p.propertyTypeId === pt.id && visiblePropertyIds.includes(p.id)))
-      : store.propertyTypes.filter(pt => pt.id === store.properties.find(p => p.id === selectedPropertyId)?.propertyTypeId);
-
-    const cols: ColumnDefinition[] = [];
-    const colNames = new Set<string>();
-
-    relevantTypes.forEach(pt => {
-      pt.columns.filter(c => c.isDefaultInLedger).forEach(c => {
-        if (!colNames.has(c.name)) {
-          cols.push(c);
-          colNames.add(c.name);
-        }
-      });
-    });
-
-    return cols.sort((a, b) => a.order - b.order);
-  }, [selectedPropertyId, store.propertyTypes, store.properties, visiblePropertyIds]);
-
-  const handleAction = (record: any, type: 'RENT' | 'DEPOSIT') => {
-    if (record.isVacant) return;
-    
-    if (type === 'RENT' && record.isRentPaid && filterType === 'monthly') {
-      setConfirmConfig({
-        isOpen: true,
-        isDanger: true,
-        title: "Revert Transaction",
-        message: `Reset ledger status in ${selectedMonth}?`,
-        actionLabel: "Revert Status",
-        icon: <RefreshCw className="w-10 h-10 text-red-500" />,
-        onConfirm: () => {
-          store.togglePayment(record.id, selectedMonth, record.rentAmount, 'N/A', {}, 'RENT');
-          setConfirmConfig(prev => ({ ...prev, isOpen: false }));
-        }
-      });
-      return;
-    }
-
-    if (type === 'DEPOSIT' && record.isDepositPaid && !record.isDepositRefunded) {
-      setConfirmConfig({
-        isOpen: true,
-        isDanger: true,
-        title: "Refund Security Deposit",
-        message: `Confirm that the security deposit for the current tenancy is being returned?`,
-        actionLabel: "Issue Refund",
-        icon: <Undo2 className="w-10 h-10 text-amber-500" />,
-        onConfirm: () => {
-          store.refundDeposit(record.id);
-          setConfirmConfig(prev => ({ ...prev, isOpen: false }));
-        }
-      });
-      return;
-    } else if (type === 'DEPOSIT' && record.isDepositRefunded) {
-        return;
-    }
-
-    setCollectingRecord(record);
-    setCollectionData({
-      paidTo: store.config.paidToOptions[0] || '',
-      paymentMode: store.config.paymentModeOptions[0] || '',
-      month: type === 'RENT' ? selectedMonth : 'ONE_TIME',
+  const handleOpenPayment = (record: any, type: 'RENT' | 'DEPOSIT') => {
+    setPaymentModal({
+      isOpen: true,
+      record,
       type,
       amount: type === 'RENT' ? record.rentAmount : record.depositAmount,
-      paidAt: new Date().toISOString().split('T')[0]
+      paidTo: store.config.paidToOptions[0],
+      mode: store.config.paymentModeOptions[0],
+      date: new Date().toISOString().split('T')[0]
     });
   };
 
-  const handleTemporalAction = (record: any, type: TemporalActionType) => {
-    const rentDateCol = record.propertyType.columns.find((c: any) => c.name.toLowerCase().includes('rent date'));
-    const initialEffectiveDate = (type === 'TENANT' && rentDateCol && record.rawValuesMap[rentDateCol.id]) 
-      ? record.rawValuesMap[rentDateCol.id] 
-      : new Date().toISOString().split('T')[0];
-
-    setTemporalAction({
+  const handleOpenRevert = (record: any, type: 'RENT' | 'DEPOSIT') => {
+    setRevertModal({
       isOpen: true,
-      type,
       record,
-      formValues: { ...record.rawValuesMap },
-      formErrors: {},
-      effectiveDate: initialEffectiveDate
+      type,
+      monthKey: type === 'RENT' ? selectedMonth : 'ONE_TIME'
     });
+  };
+
+  const handleConfirmRevert = () => {
+    const { record, monthKey, type } = revertModal;
+    store.togglePayment(record.id, monthKey, 0, '', {}, type);
+    setRevertModal({ ...revertModal, isOpen: false });
+  };
+
+  const handleCollect = () => {
+    const { record, type, amount, paidTo, mode, date } = paymentModal;
+    const monthKey = type === 'RENT' ? selectedMonth : 'ONE_TIME';
+    
+    store.togglePayment(record.id, monthKey, amount, date, {
+      status: PaymentStatus.PAID,
+      paidTo,
+      paymentMode: mode,
+      paidAt: date
+    }, type);
+    
+    setPaymentModal({ ...paymentModal, isOpen: false });
   };
 
   const confirmTemporalAction = () => {
-    if (!temporalAction.record) return;
     const { record, type, formValues, effectiveDate } = temporalAction;
-    const errors: Record<string, string> = {};
-
-    if (type === 'TENANT') {
-      record.propertyType.columns.forEach((col: any) => {
-        if (col.required && !formValues[col.id]?.trim()) {
-           errors[col.id] = "Required field";
-        }
-      });
-      if (Object.keys(errors).length > 0) {
-        setTemporalAction(prev => ({ ...prev, formErrors: errors }));
-        return;
-      }
-    }
-
     const updatedMap = { ...formValues };
     const statusColId = record.propertyType.columns.find((c: any) => c.type === ColumnType.OCCUPANCY_STATUS)?.id;
 
     if (type === 'STATUS') {
        updatedMap[statusColId] = 'Vacant';
-       record.propertyType.columns.forEach((col: any) => {
-         if (col.type !== ColumnType.OCCUPANCY_STATUS) {
-            updatedMap[col.id] = '';
-         }
-       });
+       record.propertyType.columns.forEach((col: any) => { if (col.type !== ColumnType.OCCUPANCY_STATUS) updatedMap[col.id] = ''; });
     } else {
        updatedMap[statusColId] = 'Active';
     }
 
-    const finalValues = Object.entries(updatedMap).map(([cid, val]) => ({
-      id: 'v_' + Math.random().toString(36).substr(2, 5),
-      recordId: record.id,
-      columnId: cid,
-      value: val as string
-    }));
-
+    const finalValues = Object.entries(updatedMap).map(([cid, val]) => ({ id: 'v_' + Math.random().toString(36).substr(2, 5), recordId: record.id, columnId: cid, value: val as string }));
     store.updateRecord(record.id, finalValues, effectiveDate);
-    setTemporalAction({ ...temporalAction, isOpen: false, record: null });
+    setTemporalAction({ ...temporalAction, isOpen: false });
   };
 
-  const renderCellContent = (record: any, col: any) => {
-    const colIdForRecord = record.propertyType?.columns.find((c: any) => c.name === col.name)?.id;
-    const value = record.rawValuesMap[colIdForRecord] || '';
+  const unitPayments = useMemo(() => {
+    if (!historyModal.record) return [];
+    return store.payments
+      .filter((p: any) => p.recordId === historyModal.record.id)
+      .sort((a: any, b: any) => new Date(b.paidAt || b.dueDate).getTime() - new Date(a.paidAt || a.dueDate).getTime());
+  }, [store.payments, historyModal.record]);
 
-    if (record.isVacant && col.type !== ColumnType.OCCUPANCY_STATUS) {
-       return <span className="text-slate-200">-</span>;
-    }
-
-    if (col.type === ColumnType.CURRENCY || col.type === ColumnType.SECURITY_DEPOSIT) {
-       return <p className="font-black text-slate-950 text-sm tracking-tight">${parseFloat(value || '0').toLocaleString()}</p>;
-    }
-    if (col.type === ColumnType.OCCUPANCY_STATUS) {
-      return (
-        <span className={`px-4 py-1.5 rounded-full text-[10px] font-black border uppercase tracking-widest flex items-center gap-2 shadow-sm mx-auto w-fit ${
-          record.statusBadge === 'PAID' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 
-          record.statusBadge === 'OVERDUE' ? 'bg-rose-50 text-rose-700 border-rose-100 animate-pulse' : 
-          record.statusBadge === 'VACANT' ? 'bg-slate-100 text-slate-400 border-slate-200' :
-          'bg-amber-50 text-amber-700 border-amber-100'
-        }`}>
-          {record.statusBadge === 'PAID' ? <CheckCircle2 className="w-3.5 h-3.5" /> : record.statusBadge === 'OVERDUE' ? <AlertTriangle className="w-3.5 h-3.5" /> : record.statusBadge === 'VACANT' ? <X className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
-          {record.statusBadge === 'PAID' ? 'Settled' : record.statusBadge === 'OVERDUE' ? 'Overdue' : record.statusBadge === 'VACANT' ? 'Vacant' : 'Awaiting'}
-        </span>
-      );
-    }
-    if (col.name.toLowerCase().includes('number') || (col.type === ColumnType.TEXT && String(value).match(/^\+?[0-9- ]{7,}$/)) || col.type === ColumnType.NUMBER) {
-       if (col.name.toLowerCase().includes('tenant number')) {
-          return <div className="flex items-center justify-center gap-1.5 text-[10px] font-bold text-indigo-500"><Phone className="w-3 h-3" /> {value || '-'}</div>;
-       }
-    }
-    return <p className="font-bold text-slate-700 text-xs uppercase">{value || '-'}</p>;
-  };
-
-  const confirmCollection = () => {
-    if (!collectingRecord) return;
-    const { paidTo, paymentMode, amount, type, month, paidAt } = collectionData;
-    const { id: recordId, dueDay } = collectingRecord;
-    const dueDateString = type === 'RENT' ? `${month}-${String(dueDay).padStart(2, '0')}` : 'N/A';
-    store.togglePayment(recordId, month, amount, dueDateString, { paidTo, paymentMode, paidAt }, type);
-    setCollectingRecord(null);
-  };
+  const [monthYearName, yearName] = useMemo(() => {
+    const [y, m] = selectedMonth.split('-').map(Number);
+    const date = new Date(y, m - 1);
+    return [date.toLocaleString('default', { month: 'long' }), y];
+  }, [selectedMonth]);
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500 max-w-7xl mx-auto pb-24">
-      {confirmConfig.isOpen && (
-        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md">
-          <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl border border-white/20 overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className={`p-10 text-center ${confirmConfig.isDanger ? 'bg-red-50/50' : 'bg-indigo-50/50'}`}>
-              <div className={`w-20 h-20 rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-xl ${confirmConfig.isDanger ? 'bg-red-500 text-white shadow-red-500/20' : 'bg-indigo-600 text-white shadow-indigo-500/20'}`}>
-                {confirmConfig.icon}
-              </div>
-              <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tight mb-4">{confirmConfig.title}</h3>
-              <p className="text-slate-500 font-medium leading-relaxed">{confirmConfig.message}</p>
-            </div>
-            <div className="p-8 flex gap-4 bg-white">
-              <button onClick={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-200">Cancel</button>
-              <button onClick={confirmConfig.onConfirm} className={`flex-1 py-4 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl transition-all active:scale-95 ${confirmConfig.isDanger ? 'bg-red-500' : 'bg-indigo-600'}`}>{confirmConfig.actionLabel}</button>
-            </div>
+    <div className="space-y-12 animate-in fade-in duration-1000 max-w-[1500px] mx-auto pb-40">
+      {/* PREMIUM HEADER */}
+      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-12">
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+             <div className="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full text-[10px] font-black uppercase tracking-widest border border-indigo-100 flex items-center gap-2">
+                <Zap className="w-3 h-3" /> Live Transaction Engine
+             </div>
+          </div>
+          <h1 className="text-5xl lg:text-7xl font-black text-slate-900 uppercase tracking-tighter leading-[0.9] transform-gpu">
+            Collection <br /> Desk
+          </h1>
+          <p className="text-slate-500 font-medium text-lg max-w-lg">
+            Manage settlements, track security deposits, and oversee occupancy timelines with atomic precision.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-4 bg-white/50 backdrop-blur-xl p-4 rounded-[2.5rem] border border-slate-200/60 shadow-xl shadow-slate-200/40">
+          <button onClick={jumpToToday} className="px-6 py-3.5 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg active:scale-95">Today</button>
+          
+          <div className="flex items-center gap-1 bg-slate-50 p-1.5 rounded-2xl border border-slate-200">
+             <button onClick={() => navigateMonth(-1)} className="p-3 hover:bg-white hover:text-indigo-600 rounded-xl transition-all shadow-sm">
+                <ChevronLeft className="w-5 h-5" />
+             </button>
+             <div className="px-6 py-1 flex flex-col items-center min-w-[140px]">
+                <span className="text-[10px] font-black text-indigo-500 uppercase tracking-[0.2em] mb-0.5">{yearName}</span>
+                <span className="text-lg font-black text-slate-900 uppercase tracking-tight">
+                   {monthYearName}
+                </span>
+             </div>
+             <button onClick={() => navigateMonth(1)} className="p-3 hover:bg-white hover:text-indigo-600 rounded-xl transition-all shadow-sm">
+                <ChevronRight className="w-5 h-5" />
+             </button>
+          </div>
+
+          <div className="relative">
+            <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input 
+              className="pl-12 pr-6 py-4 bg-white border border-slate-200 rounded-2xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/5 focus:border-indigo-500 transition-all min-w-[280px] shadow-sm"
+              placeholder="Search resident or property..."
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+            />
           </div>
         </div>
-      )}
+      </div>
 
-      {/* ADMIN SETTINGS MODAL */}
-      {showSettings && isAdmin && (
-        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md animate-in fade-in">
-           <div className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[85vh]">
-              <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
-                 <div className="flex items-center gap-3">
-                    <div className="p-3 bg-indigo-600 text-white rounded-2xl shadow-lg"><Settings className="w-5 h-5" /></div>
-                    <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">System Configuration</h3>
+      {/* FINTECH STATS GRID */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+        {[
+          { label: 'Settled Revenue', value: ledgerStats.collected, icon: Wallet, color: 'emerald', sub: `${monthYearName} Collection` },
+          { label: 'Outstanding Balance', value: ledgerStats.pending, icon: ArrowUpRight, color: 'rose', sub: 'Pending Action' },
+          { label: 'Security Assets', value: ledgerStats.heldDeposits, icon: ShieldCheck, color: 'indigo', sub: 'Total Funds Held' }
+        ].map((stat, i) => (
+          <div key={i} className="group relative bg-white p-10 rounded-[3.5rem] border border-slate-100 shadow-sm hover:shadow-2xl hover:translate-y-[-4px] transition-all duration-500 overflow-hidden">
+             <div className={`absolute top-0 right-0 w-32 h-32 bg-${stat.color}-50 rounded-bl-[100px] -mr-8 -mt-8 opacity-40 transition-transform group-hover:scale-110`}></div>
+             <div className="flex items-center gap-6 relative z-10">
+                <div className={`w-20 h-20 bg-${stat.color}-50 text-${stat.color}-600 rounded-[2rem] flex items-center justify-center shadow-inner group-hover:rotate-6 transition-transform`}>
+                   <stat.icon className="w-9 h-9" />
+                </div>
+                <div>
+                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">{stat.label}</p>
+                   <h3 className="text-4xl font-black text-slate-950 tracking-tighter">${stat.value.toLocaleString()}</h3>
+                   <div className="flex items-center gap-2 mt-2">
+                      <div className={`w-1.5 h-1.5 rounded-full bg-${stat.color}-500 animate-pulse`}></div>
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{stat.sub}</span>
+                   </div>
+                </div>
+             </div>
+          </div>
+        ))}
+      </div>
+
+      {/* LEDGER WORKSPACE */}
+      <div className="bg-white rounded-[4rem] border border-slate-100 shadow-[0_20px_80px_rgba(0,0,0,0.04)] overflow-hidden">
+         <div className="p-8 border-b border-slate-50 flex items-center justify-between bg-slate-50/30">
+            <div className="flex items-center gap-4">
+               <div className="p-3 bg-indigo-600 text-white rounded-2xl shadow-lg">
+                  <Landmark className="w-5 h-5" />
+               </div>
+               <div>
+                  <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">Financial Ledger</h2>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{recordsWithRent.length} Units Found</p>
+               </div>
+            </div>
+            <div className="flex items-center gap-3">
+               <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-xl border border-slate-200 shadow-sm">
+                  <Filter className="w-3.5 h-3.5 text-slate-400" />
+                  <select 
+                    className="text-[10px] font-black uppercase text-slate-600 outline-none bg-transparent cursor-pointer"
+                    value={selectedPropertyId}
+                    onChange={e => setSelectedPropertyId(e.target.value)}
+                  >
+                    <option value="all">All Properties</option>
+                    {visibleProperties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+               </div>
+            </div>
+         </div>
+
+         <div className="overflow-x-auto max-h-[800px] overflow-y-auto custom-scrollbar">
+            <table className="w-full text-left">
+               <thead className="sticky top-0 z-10 bg-slate-50/90 backdrop-blur-md">
+                  <tr className="border-b border-slate-100">
+                     <th className="px-12 py-8 text-[10px] font-black text-slate-400 uppercase tracking-widest">Resident & Asset</th>
+                     <th className="px-12 py-8 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Payment Loop</th>
+                     <th className="px-12 py-8 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Security Asset</th>
+                     <th className="px-12 py-8 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Operations</th>
+                  </tr>
+               </thead>
+               <tbody className="divide-y divide-slate-50">
+                  {recordsWithRent.map((record) => (
+                    <tr key={record.id} className={`group hover:bg-indigo-50/30 transition-all duration-300 ${record.isVacant ? 'opacity-40 grayscale-[0.5]' : ''}`}>
+                       <td className="px-12 py-10">
+                          <div className="flex items-center gap-6">
+                             <div className="relative">
+                                <div className="w-16 h-16 bg-white rounded-[1.5rem] shadow-md border border-slate-100 flex items-center justify-center text-slate-300 group-hover:scale-110 group-hover:rotate-3 transition-all duration-500">
+                                   <Building2 className="w-7 h-7" />
+                                </div>
+                                {!record.isVacant && (
+                                   <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-emerald-500 border-4 border-white rounded-full shadow-lg"></div>
+                                )}
+                             </div>
+                             <div>
+                                <h4 className="text-lg font-black text-slate-900 uppercase tracking-tight leading-none mb-1.5 group-hover:text-indigo-600 transition-colors">{record.property?.name}</h4>
+                                <div className="flex items-center gap-3">
+                                   <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">{record.tenantName}</span>
+                                   <div className="w-1 h-1 rounded-full bg-slate-300"></div>
+                                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{record.isVacant ? 'VACANT' : 'OCCUPIED'}</span>
+                                </div>
+                             </div>
+                          </div>
+                       </td>
+                       
+                       <td className="px-12 py-10 text-center">
+                          <button 
+                            disabled={record.isVacant}
+                            onClick={() => record.isRentPaid ? handleOpenRevert(record, 'RENT') : handleOpenPayment(record, 'RENT')}
+                            className={`min-w-[160px] px-6 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-widest border-2 transition-all duration-300 flex items-center justify-center gap-3 mx-auto shadow-sm active:scale-95 ${record.isRentPaid ? 'bg-emerald-50 text-emerald-700 border-emerald-100 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 hover:shadow-rose-100 group/rev' : record.statusBadge === 'OVERDUE' ? 'bg-rose-50 text-rose-700 border-rose-100 hover:bg-rose-100' : 'bg-amber-50 text-amber-700 border-amber-100 hover:bg-amber-100 hover:shadow-amber-100'}`}
+                          >
+                             {record.isRentPaid ? (
+                               <>
+                                 <span className="flex items-center gap-2 group-hover/rev:hidden animate-in fade-in"><Check className="w-4 h-4" /> Paid</span>
+                                 <span className="hidden items-center gap-2 group-hover/rev:flex animate-in slide-in-from-bottom-2"><RotateCcw className="w-4 h-4" /> Revert</span>
+                               </>
+                             ) : (
+                               <>
+                                 {record.statusBadge === 'OVERDUE' ? <AlertCircle className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
+                                 {record.isVacant ? 'Vacant' : 'Collect Rent'}
+                               </>
+                             )}
+                          </button>
+                       </td>
+
+                       <td className="px-12 py-10 text-center">
+                          <button 
+                            disabled={record.isVacant}
+                            onClick={() => record.isDepositPaid ? handleOpenRevert(record, 'DEPOSIT') : handleOpenPayment(record, 'DEPOSIT')}
+                            className={`min-w-[160px] px-6 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-widest border-2 transition-all duration-300 flex items-center justify-center gap-3 mx-auto shadow-sm active:scale-95 ${record.isDepositPaid ? 'bg-indigo-50 text-indigo-700 border-indigo-100 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 hover:shadow-rose-100 group/rev-dep' : 'bg-slate-50 text-slate-400 border-slate-100 hover:bg-slate-100 hover:text-slate-600'}`}
+                          >
+                             {record.isDepositPaid ? (
+                               <>
+                                 <span className="flex items-center gap-2 group-hover/rev-dep:hidden animate-in fade-in"><ShieldCheck className="w-4 h-4" /> Held</span>
+                                 <span className="hidden items-center gap-2 group-hover/rev-dep:flex animate-in slide-in-from-bottom-2"><RotateCcw className="w-4 h-4" /> Revert</span>
+                               </>
+                             ) : (
+                               <>
+                                 <Landmark className="w-4 h-4" />
+                                 {record.isVacant ? 'N/A' : 'Collect Dep.'}
+                               </>
+                             )}
+                          </button>
+                       </td>
+
+                       <td className="px-12 py-10 text-right">
+                          <div className="flex justify-end gap-3 opacity-0 group-hover:opacity-100 translate-x-4 group-hover:translate-x-0 transition-all duration-500">
+                             <button onClick={() => setHistoryModal({ isOpen: true, record })} className="p-4 bg-white border border-slate-200 text-slate-400 rounded-2xl hover:text-indigo-600 hover:border-indigo-100 hover:shadow-xl hover:shadow-indigo-50 transition-all active:scale-90" title="Audit Log"><History className="w-5 h-5" /></button>
+                             <button onClick={() => setTemporalAction({isOpen: true, type: 'TENANT', record, formValues: record.rawValuesMap, effectiveDate: new Date().toISOString().split('T')[0]})} className="p-4 bg-white border border-slate-200 text-slate-400 rounded-2xl hover:text-emerald-600 hover:border-emerald-100 hover:shadow-xl hover:shadow-emerald-50 transition-all active:scale-90" title="Move-In / Update"><UserPlus className="w-5 h-5" /></button>
+                             <button onClick={() => setTemporalAction({isOpen: true, type: 'STATUS', record, formValues: record.rawValuesMap, effectiveDate: new Date().toISOString().split('T')[0]})} className="p-4 bg-white border border-slate-200 text-slate-400 rounded-2xl hover:text-rose-600 hover:border-rose-100 hover:shadow-xl hover:shadow-rose-50 transition-all active:scale-90" title="Move-Out"><Activity className="w-5 h-5" /></button>
+                          </div>
+                       </td>
+                    </tr>
+                  ))}
+                  {recordsWithRent.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="py-40 text-center opacity-30">
+                        <Briefcase className="w-20 h-20 mx-auto mb-6 text-slate-200" />
+                        <h3 className="text-2xl font-black uppercase tracking-tighter">No Units Discovered</h3>
+                        <p className="text-[10px] font-black uppercase tracking-[0.3em] mt-2">Adjust your filters or asset search</p>
+                      </td>
+                    </tr>
+                  )}
+               </tbody>
+            </table>
+         </div>
+      </div>
+
+      {/* REVERT DIALOG */}
+      {revertModal.isOpen && (
+        <div className="fixed inset-0 z-[400] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-xl animate-in fade-in duration-500">
+           <div className="bg-white w-full max-w-md rounded-[4rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300">
+              <div className="p-12 bg-rose-600 text-white text-center relative overflow-hidden">
+                 <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 blur-[40px] rounded-full -mr-16 -mt-16"></div>
+                 <div className="w-24 h-24 bg-white/20 rounded-[2.5rem] flex items-center justify-center mx-auto mb-8 backdrop-blur-md shadow-2xl group border border-white/10">
+                    <RotateCcw className="w-12 h-12 animate-in spin-in-180" />
                  </div>
-                 <button onClick={() => setShowSettings(false)} className="p-2 hover:bg-white rounded-full transition-colors"><X className="w-6 h-6 text-slate-400" /></button>
+                 <h3 className="text-3xl font-black uppercase tracking-tighter mb-3">Revert Entry?</h3>
+                 <p className="text-rose-100 font-medium text-sm leading-relaxed max-w-[280px] mx-auto">
+                   This action will reset the settlement status for <strong>{revertModal.record.tenantName}</strong> back to pending.
+                 </p>
               </div>
-              <div className="p-8 space-y-10 overflow-y-auto custom-scrollbar">
-                 {/* Paid To Section */}
-                 <div className="space-y-4">
-                    <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Receiving Accounts</h4>
-                    <div className="flex gap-2">
-                       <input className="flex-1 bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-sm font-bold outline-none" placeholder="New Account Name" value={newPaidTo} onChange={e => setNewPaidTo(e.target.value)} />
-                       <button onClick={addPaidToOption} className="bg-indigo-600 text-white p-3 rounded-xl"><PlusCircle className="w-5 h-5" /></button>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                       {store.config.paidToOptions.map((opt: string) => (
-                          <div key={opt} className="px-4 py-2 bg-white border border-slate-100 rounded-xl flex items-center gap-2 group hover:border-rose-200 transition-all shadow-sm">
-                             <span className="text-xs font-bold text-slate-600">{opt}</span>
-                             <button onClick={() => removePaidToOption(opt)} className="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all"><X className="w-3.5 h-3.5" /></button>
-                          </div>
-                       ))}
-                    </div>
-                 </div>
-
-                 {/* Payment Modes Section */}
-                 <div className="space-y-4">
-                    <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Payment Channels</h4>
-                    <div className="flex gap-2">
-                       <input className="flex-1 bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-sm font-bold outline-none" placeholder="New Method Name" value={newPaymentMode} onChange={e => setNewPaymentMode(e.target.value)} />
-                       <button onClick={addPaymentModeOption} className="bg-indigo-600 text-white p-3 rounded-xl"><PlusCircle className="w-5 h-5" /></button>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                       {store.config.paymentModeOptions.map((opt: string) => (
-                          <div key={opt} className="px-4 py-2 bg-white border border-slate-100 rounded-xl flex items-center gap-2 group hover:border-rose-200 transition-all shadow-sm">
-                             <span className="text-xs font-bold text-slate-600">{opt}</span>
-                             <button onClick={() => removePaymentModeOption(opt)} className="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all"><X className="w-3.5 h-3.5" /></button>
-                          </div>
-                       ))}
-                    </div>
-                 </div>
+              <div className="p-10 flex gap-4">
+                 <button onClick={() => setRevertModal({...revertModal, isOpen: false})} className="flex-1 py-5 bg-slate-50 text-slate-500 rounded-3xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-100 transition-all">Cancel</button>
+                 <button onClick={handleConfirmRevert} className="flex-1 py-5 bg-rose-600 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-rose-200 hover:bg-rose-700 transition-all active:scale-95">Yes, Revert</button>
               </div>
            </div>
         </div>
       )}
 
-      {temporalAction.isOpen && temporalAction.record && (
-        <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xl animate-in fade-in duration-300">
-           <div className="bg-white w-full max-w-3xl rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
-              <div className="p-10 border-b border-slate-100 flex justify-between items-center bg-slate-900 text-white">
-                 <div className="flex items-center gap-4">
-                    <div className="p-3 bg-indigo-600 text-white rounded-2xl">
-                       {temporalAction.type === 'STATUS' ? <Activity className="w-6 h-6" /> : <UserPlus className="w-6 h-6" />}
+      {/* COLLECTION MODAL */}
+      {paymentModal.isOpen && (
+        <div className="fixed inset-0 z-[400] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-xl animate-in fade-in duration-500">
+           <div className="bg-white w-full max-w-lg rounded-[4rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300">
+              <div className={`p-12 text-white flex justify-between items-center relative overflow-hidden ${paymentModal.type === 'RENT' ? 'bg-indigo-600' : 'bg-emerald-600'}`}>
+                 <div className="absolute top-0 right-0 w-48 h-48 bg-white/10 blur-[60px] rounded-full -mr-24 -mt-24"></div>
+                 <div className="flex items-center gap-6 relative z-10">
+                    <div className="p-5 bg-white/20 rounded-[2rem] backdrop-blur-md border border-white/10 shadow-2xl">
+                       {paymentModal.type === 'RENT' ? <Wallet className="w-9 h-9" /> : <ShieldCheck className="w-9 h-9" />}
                     </div>
                     <div>
-                       <h3 className="text-2xl font-black uppercase tracking-tight">
-                         {temporalAction.type === 'STATUS' ? 'Unit Vacancy Shift' : 'Onboard New Tenant'}
-                       </h3>
-                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Timeline Splitting • Historical Integrity</p>
+                       <h3 className="text-3xl font-black uppercase tracking-tighter leading-none mb-2">Collect {paymentModal.type}</h3>
+                       <p className="text-[10px] font-black text-white/50 uppercase tracking-[0.2em]">Settlement with {paymentModal.record.tenantName}</p>
                     </div>
                  </div>
-                 <button onClick={() => setTemporalAction({...temporalAction, isOpen: false})} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X className="w-6 h-6 text-slate-400" /></button>
+                 <button onClick={() => setPaymentModal({...paymentModal, isOpen: false})} className="p-3 hover:bg-white/10 rounded-full transition-colors relative z-10"><X className="w-8 h-8" /></button>
               </div>
-              
-              <div className="p-10 space-y-8 max-h-[60vh] overflow-y-auto custom-scrollbar">
-                 <div className="space-y-6">
-                    <div className="space-y-1.5">
-                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Effective Event Date</label>
-                       <div 
-                          className="relative group cursor-pointer"
-                          onClick={(e) => { try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(err) {} }}
-                       >
-                          <input 
-                            type="date" 
-                            className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 text-sm font-black text-indigo-900 outline-none focus:ring-4 focus:ring-indigo-500/10 group-hover:bg-slate-100 transition-colors cursor-pointer" 
-                            value={temporalAction.effectiveDate} 
-                            onChange={e => setTemporalAction({...temporalAction, effectiveDate: e.target.value})} 
-                          />
-                          <Calendar className="absolute right-6 top-1/2 -translate-y-1/2 w-5 h-5 text-indigo-400 pointer-events-none" />
+
+              <div className="p-12 space-y-10">
+                 <div className="space-y-3">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><DollarSign className="w-3 h-3" /> Exact Amount Received</label>
+                    <div className="relative">
+                       <DollarSign className="absolute left-8 top-1/2 -translate-y-1/2 w-6 h-6 text-slate-300" />
+                       <input 
+                         type="number" 
+                         className="w-full bg-slate-50 border-2 border-slate-100 rounded-[2.5rem] pl-16 pr-10 py-6 text-3xl font-black outline-none focus:bg-white focus:border-indigo-500 transition-all shadow-inner text-slate-900" 
+                         value={paymentModal.amount}
+                         onChange={e => setPaymentModal({...paymentModal, amount: parseFloat(e.target.value) || 0})}
+                       />
+                    </div>
+                 </div>
+
+                 <div className="grid grid-cols-2 gap-8">
+                    <div className="space-y-3">
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Payment Method</label>
+                       <div className="relative">
+                          <select className="w-full bg-slate-50 border-2 border-slate-100 rounded-[2rem] px-8 py-5 text-[11px] font-black uppercase outline-none focus:bg-white focus:border-indigo-500 transition-all cursor-pointer appearance-none" value={paymentModal.mode} onChange={e => setPaymentModal({...paymentModal, mode: e.target.value})}>
+                             {store.config.paymentModeOptions.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
+                          </select>
+                          <ChevronDown className="absolute right-6 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                        </div>
-                       <p className="text-[9px] text-slate-400 font-bold uppercase ml-1 italic">* Ledger data prior to this date remains preserved as per history.</p>
                     </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 border-t border-slate-50">
-                        {temporalAction.record.propertyType.columns.map((col: any) => {
-                            if (col.type === ColumnType.OCCUPANCY_STATUS) return null;
-                            const isVacancy = temporalAction.type === 'STATUS';
-                            return (
-                            <div key={col.id} className="space-y-1.5">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{col.name} {col.required && !isVacancy && <span className="text-rose-500">*</span>}</label>
-                                <div 
-                                  className={`relative group ${col.type === ColumnType.DATE && !isVacancy ? 'cursor-pointer' : ''}`}
-                                  onClick={(e) => { 
-                                    if (col.type === ColumnType.DATE && !isVacancy) {
-                                      try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(err) {} 
-                                    }
-                                  }}
-                                >
-                                  <input 
-                                      className={`w-full bg-slate-50 border ${temporalAction.formErrors[col.id] ? 'border-red-500' : 'border-slate-200'} rounded-2xl px-5 py-4 text-sm font-bold outline-none ${isVacancy ? 'opacity-50 grayscale cursor-not-allowed' : 'group-hover:bg-slate-100 cursor-pointer'} transition-colors`}
-                                      placeholder={isVacancy ? 'Wipe Field' : `Enter ${col.name.toLowerCase()}...`}
-                                      type={col.type === ColumnType.CURRENCY || col.type === ColumnType.SECURITY_DEPOSIT || col.type === ColumnType.NUMBER ? 'number' : col.type === ColumnType.DATE ? 'date' : 'text'}
-                                      disabled={isVacancy}
-                                      value={isVacancy ? '' : (temporalAction.formValues[col.id] || '')}
-                                      onChange={e => {
-                                          const newVal = e.target.value;
-                                          setTemporalAction(prev => {
-                                              const updatedValues = { ...prev.formValues, [col.id]: newVal };
-                                              let updatedEffDate = prev.effectiveDate;
-                                              if (col.name.toLowerCase().includes('rent date') && prev.type === 'TENANT') {
-                                                  updatedEffDate = newVal;
-                                              }
-                                              return {
-                                                  ...prev,
-                                                  formValues: updatedValues,
-                                                  effectiveDate: updatedEffDate,
-                                                  formErrors: { ...prev.formErrors, [col.id]: '' }
-                                              };
-                                          });
-                                      }}
-                                  />
-                                  {col.type === ColumnType.DATE && !isVacancy && (
-                                    <Calendar className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-400 pointer-events-none opacity-60" />
-                                  )}
-                                </div>
-                                {temporalAction.formErrors[col.id] && <p className="text-[9px] text-rose-500 font-black uppercase mt-1 ml-1 flex items-center gap-1"><AlertCircle className="w-3 h-3" /> {temporalAction.formErrors[col.id]}</p>}
-                            </div>
-                            );
-                        })}
+                    <div className="space-y-3">
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Destination Account</label>
+                       <div className="relative">
+                          <select className="w-full bg-slate-50 border-2 border-slate-100 rounded-[2rem] px-8 py-5 text-[11px] font-black uppercase outline-none focus:bg-white focus:border-indigo-500 transition-all cursor-pointer appearance-none" value={paymentModal.paidTo} onChange={e => setPaymentModal({...paymentModal, paidTo: e.target.value})}>
+                             {store.config.paidToOptions.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
+                          </select>
+                          <ChevronDown className="absolute right-6 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                       </div>
                     </div>
                  </div>
 
-                 {temporalAction.type === 'STATUS' && (
-                    <div className="p-6 bg-amber-50 rounded-3xl border border-amber-100 flex gap-5">
-                       <AlertTriangle className="w-8 h-8 text-amber-500 shrink-0" />
-                       <p className="text-[11px] font-bold text-amber-800 leading-relaxed uppercase">
-                          Action confirmed: This shift will empty all profile data and functionally lock rent collection for this unit until a new resident is onboarded.
-                       </p>
+                 <div className="space-y-3">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Received Date</label>
+                    <div className="relative">
+                       <input 
+                         type="date" 
+                         className="w-full bg-slate-50 border-2 border-slate-100 rounded-[2rem] px-8 py-5 text-sm font-black outline-none focus:bg-white focus:border-indigo-500 transition-all" 
+                         value={paymentModal.date} 
+                         onChange={e => setPaymentModal({...paymentModal, date: e.target.value})} 
+                       />
                     </div>
-                 )}
-              </div>
+                 </div>
 
-              <div className="p-10 bg-slate-50 border-t border-slate-100 flex gap-4">
-                 <button onClick={() => setTemporalAction({...temporalAction, isOpen: false})} className="flex-1 py-4 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase tracking-widest">Discard</button>
-                 <button onClick={confirmTemporalAction} className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-indigo-100 flex items-center justify-center gap-2">
-                    <Save className="w-4 h-4" /> Save Timeline Transition
+                 <button onClick={handleCollect} className={`w-full py-7 text-white rounded-[2.5rem] font-black uppercase text-xs tracking-[0.2em] shadow-2xl transition-all active:scale-95 flex items-center justify-center gap-4 ${paymentModal.type === 'RENT' ? 'bg-indigo-600 shadow-indigo-200 hover:bg-indigo-700' : 'bg-emerald-600 shadow-emerald-200 hover:bg-emerald-700'}`}>
+                    <CheckCircle2 className="w-7 h-7" /> Confirm Settlement
                  </button>
               </div>
            </div>
         </div>
       )}
 
-      <header className="flex flex-col xl:flex-row xl:items-end justify-between gap-10 bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm relative overflow-hidden">
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-2">
-             <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl"><Wallet className="w-4 h-4" /></div>
-             <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400">Portfolio Ledger</span>
-          </div>
-          <h1 className="text-3xl font-black text-slate-950 tracking-tight uppercase leading-none">Collection Engine</h1>
-          <p className="text-slate-500 mt-2 font-medium">Monitoring real-time settlements across all assets.</p>
-        </div>
-        <div className="flex flex-col items-center xl:items-end gap-6">
-          <div className="flex flex-wrap items-center justify-center xl:justify-end gap-4">
-            {isAdmin && (
-               <button onClick={() => setShowSettings(true)} className="p-4 bg-white border border-slate-200 text-slate-400 rounded-2xl hover:text-indigo-600 hover:border-indigo-200 transition-all shadow-sm active:scale-95 flex items-center gap-2"><Settings className="w-5 h-5" /></button>
-            )}
-            <div className="bg-slate-100 p-1.5 rounded-2xl flex items-center shadow-inner overflow-hidden">
-               {['monthly', 'annual', 'custom'].map((type) => (
-                 <button key={type} onClick={() => setFilterType(type as FilterType)} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${filterType === type ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}>{type}</button>
-               ))}
-            </div>
-          </div>
-          <div className="flex flex-col items-center xl:items-end gap-4 w-full">
-            {filterType === 'monthly' && (
-              <div 
-                className="bg-white border border-slate-100 px-4 py-2 rounded-2xl flex items-center gap-2 min-h-[50px] shadow-sm whitespace-nowrap cursor-pointer hover:bg-slate-50 transition-colors group/period"
-                onClick={(e) => { try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(err) {} }}
-              >
-                <button 
-                  onClick={(e) => { e.stopPropagation(); navigateMonth(-1); }} 
-                  className="p-1 hover:text-indigo-600 transition-colors active:scale-90"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <div className="flex items-center gap-2 px-1">
-                  <CalendarDays className="w-4 h-4 text-indigo-500 group-hover/period:scale-110 transition-transform" />
-                  <input 
-                    type="month" 
-                    className="bg-transparent border-none text-[10px] font-black uppercase text-slate-900 outline-none cursor-pointer" 
-                    value={selectedMonth} 
-                    onChange={(e) => setSelectedMonth(e.target.value)} 
-                  />
-                </div>
-                <button 
-                  onClick={(e) => { e.stopPropagation(); navigateMonth(1); }} 
-                  className="p-1 hover:text-indigo-600 transition-colors active:scale-90"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-            {filterType === 'annual' && (
-              <div className="bg-white border border-slate-100 px-4 py-2 rounded-2xl flex items-center gap-2 min-h-[50px] shadow-sm whitespace-nowrap">
-                <button onClick={() => navigateYear(-1)} className="p-1 hover:text-indigo-600 transition-colors active:scale-90"><ChevronLeft className="w-4 h-4" /></button>
-                <div className="flex items-center gap-2 px-1 relative group/year">
-                  <TrendingUp className="w-4 h-4 text-indigo-500" />
-                  <select 
-                    className="bg-transparent border-none text-[10px] font-black uppercase text-slate-900 outline-none cursor-pointer appearance-none pr-6" 
-                    value={selectedYear} 
-                    onChange={(e) => setSelectedYear(e.target.value)} 
-                  >
-                    {availableYears.map(year => (
-                      <option key={year} value={year.toString()}>{year}</option>
-                    ))}
-                  </select>
-                  <ChevronDown className="absolute right-0 w-3 h-3 text-slate-400 pointer-events-none" />
-                </div>
-                <button onClick={() => navigateYear(1)} className="p-1 hover:text-indigo-600 transition-colors active:scale-90"><ChevronRight className="w-4 h-4" /></button>
-              </div>
-            )}
-            {filterType === 'custom' && (
-              <div className="flex flex-col sm:flex-row items-center gap-3">
-                <div 
-                  className="bg-white border border-slate-100 px-4 py-2 rounded-2xl flex items-center gap-3 min-h-[50px] shadow-sm whitespace-nowrap cursor-pointer hover:bg-slate-50 transition-colors group/start"
-                  onClick={(e) => { try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(err) {} }}
-                >
-                  <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">From</span>
-                  <input type="date" className="bg-transparent border-none text-[10px] font-black uppercase text-slate-900 outline-none cursor-pointer" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-                </div>
-                <div 
-                  className="bg-white border border-slate-100 px-4 py-2 rounded-2xl flex items-center gap-3 min-h-[50px] shadow-sm whitespace-nowrap cursor-pointer hover:bg-slate-50 transition-colors group/end"
-                  onClick={(e) => { try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(err) {} }}
-                >
-                  <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">To</span>
-                  <input type="date" className="bg-transparent border-none text-[10px] font-black uppercase text-slate-900 outline-none cursor-pointer" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </header>
-
-      {/* RENT SUMMARY SECTION */}
-      {(filterType === 'monthly' || filterType === 'custom') && (
-        <div className="space-y-8">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl shadow-sm"><Target className="w-6 h-6" /></div>
-                  <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Total Due</span>
-                </div>
-                <h3 className="text-3xl font-black text-slate-950">${summaryStats.totalDue.toLocaleString()}</h3>
-                <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">Portfolio Target</p>
-              </div>
-              <div className="mt-6 pt-4 border-t border-slate-50 flex items-center justify-between">
-                <span className="text-[10px] font-black text-slate-400 uppercase">Efficiency</span>
-                <span className="text-[10px] font-black text-indigo-600">{summaryStats.collectionRate.toFixed(1)}%</span>
-              </div>
-            </div>
-
-            <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl shadow-sm"><CheckCircle2 className="w-6 h-6" /></div>
-                  <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Settled</span>
-                </div>
-                <h3 className="text-3xl font-black text-slate-950 text-emerald-600">${summaryStats.totalCollected.toLocaleString()}</h3>
-                <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">{summaryStats.countPaid} Units Resolved</p>
-              </div>
-              <div className="mt-6 w-full h-1.5 bg-slate-50 rounded-full overflow-hidden">
-                <div className="h-full bg-emerald-500 transition-all duration-1000" style={{ width: `${summaryStats.collectionRate}%` }}></div>
-              </div>
-            </div>
-
-            <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <div className="p-3 bg-amber-50 text-amber-600 rounded-2xl shadow-sm"><Clock className="w-6 h-6" /></div>
-                  <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Pending</span>
-                </div>
-                <h3 className="text-3xl font-black text-slate-950">${summaryStats.totalPending.toLocaleString()}</h3>
-                <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">{summaryStats.countPending} Units Awaiting</p>
-              </div>
-              <div className="mt-6 pt-4 border-t border-slate-50 flex items-center justify-between">
-                <span className="text-[10px] font-black text-slate-400 uppercase">Awaiting Settlement</span>
-                <ArrowUpRight className="w-4 h-4 text-amber-500" />
-              </div>
-            </div>
-
-            <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col justify-between ring-2 ring-rose-500/5">
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <div className="p-3 bg-rose-50 text-rose-600 rounded-2xl shadow-sm"><AlertTriangle className="w-6 h-6" /></div>
-                  <span className="text-[10px] font-black text-rose-500 uppercase tracking-widest">Overdue</span>
-                </div>
-                <h3 className="text-3xl font-black text-rose-600 animate-pulse">${summaryStats.totalOverdue.toLocaleString()}</h3>
-                <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">{summaryStats.countOverdue} Units Critical</p>
-              </div>
-              <div className="mt-6 p-2 bg-rose-50/50 rounded-xl border border-rose-100">
-                <p className="text-[9px] font-black text-rose-600 uppercase text-center tracking-widest">Risk Exposure Identified</p>
-              </div>
-            </div>
-          </div>
-
-          {(summaryStats.totalPending + summaryStats.totalOverdue > 0) && (
-            <div className="bg-white border border-amber-100 rounded-[2.5rem] p-8 shadow-sm animate-in slide-in-from-top-4 duration-500">
-              <div className="flex items-center gap-3 mb-8">
-                <div className="p-3 bg-amber-50 text-amber-600 rounded-2xl"><Layers className="w-5 h-5" /></div>
-                <div>
-                  <h2 className="text-lg font-black text-slate-900 uppercase tracking-tight">Pending Revenue Breakdown</h2>
-                  <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest mt-0.5">Asset-specific uncollected inflows</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-                {Object.values(summaryStats.pendingByProperty).map((item: any, i: number) => (
-                  <div key={i} className="bg-slate-50 border border-transparent hover:border-amber-200 p-6 rounded-3xl transition-all group flex flex-col justify-between min-h-[140px]">
-                    <div className="flex items-start justify-between">
-                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-relaxed line-clamp-2 max-w-[80%]">{item.name}</p>
-                      <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0"></div>
+      {/* HISTORY DRAWER */}
+      {historyModal.isOpen && (
+        <div className="fixed inset-0 z-[500] flex items-center justify-end p-6 bg-slate-950/80 backdrop-blur-xl animate-in fade-in duration-500">
+           <div className="bg-white w-full max-w-2xl h-full max-h-[96vh] rounded-[4rem] shadow-2xl overflow-hidden animate-in slide-in-from-right-12 duration-700 flex flex-col border border-white/20">
+              <div className="p-14 bg-slate-900 text-white flex justify-between items-center shrink-0 relative overflow-hidden">
+                 <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 blur-[80px] rounded-full -mr-32 -mt-32"></div>
+                 <div className="flex items-center gap-8 relative z-10">
+                    <div className="p-5 bg-white/10 rounded-[2.5rem] backdrop-blur-md border border-white/5 shadow-2xl">
+                       <History className="w-10 h-10 text-indigo-400" />
                     </div>
-                    <div className="mt-4">
-                      <span className="text-2xl font-black text-slate-950 tracking-tighter">${item.amount.toLocaleString()}</span>
-                      <p className="text-[8px] font-black text-amber-600 uppercase tracking-widest mt-1">Outstanding</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-xl overflow-hidden">
-        <div className="p-8 border-b border-slate-50 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="flex items-center gap-4 w-full md:w-auto">
-            <div className="relative w-full md:w-96">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
-              <input className="w-full pl-11 pr-4 py-4 bg-gray-50 border border-transparent rounded-2xl text-sm outline-none font-bold placeholder:text-slate-400" placeholder="Filter ledger..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-            </div>
-            <select className="bg-slate-50 border border-slate-100 rounded-2xl px-5 py-4 text-xs font-black uppercase outline-none cursor-pointer hidden md:block" value={selectedPropertyId} onChange={e => setSelectedPropertyId(e.target.value)}>
-               <option value="all">All Properties</option>
-               {visibleProperties.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-          </div>
-        </div>
-
-        <div className="overflow-x-auto max-h-[600px] overflow-y-auto custom-scrollbar">
-          <table className="w-full text-left">
-            <thead className="sticky top-0 z-10 bg-white shadow-sm">
-              <tr className="bg-slate-50 border-b border-slate-100">
-                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest min-w-[200px]">Asset / Portfolio</th>
-                {ledgerColumns.map(col => (
-                  <th key={col.id} className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">{col.name}</th>
-                ))}
-                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {recordsWithRent.map((record: any) => (
-                <tr key={record.id} className={`hover:bg-indigo-50/10 transition-colors group ${record.isVacant ? 'opacity-60 bg-slate-50/30' : ''}`}>
-                  <td className="px-8 py-6">
-                    <div className="flex items-center gap-4">
-                       <div className="bg-slate-50 p-2.5 rounded-xl text-slate-400 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
-                          <Building2 className="w-5 h-5" />
-                       </div>
-                       <div>
-                          <p className="font-black text-slate-900 uppercase tracking-tight group-hover:text-indigo-600 transition-colors">{record.property?.name}</p>
-                          <div className="flex items-center gap-3 mt-1">
-                             <button onClick={() => setHistoryRecord(record)} className="text-[10px] font-black uppercase text-indigo-400 hover:text-indigo-600 flex items-center gap-1.5 active:scale-95 transition-colors"><History className="w-3.5 h-3.5" /> Timeline</button>
-                          </div>
-                       </div>
-                    </div>
-                  </td>
-                  {ledgerColumns.map(col => (
-                    <td key={col.id} className="px-8 py-6 text-center align-middle">
-                      {renderCellContent(record, col)}
-                    </td>
-                  ))}
-                  <td className="px-8 py-6 text-right">
-                    <div className="flex justify-end gap-2 items-center">
-                      <div className="flex bg-white shadow-sm p-1 rounded-xl border border-slate-100 mr-2">
-                         <button onClick={() => handleTemporalAction(record, 'STATUS')} className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg transition-all" title="Mark Vacant"><Activity className="w-4 h-4" /></button>
-                         <button onClick={() => handleTemporalAction(record, 'TENANT')} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all" title="Onboard Tenant"><UserPlus className="w-4 h-4" /></button>
-                      </div>
-                      
-                      <div className="flex gap-2">
-                          {filterType === 'monthly' && (
-                            <button 
-                              disabled={record.isVacant}
-                              onClick={() => handleAction(record, 'RENT')} 
-                              className={`px-4 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all active:scale-95 ${record.isRentPaid ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : record.isVacant ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-slate-950 text-white shadow-xl hover:bg-indigo-700'}`}
-                            >
-                              {record.isRentPaid ? 'Rent Settled' : record.isVacant ? 'LOCKED' : 'Collect Rent'}
-                            </button>
-                          )}
-                          
-                          <button 
-                            disabled={record.isVacant}
-                            onClick={() => handleAction(record, 'DEPOSIT')} 
-                            className={`px-4 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all active:scale-95 ${
-                                record.isDepositPaid 
-                                ? (record.isDepositRefunded ? 'bg-slate-100 text-slate-400 border-slate-200 grayscale cursor-not-allowed' : 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100') 
-                                : record.isVacant ? 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-50' : 'bg-white text-indigo-600 border border-indigo-200 shadow-sm hover:bg-indigo-50'
-                            }`}
-                          >
-                            {record.isDepositPaid ? (record.isDepositRefunded ? 'Refunded' : 'Held / Refund?') : record.isVacant ? 'N/A' : 'Deposit Owed'}
-                          </button>
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {collectingRecord && (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md animate-in fade-in duration-300">
-           <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
-              <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
-                 <div>
-                    <h3 className="text-xl font-black text-slate-900 uppercase leading-none">Settlement Portal</h3>
-                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1.5">{collectionData.type} Transaction Entry</p>
-                 </div>
-                 <button onClick={() => setCollectingRecord(null)} className="p-2 hover:bg-white rounded-full transition-colors"><X className="w-6 h-6 text-slate-400" /></button>
-              </div>
-              <div className="p-8 space-y-8">
-                 <div className={`${collectionData.type === 'DEPOSIT' ? 'bg-amber-50 border-amber-100' : 'bg-indigo-50 border-indigo-100'} p-8 rounded-[2.5rem] border shadow-inner space-y-4`}>
-                    <div className="text-center">
-                       <p className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-2">Adjust Settlement Amount</p>
-                       <div className="relative inline-block w-full">
-                          <DollarSign className="absolute left-6 top-1/2 -translate-y-1/2 w-8 h-8 text-slate-400" />
-                          <input 
-                            type="number"
-                            className="w-full bg-transparent text-center text-5xl font-black tracking-tighter text-slate-950 outline-none pr-12 pl-16 py-2"
-                            value={collectionData.amount}
-                            onChange={(e) => setCollectionData({...collectionData, amount: parseFloat(e.target.value) || 0})}
-                          />
-                       </div>
+                    <div>
+                       <h3 className="text-4xl font-black uppercase tracking-tighter">Transaction Log</h3>
+                       <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] mt-2">Audit History for {historyModal.record?.tenantName}</p>
                     </div>
                  </div>
-                 
-                 <div className="space-y-6">
-                    <div className="space-y-1.5">
-                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Receipt Date</label>
-                       <div 
-                         className="relative group cursor-pointer"
-                         onClick={(e) => { try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(err) {} }}
-                       >
-                         <input 
-                           type="date"
-                           className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-5 py-4 text-sm font-bold outline-none cursor-pointer group-hover:bg-slate-100 transition-colors"
-                           value={collectionData.paidAt}
-                           onChange={e => setCollectionData({...collectionData, paidAt: e.target.value})}
-                         />
-                         <Calendar className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-400 pointer-events-none opacity-60" />
+                 <button onClick={() => setHistoryModal({ isOpen: false, record: null })} className="p-4 hover:bg-white/10 rounded-full transition-colors relative z-10 text-slate-400"><X className="w-10 h-10" /></button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto custom-scrollbar p-14 space-y-12 bg-slate-50/30">
+                 {unitPayments.length > 0 ? (
+                    <div className="relative">
+                       <div className="absolute left-[34px] top-0 bottom-0 w-1.5 bg-slate-100 rounded-full"></div>
+                       <div className="space-y-10">
+                          {unitPayments.map((payment: any) => (
+                             <div key={payment.id} className="relative pl-24 group">
+                                <div className={`absolute left-[24px] top-1 w-6 h-6 rounded-full border-[6px] border-white shadow-xl z-10 transition-transform group-hover:scale-125 ${payment.type === 'RENT' ? 'bg-indigo-600' : 'bg-emerald-600'}`}></div>
+                                <div className="p-8 bg-white border border-slate-100 rounded-[3rem] group-hover:shadow-2xl group-hover:border-indigo-100 transition-all duration-500 hover:translate-x-2">
+                                   <div className="flex items-center justify-between mb-6">
+                                      <div className="flex items-center gap-4">
+                                         <span className={`text-[10px] font-black uppercase tracking-widest px-4 py-1.5 rounded-xl ${payment.type === 'RENT' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-emerald-600 text-white shadow-lg shadow-emerald-100'}`}>
+                                            {payment.type}
+                                         </span>
+                                         {payment.month !== 'ONE_TIME' && (
+                                            <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                                               <Calendar className="w-3 h-3" /> {payment.month}
+                                            </div>
+                                         )}
+                                      </div>
+                                      <p className="text-2xl font-black text-slate-900 tracking-tighter">${payment.amount.toLocaleString()}</p>
+                                   </div>
+
+                                   <div className="grid grid-cols-2 gap-8 border-t border-slate-50 pt-6 mt-6">
+                                      <div className="space-y-1">
+                                         <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest">Received On</p>
+                                         <p className="text-xs font-black text-slate-700">{payment.paidAt ? new Date(payment.paidAt).toLocaleDateString(undefined, { dateStyle: 'long' }) : 'Pending'}</p>
+                                      </div>
+                                      <div className="space-y-1">
+                                         <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest">Payment Loop</p>
+                                         <p className="text-xs font-black text-slate-700">{payment.paymentMode || 'Direct Cash'}</p>
+                                      </div>
+                                      <div className="space-y-1">
+                                         <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest">Target Account</p>
+                                         <p className="text-xs font-black text-slate-700">{payment.paidTo || 'Default Ledger'}</p>
+                                      </div>
+                                      <div className="space-y-1">
+                                         <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest">Audit Status</p>
+                                         <div className="flex items-center gap-2 text-emerald-600 font-black text-[10px] uppercase">
+                                            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div> Verified
+                                         </div>
+                                      </div>
+                                   </div>
+                                </div>
+                             </div>
+                          ))}
                        </div>
                     </div>
-
-                    <div className="space-y-1.5">
-                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Receive Into Account</label>
-                       <select className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-5 py-4 text-sm font-bold outline-none cursor-pointer" value={collectionData.paidTo} onChange={e => setCollectionData({...collectionData, paidTo: e.target.value})}>
-                          {store.config.paidToOptions.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
-                       </select>
+                 ) : (
+                    <div className="flex flex-col items-center justify-center py-40 text-center animate-in zoom-in-95">
+                       <div className="w-32 h-32 bg-white rounded-[3rem] shadow-inner flex items-center justify-center mb-10">
+                          <History className="w-12 h-12 text-slate-200" />
+                       </div>
+                       <h3 className="text-3xl font-black uppercase tracking-tighter text-slate-900 mb-3">Void Ledger</h3>
+                       <p className="text-sm font-medium text-slate-400 max-w-[280px] mx-auto leading-relaxed uppercase tracking-tighter">
+                         No financial transactions recorded for this asset in the current history cluster.
+                       </p>
                     </div>
-
-                    <div className="space-y-1.5">
-                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Method of Transfer</label>
-                       <select className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-5 py-4 text-sm font-bold outline-none cursor-pointer" value={collectionData.paymentMode} onChange={e => setCollectionData({...collectionData, paymentMode: e.target.value})}>
-                          {store.config.paymentModeOptions.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
-                       </select>
-                    </div>
-                 </div>
+                 )}
               </div>
-              <div className="p-8 bg-slate-50 border-t border-slate-100 flex gap-4">
-                 <button onClick={() => setCollectingRecord(null)} className="flex-1 py-4 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-gray-100 transition-all">Cancel</button>
-                 <button onClick={confirmCollection} className={`flex-1 py-4 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl transition-all active:scale-95 ${collectionData.type === 'DEPOSIT' ? 'bg-amber-500 shadow-amber-200' : 'bg-indigo-600 shadow-indigo-200'}`}>Confirm Receipt</button>
+
+              <div className="p-14 bg-white border-t border-slate-100 flex items-center justify-between shrink-0">
+                 <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center">
+                       <Info className="w-6 h-6 text-slate-300" />
+                    </div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-relaxed">End of verifiable <br /> transaction stream</p>
+                 </div>
+                 <button onClick={() => setHistoryModal({ isOpen: false, record: null })} className="px-12 py-5 bg-slate-900 text-white rounded-3xl font-black uppercase text-[10px] tracking-[0.2em] shadow-2xl active:scale-95 transition-all hover:bg-slate-800">Close Timeline</button>
               </div>
            </div>
         </div>
       )}
 
-      {historyRecord && (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md animate-in fade-in duration-300">
-           <div className="bg-white w-full max-w-4xl rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
-              <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
-                 <div>
-                    <h3 className="text-xl font-black text-slate-900 uppercase">Unit Timeline Analysis</h3>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Historical State Chain</p>
+      {/* TEMPORAL ACTIONS (MOVE-IN/OUT) */}
+      {temporalAction.isOpen && temporalAction.record && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-6 bg-slate-950/90 backdrop-blur-xl animate-in fade-in duration-500">
+           <div className="bg-white w-full max-w-xl rounded-[4rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300">
+              <div className={`p-14 text-white flex justify-between items-center relative overflow-hidden ${temporalAction.type === 'STATUS' ? 'bg-rose-600' : 'bg-emerald-600'}`}>
+                 <div className="absolute top-0 right-0 w-48 h-48 bg-white/10 blur-[60px] rounded-full -mr-24 -mt-24"></div>
+                 <div className="flex items-center gap-8 relative z-10">
+                    <div className="p-5 bg-white/20 rounded-[2.5rem] backdrop-blur-md border border-white/10 shadow-2xl">
+                       {temporalAction.type === 'STATUS' ? <Activity className="w-10 h-10" /> : <UserPlus className="w-10 h-10" />}
+                    </div>
+                    <div>
+                       <h3 className="text-3xl font-black uppercase tracking-tighter leading-none mb-2">{temporalAction.type === 'STATUS' ? 'Close Residency' : 'Residency Update'}</h3>
+                       <p className="text-[10px] font-black text-white/50 uppercase tracking-[0.2em]">{temporalAction.record.property?.name}</p>
+                    </div>
                  </div>
-                 <button onClick={() => setHistoryRecord(null)} className="p-2 hover:bg-white rounded-full transition-colors"><X className="w-6 h-6 text-slate-400" /></button>
+                 <button onClick={() => setTemporalAction({...temporalAction, isOpen: false})} className="p-3 hover:bg-white/10 rounded-full transition-colors relative z-10"><X className="w-10 h-10" /></button>
               </div>
-              <div className="p-8 grid grid-cols-1 lg:grid-cols-2 gap-10 max-h-[70vh] overflow-y-auto custom-scrollbar">
-                 <section className="space-y-6">
-                    <div className="flex items-center gap-2 mb-4">
-                       <History className="w-4 h-4 text-indigo-500" />
-                       <h4 className="text-xs font-black uppercase tracking-widest text-slate-900">Assignment History</h4>
-                    </div>
-                    <div className="space-y-4">
-                       {historyRecord.assignmentHistory.map((h: UnitHistory) => {
-                          const tenantCol = historyRecord.propertyType.columns.find((c: any) => c.name.toLowerCase().includes('name'))?.id;
-                          const statusCol = historyRecord.propertyType.columns.find((c: any) => c.type === ColumnType.OCCUPANCY_STATUS)?.id;
-                          const tName = h.values[tenantCol || ''] || 'No Resident';
-                          const status = h.values[statusCol || ''] || 'Active';
-                          const isCurrent = h.effectiveTo === null;
-                          const isVacant = status.toLowerCase().includes('vacant');
-                          return (
-                             <div key={h.id} className={`p-5 rounded-[2rem] border relative ${isCurrent ? 'bg-indigo-50/50 border-indigo-100 ring-2 ring-indigo-500/10' : 'bg-slate-50 border-slate-100'}`}>
-                                {isCurrent && <span className="absolute top-4 right-4 bg-indigo-600 text-white text-[8px] font-black uppercase px-2 py-0.5 rounded shadow-sm">Current</span>}
-                                <p className="text-xs font-black text-slate-900 uppercase mb-1">{isVacant ? 'VACANT PERIOD' : tName}</p>
-                                <p className="text-[9px] font-black text-slate-400 uppercase">
-                                   {new Date(h.effectiveFrom).toLocaleDateString()} - {h.effectiveTo ? new Date(h.effectiveTo).toLocaleDateString() : 'Present'}
-                                </p>
-                             </div>
-                          );
-                       })}
-                    </div>
-                 </section>
-                 <section className="space-y-6">
-                    <div className="flex items-center gap-2 mb-4">
-                       <CreditCard className="w-4 h-4 text-emerald-500" />
-                       <h4 className="text-xs font-black uppercase tracking-widest text-slate-900">Payment Ledger</h4>
-                    </div>
-                    <div className="space-y-3">
-                       {historyRecord.paymentHistory.length > 0 ? historyRecord.paymentHistory.sort((a: any, b: any) => b.month.localeCompare(a.month)).map((pay: Payment) => (
-                          <div key={pay.id} className="flex items-center justify-between p-4 bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-all">
-                             <div><p className="text-xs font-black text-slate-900 uppercase tracking-tight">{pay.type} - {pay.month}</p></div>
-                             <div className="text-right">
-                                <p className={`text-sm font-black text-indigo-600`}>${pay.amount.toLocaleString()}</p>
-                                <p className="text-[9px] font-bold text-slate-400 uppercase mt-0.5">{pay.paidAt ? new Date(pay.paidAt).toLocaleDateString() : 'N/A'}</p>
-                             </div>
-                          </div>
-                       )) : <div className="py-20 text-center opacity-40 text-[10px] font-black uppercase tracking-widest text-slate-400">No payment logs detected</div>}
-                    </div>
-                 </section>
+              
+              <div className="p-14 space-y-10">
+                 <div className="p-10 bg-slate-50 border-2 border-slate-100 rounded-[3rem] space-y-4 shadow-inner">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 flex items-center gap-2">
+                       <Calendar className="w-4 h-4" /> Timeline Effective Date
+                    </label>
+                    <input type="date" className="w-full bg-white border-2 border-slate-200 rounded-[2rem] px-8 py-6 text-sm font-black outline-none focus:ring-8 focus:ring-indigo-500/5 focus:border-indigo-500 transition-all shadow-sm" value={temporalAction.effectiveDate} onChange={e => setTemporalAction({...temporalAction, effectiveDate: e.target.value})} />
+                 </div>
+
+                 {temporalAction.type === 'STATUS' ? (
+                   <div className="p-8 bg-rose-50 text-rose-700 rounded-[3rem] flex items-start gap-6 border-2 border-rose-100 animate-in slide-in-from-bottom-4">
+                      <AlertCircle className="w-8 h-8 shrink-0 mt-1" />
+                      <div>
+                         <h4 className="font-black uppercase text-xs tracking-widest mb-1">Move-Out Warning</h4>
+                         <p className="text-xs font-bold leading-relaxed opacity-80 uppercase tracking-tight">Terminating this residency will archive all current resident data and reset the unit to VACANT status in the core timeline.</p>
+                      </div>
+                   </div>
+                 ) : (
+                   <div className="p-8 bg-emerald-50 text-emerald-700 rounded-[3rem] flex items-start gap-6 border-2 border-emerald-100 animate-in slide-in-from-bottom-4">
+                      <CheckCircle2 className="w-8 h-8 shrink-0 mt-1" />
+                      <div>
+                         <h4 className="font-black uppercase text-xs tracking-widest mb-1">Timeline Branch</h4>
+                         <p className="text-xs font-bold leading-relaxed opacity-80 uppercase tracking-tight">This operation will fork the unit history, creating a new temporal entry for the updated resident profile.</p>
+                      </div>
+                   </div>
+                 )}
+
+                 <div className="flex gap-6">
+                    <button onClick={() => setTemporalAction({...temporalAction, isOpen: false})} className="flex-1 py-6 bg-slate-100 text-slate-500 rounded-[2rem] font-black uppercase text-[11px] tracking-widest hover:bg-slate-200 transition-all">Cancel</button>
+                    <button onClick={confirmTemporalAction} className={`flex-1 py-6 text-white rounded-[2rem] font-black uppercase text-[11px] tracking-widest shadow-2xl transition-all active:scale-95 ${temporalAction.type === 'STATUS' ? 'bg-rose-600 shadow-rose-200 hover:bg-rose-700' : 'bg-emerald-600 shadow-emerald-200 hover:bg-emerald-700'}`}>Confirm State Change</button>
+                 </div>
               </div>
            </div>
         </div>

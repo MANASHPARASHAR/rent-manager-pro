@@ -1,3 +1,4 @@
+
 import React, { useMemo, useState } from 'react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
@@ -401,7 +402,7 @@ const Reports: React.FC = () => {
                   <div className="p-3 bg-white/10 text-indigo-400 rounded-2xl"><Landmark className="w-6 h-6" /></div>
                   <div>
                      <h2 className="text-xl font-black uppercase tracking-tight">Channel Audit</h2>
-                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-0.5">Payment mode efficiency</p>
+                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Payment mode efficiency</p>
                   </div>
                </div>
             </div>
@@ -416,6 +417,7 @@ const Reports: React.FC = () => {
                         innerRadius="65%" outerRadius="90%" 
                         paddingAngle={6} 
                         dataKey="value"
+                        label={{ fill: '#FFFFFF', fontSize: 10, fontWeight: 900 }}
                       >
                         {analyticsData.modeData.map((_, index) => (
                           <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} stroke="none" />

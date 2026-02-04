@@ -22,7 +22,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
 import { useRentalStore } from '../store/useRentalStore';
-import { PaymentStatus, UserRole, Payment, ColumnType } from '../types';
+import { PaymentStatus, UserRole, Payment, ColumnType, UnitHistory } from '../types';
 
 const Dashboard: React.FC = () => {
   const store = useRentalStore();
@@ -46,8 +46,10 @@ const Dashboard: React.FC = () => {
   const stats = useMemo(() => {
     const records = store.records.filter((r: any) => visiblePropertyIds.includes(r.propertyId));
     const recordIds = records.map((r: any) => r.id);
-    const values = store.recordValues.filter((v: any) => recordIds.includes(v.recordId));
     const types = store.propertyTypes;
+
+    const [year, month] = currentMonthKey.split('-').map(Number);
+    const contextDate = new Date(year, month, 0, 23, 59, 59);
 
     const rentColIds = types.flatMap(pt => pt.columns.filter(c => c.isRentCalculatable).map(c => c.id));
     const occupancyColIds = types.flatMap(pt => pt.columns.filter(c => c.type === ColumnType.OCCUPANCY_STATUS || (c.type === ColumnType.DROPDOWN && (c.name.toLowerCase().includes('status') || c.name.toLowerCase().includes('occupancy')))).map(c => c.id));
@@ -58,10 +60,19 @@ const Dashboard: React.FC = () => {
     const overdueUnitsList: any[] = [];
 
     records.forEach(record => {
-      const recordValues = values.filter(v => v.recordId === record.id);
-      const statusValue = recordValues.find(v => occupancyColIds.includes(v.columnId))?.value.toLowerCase() || 'active';
+      // BUG-A FIX: Lookup historical state for the target month
+      const historicalState = store.unitHistory.find((h: UnitHistory) => {
+        if (h.recordId !== record.id) return false;
+        const from = new Date(h.effectiveFrom);
+        const to = h.effectiveTo ? new Date(h.effectiveTo) : new Date(8640000000000000);
+        return contextDate >= from && contextDate <= to;
+      });
+
+      const activeValues = historicalState?.values || store.recordValues.filter(v => v.recordId === record.id).reduce((acc: any, v) => ({...acc, [v.columnId]: v.value}), {});
+      
+      const statusValue = Object.entries(activeValues).find(([cid]) => occupancyColIds.includes(cid))?.[1]?.toString().toLowerCase() || 'active';
       const isActive = statusValue === 'active' || statusValue === 'occupied';
-      const rentValue = recordValues.find(v => rentColIds.includes(v.columnId))?.value || '0';
+      const rentValue = Object.entries(activeValues).find(([cid]) => rentColIds.includes(cid))?.[1]?.toString() || '0';
       const amount = parseFloat(rentValue);
 
       if (isActive) {
@@ -70,7 +81,12 @@ const Dashboard: React.FC = () => {
         const isPaid = store.payments.some((p: Payment) => p.recordId === record.id && p.month === currentMonthKey && p.type === 'RENT' && p.status === PaymentStatus.PAID);
         if (!isPaid) {
           const property = store.properties.find((p: any) => p.id === record.propertyId);
-          overdueUnitsList.push({ id: record.id, amount, propertyName: property?.name, tenant: recordValues.find(v => v.columnId.includes('c2'))?.value || 'Unknown' });
+          const tenantName = Object.entries(activeValues).find(([cid]) => {
+            const col = types.find(t => t.id === property?.propertyTypeId)?.columns.find(c => c.id === cid);
+            return col?.name.toLowerCase().includes('name');
+          })?.[1]?.toString() || 'Unknown';
+          
+          overdueUnitsList.push({ id: record.id, amount, propertyName: property?.name, tenant: tenantName });
         }
       } else if (statusValue.includes('vacant')) {
         vacantUnits++;

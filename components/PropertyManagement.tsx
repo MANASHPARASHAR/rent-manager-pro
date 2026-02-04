@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { 
@@ -8,18 +9,15 @@ import {
   Search, 
   Filter,
   Trash2,
-  ExternalLink,
-  ShieldAlert,
   Eye,
   EyeOff,
   X,
   AlertTriangle,
-  ShieldCheck,
-  Layout,
   Navigation,
   Settings,
   PlusCircle,
-  Map
+  Map,
+  AlertCircle
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { UserRole } from '../types';
@@ -31,6 +29,11 @@ const PropertyManagement: React.FC = () => {
   const [isAdding, setIsAdding] = useState(false);
   const [showCityConfig, setShowCityConfig] = useState(false);
   const [newCityInput, setNewCityInput] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  // Deletion confirmation state
+  const [confirmDeleteInput, setConfirmDeleteInput] = useState('');
+  const [expectedDeleteName, setExpectedDeleteName] = useState('');
   
   const [confirmConfig, setConfirmConfig] = useState<{
     isOpen: boolean;
@@ -48,9 +51,9 @@ const PropertyManagement: React.FC = () => {
     actionLabel: 'Confirm'
   });
 
-  const isAdmin = store.user.role === UserRole.ADMIN;
-  const isManager = store.user.role === UserRole.MANAGER;
-  const isViewer = store.user.role === UserRole.VIEWER;
+  const isAdmin = store.user?.role === UserRole.ADMIN;
+  const isManager = store.user?.role === UserRole.MANAGER;
+  const isViewer = store.user?.role === UserRole.VIEWER;
 
   const [newProp, setNewProp] = useState({
     name: '',
@@ -61,7 +64,19 @@ const PropertyManagement: React.FC = () => {
 
   const handleAddProperty = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newProp.name || !newProp.typeId) return;
+    setError(null);
+
+    // Validate that all fields are filled
+    if (!newProp.name.trim() || !newProp.address.trim() || !newProp.city.trim() || !newProp.typeId.trim()) {
+      setError("Please fill in all required fields: Name, Address, City, and Schema.");
+      return;
+    }
+
+    // BUG-B FIX: Property Name validation
+    if (!/^[A-Za-z\s]+$/.test(newProp.name)) {
+      setError("Property name must contain only alphabets and spaces");
+      return;
+    }
 
     setConfirmConfig({
       isOpen: true,
@@ -86,11 +101,13 @@ const PropertyManagement: React.FC = () => {
   };
 
   const handleDeleteProperty = (id: string, name: string) => {
+    setExpectedDeleteName(name);
+    setConfirmDeleteInput('');
     setConfirmConfig({
       isOpen: true,
       isDanger: true,
       title: "Delete Property",
-      message: `CRITICAL: Permanent deletion of "${name}". This action will remove ALL associated unit data and historical ledgers across the entire system. Are you absolutely sure?`,
+      message: `CRITICAL: Permanent deletion of "${name}". This action will remove ALL associated unit data and historical ledgers across the entire system.`,
       actionLabel: "Permanently Delete",
       icon: <AlertTriangle className="w-10 h-10" />,
       onConfirm: () => {
@@ -116,8 +133,15 @@ const PropertyManagement: React.FC = () => {
   };
 
   const addCity = () => {
-    if (!newCityInput.trim()) return;
-    if (store.config.cities.includes(newCityInput.trim())) return;
+    setError(null);
+    if (!newCityInput.trim()) {
+      setError("Please enter a city name");
+      return;
+    }
+    if (store.config.cities.includes(newCityInput.trim())) {
+      setError("This city already exists in the configuration");
+      return;
+    }
     store.updateConfig({ cities: [...store.config.cities, newCityInput.trim()] });
     setNewCityInput('');
   };
@@ -134,17 +158,32 @@ const PropertyManagement: React.FC = () => {
     return matchesSearch && matchesCity && matchesRole;
   });
 
+  const isDeleteButtonDisabled = confirmConfig.isDanger && confirmDeleteInput !== expectedDeleteName;
+
   return (
     <div className="space-y-8 max-w-6xl mx-auto pb-20">
       {confirmConfig.isOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md animate-in fade-in duration-300">
           <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl border border-white/20 overflow-hidden animate-in zoom-in-95 duration-200">
             <div className={`p-10 text-center ${confirmConfig.isDanger ? 'bg-red-50/50' : 'bg-indigo-50/50'}`}>
-              <div className={`w-20 h-20 rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-xl ${confirmConfig.isDanger ? 'bg-red-500 text-white' : 'bg-indigo-600 text-white'}`}>
+              <div className={`w-20 h-20 rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-xl ${confirmConfig.isDanger ? 'bg-red-500 text-white shadow-red-500/20' : 'bg-indigo-600 text-white shadow-indigo-500/20'}`}>
                 {confirmConfig.icon}
               </div>
               <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tight mb-4">{confirmConfig.title}</h3>
-              <p className="text-slate-500 font-medium leading-relaxed">{confirmConfig.message}</p>
+              <p className="text-slate-500 font-medium leading-relaxed mb-6">{confirmConfig.message}</p>
+              
+              {confirmConfig.isDanger && (
+                <div className="mt-4 text-left space-y-2 animate-in slide-in-from-bottom-2 duration-300">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Type property name to confirm</label>
+                  <input 
+                    autoFocus
+                    className="w-full bg-white border-2 border-red-100 rounded-2xl px-5 py-4 text-sm font-black text-slate-900 outline-none focus:border-red-500 transition-all placeholder:font-normal placeholder:text-slate-300"
+                    placeholder={expectedDeleteName}
+                    value={confirmDeleteInput}
+                    onChange={e => setConfirmDeleteInput(e.target.value)}
+                  />
+                </div>
+              )}
             </div>
             <div className="p-8 flex gap-4 bg-white">
               <button 
@@ -154,8 +193,9 @@ const PropertyManagement: React.FC = () => {
                 Cancel
               </button>
               <button 
+                disabled={isDeleteButtonDisabled}
                 onClick={confirmConfig.onConfirm}
-                className={`flex-1 py-4 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl transition-all active:scale-95 ${confirmConfig.isDanger ? 'bg-red-500 shadow-red-200 hover:bg-red-600' : 'bg-indigo-600 shadow-indigo-200 hover:bg-indigo-700'}`}
+                className={`flex-1 py-4 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed ${confirmConfig.isDanger ? 'bg-red-500 shadow-red-200 hover:bg-red-600' : 'bg-indigo-600 shadow-indigo-200 hover:bg-indigo-700'}`}
               >
                 {confirmConfig.actionLabel}
               </button>
@@ -172,11 +212,16 @@ const PropertyManagement: React.FC = () => {
                     <div className="p-3 bg-indigo-600 text-white rounded-2xl"><Map className="w-5 h-5" /></div>
                     <h3 className="text-xl font-black text-gray-900 uppercase">Manage Cities</h3>
                  </div>
-                 <button onClick={() => setShowCityConfig(false)} className="p-2 hover:bg-white rounded-full transition-colors">
+                 <button onClick={() => { setShowCityConfig(false); setError(null); }} className="p-2 hover:bg-white rounded-full transition-colors">
                     <X className="w-6 h-6 text-gray-400" />
                  </button>
               </div>
               <div className="p-8 space-y-6">
+                 {error && (
+                    <div className="bg-red-50 border border-red-200 p-4 rounded-xl flex items-center gap-3 text-red-700 animate-in shake">
+                       <AlertCircle className="w-5 h-5 shrink-0" /><p className="text-xs font-bold">{error}</p>
+                    </div>
+                 )}
                  <div className="space-y-4">
                     <div className="flex gap-2">
                        <input 
@@ -202,7 +247,7 @@ const PropertyManagement: React.FC = () => {
                  </div>
               </div>
               <div className="p-8 bg-gray-50 border-t border-gray-100">
-                 <button onClick={() => setShowCityConfig(false)} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700">Close Manager</button>
+                 <button onClick={() => { setShowCityConfig(false); setError(null); }} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700">Close Manager</button>
               </div>
            </div>
         </div>
@@ -216,7 +261,7 @@ const PropertyManagement: React.FC = () => {
         <div className="flex items-center gap-3">
           {isAdmin && (
             <button 
-              onClick={() => setShowCityConfig(true)}
+              onClick={() => { setShowCityConfig(true); setError(null); }}
               className="p-3 bg-white border border-gray-200 text-gray-400 rounded-xl hover:text-indigo-600 hover:border-indigo-100 transition-all shadow-sm active:scale-95"
               title="Manage Cities"
             >
@@ -225,7 +270,7 @@ const PropertyManagement: React.FC = () => {
           )}
           {isAdmin && (
             <button 
-              onClick={() => setIsAdding(true)}
+              onClick={() => { setIsAdding(true); setError(null); }}
               className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 font-black uppercase text-[10px] tracking-widest"
             >
               <Plus className="w-5 h-5" /> Add Property
@@ -244,6 +289,11 @@ const PropertyManagement: React.FC = () => {
               </button>
             </div>
             <form onSubmit={handleAddProperty} className="p-8 space-y-6 max-h-[70vh] overflow-y-auto custom-scrollbar">
+              {error && (
+                <div className="bg-red-50 border border-red-200 p-4 rounded-xl flex items-center gap-3 text-red-700 animate-in shake">
+                  <AlertCircle className="w-5 h-5 shrink-0" /><p className="text-xs font-bold">{error}</p>
+                </div>
+              )}
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Property Name</label>
                 <input 
@@ -257,6 +307,7 @@ const PropertyManagement: React.FC = () => {
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Location Address</label>
                 <input 
+                  required
                   className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
                   placeholder="Street, City, State"
                   value={newProp.address}
@@ -266,6 +317,7 @@ const PropertyManagement: React.FC = () => {
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">City</label>
                 <select 
+                  required
                   className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 transition-all appearance-none"
                   value={newProp.city}
                   onChange={e => setNewProp({...newProp, city: e.target.value})}
@@ -279,10 +331,12 @@ const PropertyManagement: React.FC = () => {
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Schema Template</label>
                 <select 
+                  required
                   className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 transition-all appearance-none"
                   value={newProp.typeId}
                   onChange={e => setNewProp({...newProp, typeId: e.target.value})}
                 >
+                  <option value="">Select Schema...</option>
                   {store.propertyTypes.map((pt: any) => (
                     <option key={pt.id} value={pt.id}>{pt.name}</option>
                   ))}
@@ -290,7 +344,7 @@ const PropertyManagement: React.FC = () => {
               </div>
               <div className="pt-4 flex gap-4">
                 <button type="button" onClick={() => setIsAdding(false)} className="flex-1 py-4 bg-gray-100 text-gray-500 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-gray-200 transition-all">Cancel</button>
-                <button type="submit" className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95">Create Entry</button>
+                <button type="submit" className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all active:scale-95">Create Entry</button>
               </div>
             </form>
           </div>

@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { 
@@ -130,12 +131,35 @@ const PropertyDetails: React.FC = () => {
     
     columns.forEach(col => {
       const val = formData[col.id]?.trim() || "";
+      const nameLower = col.name.toLowerCase();
+
+      // Required field check
       if (col.required && val === "") {
         errors[col.id] = `${col.name} is required`;
+        return;
       } 
-      else if (val !== "" && (col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.RENT_DUE_DAY || col.type === ColumnType.SECURITY_DEPOSIT)) {
-        const numVal = Number(val);
-        if (isNaN(numVal) || numVal < 0) errors[col.id] = `Invalid numeric entry`;
+      
+      if (val !== "") {
+        // Name validation: Alphabets and spaces only
+        if (nameLower.includes('name') && !/^[A-Za-z\s]+$/.test(val)) {
+          errors[col.id] = "Alphabets and spaces only";
+        }
+        // Phone/Number validation: Digits only (0-9), minimum 10 length
+        else if ((nameLower.includes('number') || nameLower.includes('phone')) && col.type !== ColumnType.CURRENCY && !/^\d{10,}$/.test(val)) {
+          errors[col.id] = "Digits only (min 10)";
+        }
+        // Amount/Rent validation: Numeric values only
+        else if (col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.RENT_DUE_DAY || col.type === ColumnType.SECURITY_DEPOSIT || nameLower.includes('rent') || nameLower.includes('amount')) {
+          if (!/^\d+(\.\d+)?$/.test(val)) {
+            errors[col.id] = "Numeric values only";
+          } else if (parseFloat(val) < 0) {
+            errors[col.id] = "Must be non-negative";
+          }
+        }
+        // Email validation: Standard pattern
+        else if (nameLower.includes('email') && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) {
+          errors[col.id] = "Invalid email format";
+        }
       }
     });
 
@@ -279,6 +303,7 @@ const PropertyDetails: React.FC = () => {
                           />
                         </div>
                       )}
+                      {formErrors[col.id] && <p className="text-[9px] text-red-500 font-black uppercase mt-2 ml-1">{formErrors[col.id]}</p>}
                     </td>
                   ))}
                   <td className="px-8 py-8 text-right align-top">
@@ -302,28 +327,31 @@ const PropertyDetails: React.FC = () => {
                       return (
                         <td key={col.id} className="px-8 py-7 text-sm font-bold text-gray-700 whitespace-nowrap align-top">
                           {isEditing ? (
-                            (col.type === ColumnType.DROPDOWN || col.type === ColumnType.OCCUPANCY_STATUS) ? (
-                              <select className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500' : 'border-indigo-200'} rounded-2xl px-5 py-4 text-sm font-bold shadow-sm outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all cursor-pointer`} value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)}>
-                                <option value="">Select...</option>
-                                {col.options?.map(o => <option key={o} value={o}>{o}</option>)}
-                              </select>
-                            ) : (
-                              <div 
-                                className={`relative group ${col.type === ColumnType.DATE ? 'cursor-pointer' : ''}`}
-                                onClick={(e) => {
-                                  if (col.type === ColumnType.DATE) {
-                                    try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(err) {}
-                                  }
-                                }}
-                              >
-                                <input 
-                                  className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500' : 'border-indigo-200'} rounded-2xl px-5 py-4 text-sm font-bold shadow-sm outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all ${col.type === ColumnType.DATE ? 'cursor-pointer group-hover:bg-slate-50' : ''}`} 
-                                  type={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.SECURITY_DEPOSIT ? 'number' : col.type === ColumnType.DATE ? 'date' : 'text'} 
-                                  value={formData[col.id] || ''} 
-                                  onChange={e => handleInputChange(col.id, e.target.value)} 
-                                />
-                              </div>
-                            )
+                            <>
+                              {(col.type === ColumnType.DROPDOWN || col.type === ColumnType.OCCUPANCY_STATUS) ? (
+                                <select className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500' : 'border-indigo-200'} rounded-2xl px-5 py-4 text-sm font-bold shadow-sm outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all cursor-pointer`} value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)}>
+                                  <option value="">Select...</option>
+                                  {col.options?.map(o => <option key={o} value={o}>{o}</option>)}
+                                </select>
+                              ) : (
+                                <div 
+                                  className={`relative group ${col.type === ColumnType.DATE ? 'cursor-pointer' : ''}`}
+                                  onClick={(e) => {
+                                    if (col.type === ColumnType.DATE) {
+                                      try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(err) {}
+                                    }
+                                  }}
+                                >
+                                  <input 
+                                    className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500' : 'border-indigo-200'} rounded-2xl px-5 py-4 text-sm font-bold shadow-sm outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all ${col.type === ColumnType.DATE ? 'cursor-pointer group-hover:bg-slate-50' : ''}`} 
+                                    type={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.SECURITY_DEPOSIT ? 'number' : col.type === ColumnType.DATE ? 'date' : 'text'} 
+                                    value={formData[col.id] || ''} 
+                                    onChange={e => handleInputChange(col.id, e.target.value)} 
+                                  />
+                                </div>
+                              )}
+                              {formErrors[col.id] && <p className="text-[9px] text-red-500 font-black uppercase mt-2 ml-1">{formErrors[col.id]}</p>}
+                            </>
                           ) : renderCellContent(val, col, record.id)}
                         </td>
                       );
@@ -331,13 +359,14 @@ const PropertyDetails: React.FC = () => {
                     {canEdit && (
                       <td className="px-8 py-7 text-right align-top">
                         {isEditing ? (
-                          <div className="flex justify-end gap-3"><button onClick={handleSave} className="p-4 bg-indigo-600 text-white rounded-2xl shadow-xl hover:bg-indigo-700 transition-colors"><Save className="w-6 h-6" /></button><button onClick={() => { setEditingRecordId(null); setFormData({}); }} className="p-4 bg-white border border-gray-200 rounded-2xl text-gray-400 hover:bg-slate-50 transition-colors"><X className="w-6 h-6" /></button></div>
+                          <div className="flex justify-end gap-3"><button onClick={handleSave} className="p-4 bg-indigo-600 text-white rounded-2xl shadow-xl hover:bg-indigo-700 transition-colors"><Save className="w-6 h-6" /></button><button onClick={() => { setEditingRecordId(null); setFormData({}); setFormErrors({}); }} className="p-4 bg-white border border-gray-200 rounded-2xl text-gray-400 hover:bg-slate-50 transition-colors"><X className="w-6 h-6" /></button></div>
                         ) : (
                           <div className="flex justify-end gap-3 opacity-0 group-hover:opacity-100 transition-all">
                             <button onClick={() => { 
                               const initial = recordValues.reduce((acc: any, v: any) => ({...acc, [v.columnId]: v.value}), {});
                               setFormData(initial);
                               setEditingRecordId(record.id); 
+                              setFormErrors({});
                             }} className="p-3 text-gray-400 hover:text-indigo-600 transition-all"><Edit2 className="w-5 h-5" /></button>
                             <button onClick={() => handleDeleteRecord(record.id)} className="p-3 text-gray-400 hover:text-red-600 transition-all"><Trash2 className="w-5 h-5" /></button>
                           </div>
