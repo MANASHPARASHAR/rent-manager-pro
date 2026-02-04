@@ -17,7 +17,8 @@ import {
   Settings,
   PlusCircle,
   Map,
-  AlertCircle
+  AlertCircle,
+  Layers
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { UserRole } from '../types';
@@ -90,7 +91,8 @@ const PropertyManagement: React.FC = () => {
           address: newProp.address,
           city: newProp.city,
           propertyTypeId: newProp.typeId,
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
+          isVisibleToManager: true
         });
         setNewProp({ name: '', address: '', typeId: store.propertyTypes[0]?.id || '', city: store.config.cities[0] || '' });
         setIsAdding(false);
@@ -146,17 +148,25 @@ const PropertyManagement: React.FC = () => {
     store.updateConfig({ cities: store.config.cities.filter((c: string) => c !== city) });
   };
 
-  const filteredProperties = store.properties.filter((p: any) => {
-    const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                        p.address.toLowerCase().includes(searchTerm.toLowerCase());
+  const filteredProperties = (store.properties || []).filter((p: any) => {
+    // Robust null-safe search
+    const name = (p.name || '').toLowerCase();
+    const address = (p.address || '').toLowerCase();
+    const query = searchTerm.toLowerCase();
+    
+    const matchesSearch = name.includes(query) || address.includes(query);
     const matchesCity = selectedCity === 'all' || p.city === selectedCity;
-    // Admins see everything, Managers/Viewers see only if flagged visible
-    const matchesRole = !isRestricted || p.isVisibleToManager !== false;
+    
+    // Visibility logic: 
+    // 1. Admins see everything.
+    // 2. Others only see if NOT explicitly hidden (undefined defaults to visible).
+    const matchesRole = isAdmin || p.isVisibleToManager !== false;
+    
     return matchesSearch && matchesCity && matchesRole;
   });
 
   return (
-    <div className="space-y-8 max-w-6xl mx-auto pb-20">
+    <div className="space-y-8 max-w-6xl mx-auto pb-20 animate-in fade-in duration-500">
       {confirmConfig.isOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md animate-in fade-in">
           <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl border border-white/20 overflow-hidden animate-in zoom-in-95">
@@ -263,46 +273,63 @@ const PropertyManagement: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-        {filteredProperties.map((prop: any) => {
-          const type = store.propertyTypes.find((t: any) => t.id === prop.propertyTypeId);
-          const unitCount = store.records.filter((r: any) => r.propertyId === prop.id).length;
-          const isHidden = prop.isVisibleToManager === false;
-          
-          return (
-            <div key={prop.id} className="group bg-white rounded-[2.5rem] border border-gray-100 shadow-sm hover:shadow-2xl hover:border-indigo-100 transition-all duration-300 flex flex-col overflow-hidden">
-              <div className="p-8 flex-1">
-                <div className="flex justify-between items-start mb-6">
-                  <div className="p-4 bg-indigo-50 rounded-2xl group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300"><Building2 className="w-8 h-8" /></div>
-                  {isAdmin && (
-                    <div className="flex gap-2">
-                      <button onClick={() => handleToggleVisibility(prop.id, prop.name, isHidden)} className={`p-2 rounded-xl border ${isHidden ? 'bg-gray-100 text-gray-400 border-gray-200' : 'bg-indigo-50 text-indigo-600 border-indigo-100 hover:bg-indigo-100'}`} title={isHidden ? "Hidden from Manager" : "Visible to Manager"}>{isHidden ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}</button>
-                      <button onClick={() => handleDeleteProperty(prop.id, prop.name)} className="p-2 text-gray-300 hover:text-red-500 transition-colors"><Trash2 className="w-5 h-5" /></button>
-                    </div>
-                  )}
-                </div>
-                
-                <div className="flex items-center gap-2">
-                   <h3 className="text-2xl font-black text-gray-900 group-hover:text-indigo-600 transition-colors uppercase tracking-tight">{prop.name}</h3>
-                   {isAdmin && isHidden && <span className="text-[8px] font-black uppercase tracking-widest bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded">Hidden</span>}
-                </div>
-                
-                <div className="mt-2 flex flex-col gap-1.5">
-                    <div className="flex items-center gap-2 text-gray-400 font-bold text-[10px] uppercase tracking-widest"><MapPin className="w-3 h-3 text-indigo-400" /><span className="truncate">{prop.address || 'No Address'}</span></div>
-                    {prop.city && <div className="flex items-center gap-2 text-indigo-400 font-black text-[9px] uppercase tracking-widest"><Navigation className="w-3 h-3" /><span>{prop.city}</span></div>}
-                </div>
+      {filteredProperties.length > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          {filteredProperties.map((prop: any) => {
+            const type = store.propertyTypes.find((t: any) => t.id === prop.propertyTypeId);
+            const unitCount = store.records.filter((r: any) => r.propertyId === prop.id).length;
+            const isHidden = prop.isVisibleToManager === false;
+            
+            return (
+              <div key={prop.id} className="group bg-white rounded-[2.5rem] border border-gray-100 shadow-sm hover:shadow-2xl hover:border-indigo-100 transition-all duration-300 flex flex-col overflow-hidden">
+                <div className="p-8 flex-1">
+                  <div className="flex justify-between items-start mb-6">
+                    <div className="p-4 bg-indigo-50 rounded-2xl group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300"><Building2 className="w-8 h-8" /></div>
+                    {isAdmin && (
+                      <div className="flex gap-2">
+                        <button onClick={() => handleToggleVisibility(prop.id, prop.name, isHidden)} className={`p-2 rounded-xl border ${isHidden ? 'bg-gray-100 text-gray-400 border-gray-200' : 'bg-indigo-50 text-indigo-600 border-indigo-100 hover:bg-indigo-100'}`} title={isHidden ? "Hidden from Manager" : "Visible to Manager"}>{isHidden ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}</button>
+                        <button onClick={() => handleDeleteProperty(prop.id, prop.name)} className="p-2 text-gray-300 hover:text-red-500 transition-colors"><Trash2 className="w-5 h-5" /></button>
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-2xl font-black text-gray-900 group-hover:text-indigo-600 transition-colors uppercase tracking-tight">{prop.name}</h3>
+                    {isAdmin && isHidden && <span className="text-[8px] font-black uppercase tracking-widest bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded">Hidden</span>}
+                  </div>
+                  
+                  <div className="mt-2 flex flex-col gap-1.5">
+                      <div className="flex items-center gap-2 text-gray-400 font-bold text-[10px] uppercase tracking-widest"><MapPin className="w-3 h-3 text-indigo-400" /><span className="truncate">{prop.address || 'No Address'}</span></div>
+                      {prop.city && <div className="flex items-center gap-2 text-indigo-400 font-black text-[9px] uppercase tracking-widest"><Navigation className="w-3 h-3" /><span>{prop.city}</span></div>}
+                  </div>
 
-                <div className="mt-10 flex items-center justify-between border-t border-gray-50 pt-6">
-                  <div className="space-y-1"><p className="text-[10px] uppercase font-black text-gray-300 tracking-[0.2em]">Schema</p><span className="px-3 py-1 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-black uppercase tracking-tighter">{type?.name || 'Standard'}</span></div>
-                  <div className="text-right"><p className="text-[10px] uppercase font-black text-gray-300 tracking-[0.2em]">Inventory</p><span className="text-2xl font-black text-gray-900">{unitCount} <span className="text-[10px] text-gray-400 font-bold">Units</span></span></div>
+                  <div className="mt-10 flex items-center justify-between border-t border-gray-50 pt-6">
+                    <div className="space-y-1"><p className="text-[10px] uppercase font-black text-gray-300 tracking-[0.2em]">Schema</p><span className="px-3 py-1 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-black uppercase tracking-tighter">{type?.name || 'Standard'}</span></div>
+                    <div className="text-right"><p className="text-[10px] uppercase font-black text-gray-300 tracking-[0.2em]">Inventory</p><span className="text-2xl font-black text-gray-900">{unitCount} <span className="text-[10px] text-gray-400 font-bold">Units</span></span></div>
+                  </div>
                 </div>
+                
+                <Link to={`/properties/${prop.id}`} className="p-5 bg-gray-50 flex items-center justify-center gap-2 text-indigo-600 font-black uppercase text-[10px] tracking-widest hover:bg-indigo-600 hover:text-white transition-all">{isViewer ? 'View Units' : 'Manage Units'} <ChevronRight className="w-4 h-4" /></Link>
               </div>
-              
-              <Link to={`/properties/${prop.id}`} className="p-5 bg-gray-50 flex items-center justify-center gap-2 text-indigo-600 font-black uppercase text-[10px] tracking-widest hover:bg-indigo-600 hover:text-white transition-all">{isViewer ? 'View Units' : 'Manage Units'} <ChevronRight className="w-4 h-4" /></Link>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="flex flex-col items-center justify-center py-40 bg-white rounded-[3rem] border border-gray-100 shadow-sm text-center">
+           <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mb-8">
+              <Layers className="w-10 h-10 text-slate-200" />
+           </div>
+           <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight mb-2">No Properties Found</h2>
+           <p className="text-slate-400 font-medium max-w-sm mx-auto leading-relaxed">
+             There are no properties to display for your account level or matching your search criteria.
+           </p>
+           {isAdmin && (
+              <button onClick={() => setIsAdding(true)} className="mt-8 bg-indigo-600 text-white px-8 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-100 flex items-center gap-2 hover:bg-indigo-700 transition-all">
+                 <PlusCircle className="w-5 h-5" /> Add New Asset
+              </button>
+           )}
+        </div>
+      )}
     </div>
   );
 };

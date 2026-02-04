@@ -25,7 +25,8 @@ import {
   AlertTriangle,
   Settings,
   Eye,
-  Check
+  Check,
+  ShieldAlert
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { ColumnType, ColumnDefinition, UserRole, PaymentStatus, Property } from '../types';
@@ -61,22 +62,31 @@ const PropertyDetails: React.FC = () => {
   const canEdit = isAdmin || isManager;
 
   const property = useMemo(() => {
-    const p = store.properties.find((prop: any) => prop.id === id);
+    const p = (store.properties || []).find((prop: any) => prop.id === id);
     if (!p) return null;
-    // Admins see all, restricted users only see if flagged visible
+    
+    // Visibility guard: Admins see everything. 
+    // Others only see if NOT explicitly hidden.
     if (isRestricted && p.isVisibleToManager === false) return null;
+    
     return p;
   }, [store.properties, id, isRestricted]);
 
-  const propertyType = store.propertyTypes.find((t: any) => t.id === property?.propertyTypeId);
+  const propertyType = useMemo(() => {
+    if (!property) return null;
+    return store.propertyTypes.find((t: any) => t.id === property.propertyTypeId);
+  }, [store.propertyTypes, property]);
   
   const columns = useMemo(() => {
     if (!propertyType) return [];
-    return [...propertyType.columns].sort((a, b) => a.order - b.order);
+    return [...(propertyType.columns || [])].sort((a, b) => a.order - b.order);
   }, [propertyType]);
   
-  const records = store.records.filter((r: any) => r.propertyId === id);
-  const values = store.recordValues;
+  const records = useMemo(() => {
+    return (store.records || []).filter((r: any) => r.propertyId === id);
+  }, [store.records, id]);
+
+  const values = store.recordValues || [];
 
   const summaryStats = useMemo(() => {
     if (!propertyType) return { totalRent: 0, activeUnits: 0, vacantUnits: 0, heldDeposits: 0, totalUnits: 0 };
@@ -94,7 +104,7 @@ const PropertyDetails: React.FC = () => {
       const status = rValues.find((v: any) => v.columnId === occupancyColId)?.value || 'Active';
       const isVacant = status.toLowerCase().includes('vacant');
 
-      const depositPayment = store.payments.find((p: any) => p.recordId === record.id && p.type === 'DEPOSIT' && p.status === PaymentStatus.PAID);
+      const depositPayment = (store.payments || []).find((p: any) => p.recordId === record.id && p.type === 'DEPOSIT' && p.status === PaymentStatus.PAID);
       if (depositPayment && !depositPayment.isRefunded) {
         heldDeposits += depositPayment.amount;
       }
@@ -128,11 +138,20 @@ const PropertyDetails: React.FC = () => {
 
   if (!property || !propertyType) {
     return (
-      <div className="text-center py-20 bg-white rounded-3xl border border-gray-100 animate-in fade-in">
-        <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-6 text-slate-300"><AlertCircle className="w-10 h-10" /></div>
-        <h2 className="text-2xl font-black text-gray-900 uppercase tracking-tight">Property Access Restricted</h2>
-        <p className="text-slate-500 font-medium mt-2">The requested property is either invalid or unauthorized for your account.</p>
-        <Link to="/properties" className="text-indigo-600 font-black hover:underline mt-8 inline-block uppercase tracking-widest text-xs">Return to Properties</Link>
+      <div className="min-h-[60vh] flex flex-col items-center justify-center p-8 bg-white rounded-[3rem] border border-gray-100 shadow-sm animate-in fade-in duration-500 text-center">
+        <div className="w-24 h-24 bg-rose-50 rounded-[2rem] flex items-center justify-center mb-8 shadow-inner">
+           <ShieldAlert className="w-12 h-12 text-rose-500" />
+        </div>
+        <h2 className="text-3xl font-black text-gray-900 uppercase tracking-tight">Access Restricted</h2>
+        <p className="text-slate-500 font-medium mt-3 max-w-sm mx-auto leading-relaxed">
+           This asset cluster is either unauthorized for your clearance level or does not exist in the current directory.
+        </p>
+        <Link 
+          to="/properties" 
+          className="mt-10 px-8 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-indigo-600 transition-all shadow-xl active:scale-95"
+        >
+          Return to Portfolio
+        </Link>
       </div>
     );
   }
@@ -253,17 +272,22 @@ const PropertyDetails: React.FC = () => {
       </div>
 
       <div className="bg-white rounded-[2.5rem] border border-gray-100 shadow-2xl overflow-hidden">
-        <div className="p-8 border-b border-gray-100"><Search className="absolute left-12 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" /><input className="w-full pl-11 pr-4 py-4 bg-gray-50 border border-transparent rounded-2xl text-sm outline-none font-bold" placeholder="Filter inventory..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div>
+        <div className="p-8 border-b border-gray-100 relative">
+          <Search className="absolute left-12 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
+          <input className="w-full pl-11 pr-4 py-4 bg-gray-50 border border-transparent rounded-2xl text-sm outline-none font-bold focus:bg-white focus:border-indigo-100 transition-all" placeholder="Filter inventory..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+        </div>
         <div className="overflow-x-auto max-h-[600px] overflow-y-auto custom-scrollbar">
           <table className="w-full text-left">
             <thead className="sticky top-0 z-10 bg-white"><tr className="bg-gray-50 border-b border-gray-100">{columns.map(col => <th key={col.id} className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest whitespace-nowrap min-w-[200px]">{col.name}</th>)}{canEdit && <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Actions</th>}</tr></thead>
             <tbody className="divide-y divide-gray-50">
               {isAdding && (
-                <tr className="bg-indigo-50/20">{columns.map(col => (<td key={col.id} className="px-8 py-8 align-top">{(col.type === ColumnType.DROPDOWN || col.type === ColumnType.OCCUPANCY_STATUS) ? (<select className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500' : 'border-gray-200'} rounded-2xl px-5 py-4 text-sm font-bold outline-none cursor-pointer`} value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)}><option value="">Select...</option>{col.options?.map(o => <option key={o} value={o}>{o}</option>)}</select>) : (<input className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500' : 'border-gray-200'} rounded-2xl px-5 py-4 text-sm font-bold outline-none`} type={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.SECURITY_DEPOSIT ? 'number' : col.type === ColumnType.DATE ? 'date' : 'text'} value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)} placeholder={`Enter ${col.name}`} />)}{formErrors[col.id] && <p className="text-[9px] text-red-500 font-black uppercase mt-2 ml-1">{formErrors[col.id]}</p>}</td>))}<td className="px-8 py-8 text-right align-top"><div className="flex justify-end gap-3"><button onClick={handleSave} className="p-4 bg-indigo-600 text-white rounded-2xl"><Save className="w-6 h-6" /></button><button onClick={() => { setIsAdding(false); setFormData({}); }} className="p-4 bg-white border border-gray-200 rounded-2xl text-gray-400"><X className="w-6 h-6" /></button></div></td></tr>
+                <tr className="bg-indigo-50/20 animate-in slide-in-from-top-4">
+                  {columns.map(col => (<td key={col.id} className="px-8 py-8 align-top">{(col.type === ColumnType.DROPDOWN || col.type === ColumnType.OCCUPANCY_STATUS) ? (<select className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500' : 'border-gray-200'} rounded-2xl px-5 py-4 text-sm font-bold outline-none cursor-pointer`} value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)}><option value="">Select...</option>{col.options?.map(o => <option key={o} value={o}>{o}</option>)}</select>) : (<input className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500' : 'border-gray-200'} rounded-2xl px-5 py-4 text-sm font-bold outline-none`} type={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.SECURITY_DEPOSIT ? 'number' : col.type === ColumnType.DATE ? 'date' : 'text'} value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)} placeholder={`Enter ${col.name}`} />)}{formErrors[col.id] && <p className="text-[9px] text-red-500 font-black uppercase mt-2 ml-1">{formErrors[col.id]}</p>}</td>))}<td className="px-8 py-8 text-right align-top"><div className="flex justify-end gap-3"><button onClick={handleSave} className="p-4 bg-indigo-600 text-white rounded-2xl"><Save className="w-6 h-6" /></button><button onClick={() => { setIsAdding(false); setFormData({}); }} className="p-4 bg-white border border-gray-200 rounded-2xl text-gray-400"><X className="w-6 h-6" /></button></div></td></tr>
               )}
               {records.filter((r: any) => {
                 const rValues = values.filter((v: any) => v.recordId === r.id);
-                return rValues.some((v: any) => v.value.toLowerCase().includes(searchTerm.toLowerCase()));
+                const query = searchTerm.toLowerCase();
+                return rValues.some((v: any) => (v.value || '').toLowerCase().includes(query));
               }).map((record: any) => {
                 const isEditing = editingRecordId === record.id;
                 const recordValues = values.filter((v: any) => v.recordId === record.id);
@@ -277,6 +301,13 @@ const PropertyDetails: React.FC = () => {
                   </tr>
                 );
               })}
+              {records.length === 0 && !isAdding && (
+                <tr>
+                   <td colSpan={columns.length + (canEdit ? 1 : 0)} className="py-20 text-center opacity-30">
+                      <p className="text-xs font-black uppercase tracking-widest">No Unit Inventory Logged</p>
+                   </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
