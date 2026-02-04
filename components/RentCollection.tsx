@@ -82,6 +82,7 @@ const RentCollection: React.FC = () => {
 
   const jumpToToday = () => {
     const d = new Date();
+    // Fix: replaced 'date' with 'd' to match variable definition
     setSelectedMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
   };
 
@@ -91,6 +92,33 @@ const RentCollection: React.FC = () => {
   }, [store.properties, isManager]);
 
   const visiblePropertyIds = useMemo(() => visibleProperties.map((p: any) => p.id), [visibleProperties]);
+
+  // DYNAMIC COLUMN LOGIC
+  // 1. Find all columns across visible properties that have isDefaultInLedger: true
+  // 2. We deduplicate them by name so "Phone" from Type A and "Phone" from Type B share a column
+  const dynamicLedgerHeaders = useMemo(() => {
+    const typesToConsider = selectedPropertyId === 'all' 
+      ? store.propertyTypes.filter((t: any) => visibleProperties.some((p: any) => p.propertyTypeId === t.id))
+      : store.propertyTypes.filter((t: any) => store.properties.find((p: any) => p.id === selectedPropertyId)?.propertyTypeId === t.id);
+
+    const columns: { name: string; id: string }[] = [];
+    const seenNames = new Set<string>();
+
+    typesToConsider.forEach((type: any) => {
+      type.columns.forEach((col: ColumnDefinition) => {
+        if (col.isDefaultInLedger && !seenNames.has(col.name.toLowerCase())) {
+          // Special Case: We skip things already in the "Unit & Tenant" core column (like Tenant Name)
+          const lowerName = col.name.toLowerCase();
+          if (lowerName !== 'tenant name' && lowerName !== 'unit' && lowerName !== 'occupancy') {
+             columns.push({ name: col.name, id: col.id });
+             seenNames.add(lowerName);
+          }
+        }
+      });
+    });
+
+    return columns;
+  }, [store.propertyTypes, store.properties, selectedPropertyId, visibleProperties]);
 
   const recordsWithRent = useMemo(() => {
     const today = new Date(); today.setHours(0,0,0,0);
@@ -161,7 +189,6 @@ const RentCollection: React.FC = () => {
     return { collected, pending, heldDeposits };
   }, [recordsWithRent]);
 
-  // FIX: Derived missing unitPayments from store payments using historyModal record ID
   const unitPayments = useMemo(() => {
     if (!historyModal.record) return [];
     return store.payments.filter((p: Payment) => p.recordId === historyModal.record.id)
@@ -289,7 +316,7 @@ const RentCollection: React.FC = () => {
         ))}
       </div>
 
-      {/* MAIN LEDGER AREA - More Compact Table */}
+      {/* MAIN LEDGER AREA - DYNAMIC COLUMNS IMPLEMENTED */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
          <div className="px-6 py-4 border-b border-slate-50 flex items-center justify-between bg-slate-50/30">
             <div className="flex items-center gap-3">
@@ -313,7 +340,15 @@ const RentCollection: React.FC = () => {
             <table className="w-full text-left">
                <thead className="sticky top-0 z-10 bg-white border-b border-slate-100">
                   <tr className="bg-white">
-                     <th className="px-6 py-4 text-[9px] font-black text-slate-400 uppercase tracking-widest">Unit & Tenant</th>
+                     <th className="px-6 py-4 text-[9px] font-black text-slate-400 uppercase tracking-widest sticky left-0 z-20 bg-white shadow-[2px_0_5px_rgba(0,0,0,0.05)]">Unit & Tenant</th>
+                     
+                     {/* RENDER CHECKED DYNAMIC COLUMNS FROM SCHEMA */}
+                     {dynamicLedgerHeaders.map(header => (
+                        <th key={header.id} className="px-6 py-4 text-[9px] font-black text-slate-400 uppercase tracking-widest text-center whitespace-nowrap">
+                           {header.name}
+                        </th>
+                     ))}
+
                      <th className="px-6 py-4 text-[9px] font-black text-slate-400 uppercase tracking-widest text-center">Rent Status</th>
                      <th className="px-6 py-4 text-[9px] font-black text-slate-400 uppercase tracking-widest text-center">Security</th>
                      <th className="px-6 py-4 text-[9px] font-black text-slate-400 uppercase tracking-widest text-right">Actions</th>
@@ -322,7 +357,7 @@ const RentCollection: React.FC = () => {
                <tbody className="divide-y divide-slate-50">
                   {recordsWithRent.map((record) => (
                     <tr key={record.id} className={`group hover:bg-slate-50/50 transition-all ${record.isVacant ? 'opacity-50' : ''}`}>
-                       <td className="px-6 py-4">
+                       <td className="px-6 py-4 sticky left-0 z-10 bg-white group-hover:bg-slate-50 transition-colors shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
                           <div className="flex items-center gap-3">
                              <div className="w-10 h-10 bg-slate-50 rounded-lg flex items-center justify-center text-slate-300">
                                 <Building2 className="w-5 h-5" />
@@ -337,6 +372,19 @@ const RentCollection: React.FC = () => {
                              </div>
                           </div>
                        </td>
+
+                       {/* RENDER VALUES FOR CHECKED DYNAMIC COLUMNS */}
+                       {dynamicLedgerHeaders.map(header => {
+                          // We need to find the specific column ID in THIS record's property type that matches the header name
+                          const matchingCol = record.propertyType?.columns.find((c: any) => c.name.toLowerCase() === header.name.toLowerCase());
+                          const val = matchingCol ? record.rawValuesMap[matchingCol.id] : '-';
+                          
+                          return (
+                            <td key={header.id} className="px-6 py-4 text-center">
+                               <span className="text-[10px] font-bold text-slate-600 uppercase tracking-tight">{val || '-'}</span>
+                            </td>
+                          );
+                       })}
                        
                        <td className="px-6 py-4 text-center">
                           <button 
@@ -463,7 +511,7 @@ const RentCollection: React.FC = () => {
                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Payment Date</label>
                     <input 
                       type="date" 
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none" 
+                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold outline-none" 
                       value={paymentModal.date} 
                       onChange={e => setPaymentModal({...paymentModal, date: e.target.value})} 
                     />
