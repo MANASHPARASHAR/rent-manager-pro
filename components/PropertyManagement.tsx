@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   Building2, 
@@ -57,12 +57,24 @@ const PropertyManagement: React.FC = () => {
   const isViewer = store.user?.role === UserRole.VIEWER;
   const isRestricted = isManager || isViewer;
 
+  // INITIAL STATE FIX: Use optional chaining to prevent crash if store arrays are empty at first mount
   const [newProp, setNewProp] = useState({
     name: '',
     address: '',
-    typeId: store.propertyTypes[0]?.id || '',
-    city: store.config.cities[0] || ''
+    typeId: '',
+    city: ''
   });
+
+  // Sync form defaults once data loads
+  useEffect(() => {
+    if (!newProp.typeId && store.propertyTypes?.length > 0) {
+      setNewProp(prev => ({
+        ...prev,
+        typeId: store.propertyTypes[0].id,
+        city: store.config?.cities?.[0] || ''
+      }));
+    }
+  }, [store.propertyTypes, store.config, newProp.typeId]);
 
   const handleAddProperty = (e: React.FormEvent) => {
     e.preventDefault();
@@ -94,7 +106,12 @@ const PropertyManagement: React.FC = () => {
           createdAt: new Date().toISOString(),
           isVisibleToManager: true
         });
-        setNewProp({ name: '', address: '', typeId: store.propertyTypes[0]?.id || '', city: store.config.cities[0] || '' });
+        setNewProp({ 
+          name: '', 
+          address: '', 
+          typeId: store.propertyTypes?.[0]?.id || '', 
+          city: store.config?.cities?.[0] || '' 
+        });
         setIsAdding(false);
         setConfirmConfig(prev => ({ ...prev, isOpen: false }));
       }
@@ -136,30 +153,28 @@ const PropertyManagement: React.FC = () => {
   const addCity = () => {
     setError(null);
     if (!newCityInput.trim()) return;
-    if (store.config.cities.includes(newCityInput.trim())) {
+    const currentCities = store.config?.cities || [];
+    if (currentCities.includes(newCityInput.trim())) {
       setError("This city already exists");
       return;
     }
-    store.updateConfig({ cities: [...store.config.cities, newCityInput.trim()] });
+    store.updateConfig({ cities: [...currentCities, newCityInput.trim()] });
     setNewCityInput('');
   };
 
   const removeCity = (city: string) => {
-    store.updateConfig({ cities: store.config.cities.filter((c: string) => c !== city) });
+    const currentCities = store.config?.cities || [];
+    store.updateConfig({ cities: currentCities.filter((c: string) => c !== city) });
   };
 
   const filteredProperties = (store.properties || []).filter((p: any) => {
-    // Robust null-safe search
+    if (!p) return false;
     const name = (p.name || '').toLowerCase();
     const address = (p.address || '').toLowerCase();
-    const query = searchTerm.toLowerCase();
+    const query = (searchTerm || '').toLowerCase();
     
     const matchesSearch = name.includes(query) || address.includes(query);
     const matchesCity = selectedCity === 'all' || p.city === selectedCity;
-    
-    // Visibility logic: 
-    // 1. Admins see everything.
-    // 2. Others only see if NOT explicitly hidden (undefined defaults to visible).
     const matchesRole = isAdmin || p.isVisibleToManager !== false;
     
     return matchesSearch && matchesCity && matchesRole;
@@ -218,7 +233,7 @@ const PropertyManagement: React.FC = () => {
                        <button onClick={addCity} className="bg-indigo-600 text-white p-3 rounded-xl"><PlusCircle className="w-5 h-5" /></button>
                     </div>
                     <div className="flex flex-wrap gap-2 max-h-[300px] overflow-y-auto p-1 custom-scrollbar">
-                       {store.config.cities.map((city: string) => (
+                       {(store.config?.cities || []).map((city: string) => (
                           <div key={city} className="px-4 py-2 bg-slate-50 border border-slate-100 rounded-xl flex items-center gap-2 group hover:border-rose-200 transition-all shadow-sm">
                              <span className="text-[11px] font-black uppercase text-slate-700">{city}</span>
                              <button onClick={() => removeCity(city)} className="text-slate-300 hover:text-rose-500"><Trash2 className="w-3.5 h-3.5" /></button>
@@ -254,8 +269,8 @@ const PropertyManagement: React.FC = () => {
               {error && <div className="bg-red-50 border border-red-200 p-4 rounded-xl text-red-700 text-xs font-bold">{error}</div>}
               <div className="space-y-1.5"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Property Name</label><input required className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500" placeholder="e.g. Skyline Towers" value={newProp.name} onChange={e => setNewProp({...newProp, name: e.target.value})} /></div>
               <div className="space-y-1.5"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Location Address</label><input required className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Street, City, State" value={newProp.address} onChange={e => setNewProp({...newProp, address: e.target.value})} /></div>
-              <div className="space-y-1.5"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">City</label><select required className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-4 text-sm font-bold outline-none cursor-pointer" value={newProp.city} onChange={e => setNewProp({...newProp, city: e.target.value})}><option value="">Select City...</option>{store.config.cities.map((city: string) => <option key={city} value={city}>{city}</option>)}</select></div>
-              <div className="space-y-1.5"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Schema Template</label><select required className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-4 text-sm font-bold outline-none cursor-pointer" value={newProp.typeId} onChange={e => setNewProp({...newProp, typeId: e.target.value})}><option value="">Select Schema...</option>{store.propertyTypes.map((pt: any) => <option key={pt.id} value={pt.id}>{pt.name}</option>)}</select></div>
+              <div className="space-y-1.5"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">City</label><select required className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-4 text-sm font-bold outline-none cursor-pointer" value={newProp.city} onChange={e => setNewProp({...newProp, city: e.target.value})}><option value="">Select City...</option>{(store.config?.cities || []).map((city: string) => <option key={city} value={city}>{city}</option>)}</select></div>
+              <div className="space-y-1.5"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Schema Template</label><select required className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-4 text-sm font-bold outline-none cursor-pointer" value={newProp.typeId} onChange={e => setNewProp({...newProp, typeId: e.target.value})}><option value="">Select Schema...</option>{(store.propertyTypes || []).map((pt: any) => <option key={pt.id} value={pt.id}>{pt.name}</option>)}</select></div>
               <div className="pt-4 flex gap-4"><button type="button" onClick={() => setIsAdding(false)} className="flex-1 py-4 bg-gray-100 text-gray-500 rounded-2xl font-black uppercase text-[10px] tracking-widest">Cancel</button><button type="submit" className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95">Create Entry</button></div>
             </form>
           </div>
@@ -269,15 +284,15 @@ const PropertyManagement: React.FC = () => {
         </div>
         <div className="flex items-center gap-3 w-full md:w-auto">
           <Filter className="w-4 h-4 text-slate-400" />
-          <select className="bg-gray-50 border border-transparent rounded-xl px-4 py-3.5 text-[10px] font-black uppercase tracking-widest outline-none cursor-pointer hover:bg-gray-100" value={selectedCity} onChange={e => setSelectedCity(e.target.value)}><option value="all">All Cities</option>{store.config.cities.map((city: string) => <option key={city} value={city}>{city}</option>)}</select>
+          <select className="bg-gray-50 border border-transparent rounded-xl px-4 py-3.5 text-[10px] font-black uppercase tracking-widest outline-none cursor-pointer hover:bg-gray-100" value={selectedCity} onChange={e => setSelectedCity(e.target.value)}><option value="all">All Cities</option>{(store.config?.cities || []).map((city: string) => <option key={city} value={city}>{city}</option>)}</select>
         </div>
       </div>
 
       {filteredProperties.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
           {filteredProperties.map((prop: any) => {
-            const type = store.propertyTypes.find((t: any) => t.id === prop.propertyTypeId);
-            const unitCount = store.records.filter((r: any) => r.propertyId === prop.id).length;
+            const type = (store.propertyTypes || []).find((t: any) => t.id === prop.propertyTypeId);
+            const unitCount = (store.records || []).filter((r: any) => r.propertyId === prop.id).length;
             const isHidden = prop.isVisibleToManager === false;
             
             return (

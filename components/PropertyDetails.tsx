@@ -74,7 +74,7 @@ const PropertyDetails: React.FC = () => {
 
   const propertyType = useMemo(() => {
     if (!property) return null;
-    return store.propertyTypes.find((t: any) => t.id === property.propertyTypeId);
+    return (store.propertyTypes || []).find((t: any) => t.id === property.propertyTypeId);
   }, [store.propertyTypes, property]);
   
   const columns = useMemo(() => {
@@ -91,8 +91,8 @@ const PropertyDetails: React.FC = () => {
   const summaryStats = useMemo(() => {
     if (!propertyType) return { totalRent: 0, activeUnits: 0, vacantUnits: 0, heldDeposits: 0, totalUnits: 0 };
     
-    const rentColIds = propertyType.columns.filter(c => c.isRentCalculatable).map(c => c.id);
-    const occupancyColId = propertyType.columns.find(c => c.type === ColumnType.OCCUPANCY_STATUS)?.id || propertyType.columns.find(c => c.name.toLowerCase().includes('occupancy') || c.name.toLowerCase().includes('status'))?.id;
+    const rentColIds = (propertyType.columns || []).filter(c => c.isRentCalculatable).map(c => c.id);
+    const occupancyColId = propertyType.columns?.find(c => c.type === ColumnType.OCCUPANCY_STATUS)?.id || propertyType.columns?.find(c => c.name.toLowerCase().includes('occupancy') || c.name.toLowerCase().includes('status'))?.id;
     
     let totalRent = 0;
     let activeUnits = 0;
@@ -234,7 +234,7 @@ const PropertyDetails: React.FC = () => {
       return <span className="text-indigo-600 font-black">${parseFloat(value || '0').toLocaleString()}</span>;
     }
     if (col.type === ColumnType.DROPDOWN || col.type === ColumnType.OCCUPANCY_STATUS) {
-      const lowerVal = value.toLowerCase();
+      const lowerVal = (value || '').toLowerCase();
       const style = lowerVal.includes('active') || lowerVal.includes('occupied') ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-100';
       return <span className={`px-2.5 py-1 rounded-full text-[10px] font-black border uppercase tracking-tighter ${style}`}>{value}</span>;
     }
@@ -286,7 +286,7 @@ const PropertyDetails: React.FC = () => {
               )}
               {records.filter((r: any) => {
                 const rValues = values.filter((v: any) => v.recordId === r.id);
-                const query = searchTerm.toLowerCase();
+                const query = (searchTerm || '').toLowerCase();
                 return rValues.some((v: any) => (v.value || '').toLowerCase().includes(query));
               }).map((record: any) => {
                 const isEditing = editingRecordId === record.id;
