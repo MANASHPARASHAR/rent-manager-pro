@@ -173,7 +173,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               
               tokenClientRef.current = google.accounts.oauth2.initTokenClient({
                 client_id: authClientId.trim(),
-                scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly',
+                scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/userinfo.profile',
                 callback: (response: any) => {
                   if (response.access_token) {
                     setAuthSession(response);
@@ -294,37 +294,45 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setSpreadsheetId(dbId);
       localStorage.setItem('rentmaster_active_sheet_id', dbId);
       await loadAllData(dbId);
+      return dbId;
     } catch (error: any) {
       setIsBooting(false);
       hasLoadedInitialData.current = true;
+      return null;
     }
   }, [authSession, initGoogleClient, loadAllData]);
 
   const authenticate = useCallback(async (providedId?: string, silent: boolean = false) => {
     const rawId = providedId || authClientId;
-    if (!rawId.trim()) return false;
+    if (!rawId.trim()) return null;
 
     return new Promise((resolve) => {
       const google = (window as any).google;
       if (google?.accounts?.oauth2) {
         const client = google.accounts.oauth2.initTokenClient({
           client_id: rawId.trim(),
-          scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly',
+          scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
           callback: async (response: any) => {
             if (response.access_token) {
               setAuthSession(response);
               localStorage.setItem(CLOUD_TOKEN_KEY, JSON.stringify(response));
               setSyncStatus('synced');
+              
+              // Get Google User Info for pre-filling setup
+              const userInfo = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+                headers: { Authorization: `Bearer ${response.access_token}` }
+              }).then(res => res.json());
+
               await bootstrapDatabase();
-              resolve(true);
+              resolve(userInfo);
             } else {
-              resolve(false);
+              resolve(null);
             }
           },
         });
         tokenClientRef.current = client;
         (client as any).requestAccessToken({ prompt: silent ? '' : 'consent' });
-      } else { resolve(false); }
+      } else { resolve(null); }
     });
   }, [authClientId, bootstrapDatabase]);
 
@@ -335,7 +343,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   useEffect(() => { 
     initGoogleClient().then(() => {
-      // CRITICAL FIX: Ensure booting screen resolves even if auth is missing
       if (authSession) {
         bootstrapDatabase();
       } else {
