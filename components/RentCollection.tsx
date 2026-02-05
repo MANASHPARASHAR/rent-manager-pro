@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Search, 
   ChevronLeft, 
@@ -88,7 +88,8 @@ const RentCollection: React.FC = () => {
     type: 'STATUS', 
     record: null, 
     formValues: {}, 
-    effectiveDate: new Date().toISOString().split('T')[0] 
+    effectiveDate: new Date().toISOString().split('T')[0],
+    errors: {}
   });
 
   const navigateMonth = (direction: number) => {
@@ -165,11 +166,6 @@ const RentCollection: React.FC = () => {
         const property = store.properties.find((p: any) => p.id === record.propertyId);
         const propertyType = store.propertyTypes.find((t: any) => t.id === property?.propertyTypeId);
         
-        /**
-         * LOGIC FIX: Mid-Month Transitions
-         * We look at the Rent Due Date of the selected month to determine the "Active" tenant for that cycle.
-         * This prevents mid-month vacancies from wiping data prematurely.
-         */
         const dueDay = propertyType?.defaultDueDateDay || 5;
         const contextDate = new Date(y, m - 1, dueDay, 12, 0, 0);
 
@@ -304,7 +300,23 @@ const RentCollection: React.FC = () => {
   };
 
   const handleSaveTemporalAction = () => {
-    const { record, formValues, effectiveDate } = temporalAction;
+    const { type, record, formValues, effectiveDate } = temporalAction;
+    
+    // NEW: Strict validation for onboarding
+    if (type === 'TENANT') {
+      const errors: any = {};
+      record.propertyType?.columns.forEach((col: ColumnDefinition) => {
+        if (!formValues[col.id]?.trim()) {
+          errors[col.id] = true;
+        }
+      });
+      
+      if (Object.keys(errors).length > 0) {
+        setTemporalAction({ ...temporalAction, errors });
+        return;
+      }
+    }
+
     const values: RecordValue[] = Object.entries(formValues).map(([colId, val]) => ({
       id: 'v' + Date.now() + Math.random().toString(36).substr(2, 5),
       recordId: record.id,
@@ -313,7 +325,7 @@ const RentCollection: React.FC = () => {
     }));
     
     store.updateRecord(record.id, values, effectiveDate);
-    setTemporalAction({ ...temporalAction, isOpen: false });
+    setTemporalAction({ ...temporalAction, isOpen: false, errors: {} });
   };
 
   const [monthYearName, yearName] = useMemo(() => {
@@ -385,7 +397,6 @@ const RentCollection: React.FC = () => {
               </div>
 
               <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-10">
-                 {/* Paid To Config */}
                  <div className="space-y-6">
                     <div className="space-y-2">
                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Target Recipients</label>
@@ -409,7 +420,6 @@ const RentCollection: React.FC = () => {
                     </div>
                  </div>
 
-                 {/* Modes Config */}
                  <div className="space-y-6">
                     <div className="space-y-2">
                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Payment Channels</label>
@@ -596,7 +606,20 @@ const RentCollection: React.FC = () => {
                                  record.propertyType?.columns.forEach((col: any) => { freshValues[col.id] = ''; });
                                  const statusCol = record.propertyType?.columns.find((c: any) => c.type === ColumnType.OCCUPANCY_STATUS);
                                  if (statusCol) freshValues[statusCol.id] = 'Active';
-                                 setTemporalAction({ isOpen: true, type: 'TENANT', record, formValues: freshValues, effectiveDate: new Date().toISOString().split('T')[0] });
+                                 
+                                 // Auto-sync initial Rent Date with today's effective date
+                                 const rentDateCol = record.propertyType?.columns.find((c: any) => c.name.toLowerCase() === 'rent date');
+                                 const today = new Date().toISOString().split('T')[0];
+                                 if (rentDateCol) freshValues[rentDateCol.id] = today;
+
+                                 setTemporalAction({ 
+                                   isOpen: true, 
+                                   type: 'TENANT', 
+                                   record, 
+                                   formValues: freshValues, 
+                                   effectiveDate: today,
+                                   errors: {}
+                                 });
                                }} 
                                className="p-2.5 text-slate-400 hover:text-emerald-600 transition-colors bg-white rounded-lg shadow-sm"
                              >
@@ -607,7 +630,7 @@ const RentCollection: React.FC = () => {
                                  const statusCol = record.propertyType?.columns.find((c: any) => c.type === ColumnType.OCCUPANCY_STATUS);
                                  const vacatingValues = { ...record.rawValuesMap };
                                  if (statusCol) vacatingValues[statusCol.id] = 'Vacant';
-                                 setTemporalAction({ isOpen: true, type: 'STATUS', record, formValues: vacatingValues, effectiveDate: new Date().toISOString().split('T')[0] });
+                                 setTemporalAction({ isOpen: true, type: 'STATUS', record, formValues: vacatingValues, effectiveDate: new Date().toISOString().split('T')[0], errors: {} });
                                }} 
                                className="p-2.5 text-slate-400 hover:text-rose-600 transition-colors bg-white rounded-lg shadow-sm"
                              >
@@ -840,7 +863,23 @@ const RentCollection: React.FC = () => {
                       type="date"
                       className="w-full bg-white border border-slate-200 rounded-2xl px-6 py-4 text-sm font-bold outline-none shadow-sm focus:ring-4 focus:ring-indigo-500/5 transition-all"
                       value={temporalAction.effectiveDate}
-                      onChange={e => setTemporalAction({...temporalAction, effectiveDate: e.target.value})}
+                      onChange={e => {
+                        const newDate = e.target.value;
+                        const updatedValues = { ...temporalAction.formValues };
+                        
+                        // NEW: Automated Rent Date syncing
+                        const rentDateCol = temporalAction.record.propertyType?.columns.find((c: any) => c.name.toLowerCase() === 'rent date');
+                        if (rentDateCol && temporalAction.type === 'TENANT') {
+                          updatedValues[rentDateCol.id] = newDate;
+                        }
+
+                        setTemporalAction({
+                          ...temporalAction, 
+                          effectiveDate: newDate, 
+                          formValues: updatedValues,
+                          errors: { ...temporalAction.errors }
+                        });
+                      }}
                     />
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tight text-center mt-1">This shift creates a permanent history snapshot.</p>
                  </div>
@@ -849,20 +888,32 @@ const RentCollection: React.FC = () => {
                     {temporalAction.record.propertyType?.columns.map((col: ColumnDefinition) => {
                       const isStatus = col.type === ColumnType.OCCUPANCY_STATUS;
                       const isRelevant = temporalAction.type === 'TENANT' ? true : isStatus;
+                      
+                      // NEW: Disable logic for synchronized Rent Date
+                      const isSynchronizedRentDate = temporalAction.type === 'TENANT' && col.name.toLowerCase() === 'rent date';
 
                       if (!isRelevant) return null;
 
+                      const hasError = temporalAction.errors[col.id];
+
                       return (
                         <div key={col.id} className="space-y-2 animate-in slide-in-from-top-3">
-                           <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">{col.name}</label>
+                           <label className={`text-[11px] font-black uppercase tracking-widest ml-1 ${hasError ? 'text-red-500' : 'text-slate-400'}`}>
+                             {col.name} {temporalAction.type === 'TENANT' && <span className="text-red-500">*</span>}
+                           </label>
                            {col.options ? (
                              <select 
-                               className="w-full bg-slate-50 border border-slate-200 rounded-[1.5rem] px-6 py-5 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all cursor-pointer shadow-sm"
+                               className={`w-full border rounded-[1.5rem] px-6 py-5 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all cursor-pointer shadow-sm ${hasError ? 'border-red-500 bg-red-50' : 'border-slate-200 bg-slate-50'}`}
                                value={temporalAction.formValues[col.id] || ''}
-                               onChange={e => setTemporalAction({
-                                 ...temporalAction, 
-                                 formValues: { ...temporalAction.formValues, [col.id]: e.target.value }
-                               })}
+                               onChange={e => {
+                                 const newErrors = { ...temporalAction.errors };
+                                 delete newErrors[col.id];
+                                 setTemporalAction({
+                                   ...temporalAction, 
+                                   formValues: { ...temporalAction.formValues, [col.id]: e.target.value },
+                                   errors: newErrors
+                                 });
+                               }}
                              >
                                <option value="">Select Protocol...</option>
                                {col.options.map(o => <option key={o} value={o}>{o}</option>)}
@@ -873,16 +924,23 @@ const RentCollection: React.FC = () => {
                                    {col.name.toLowerCase().includes('phone') ? <RotateCcw className="w-5 h-5 rotate-90" /> : col.name.toLowerCase().includes('name') ? <User className="w-5 h-5" /> : <ClipboardList className="w-5 h-5" />}
                                 </div>
                                 <input 
-                                  className="w-full bg-slate-50 border border-slate-200 rounded-[1.5rem] pl-14 pr-6 py-5 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/5 focus:border-indigo-400 transition-all shadow-sm"
-                                  placeholder={`Enter ${col.name} value`}
+                                  className={`w-full border rounded-[1.5rem] pl-14 pr-6 py-5 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/5 focus:border-indigo-400 transition-all shadow-sm ${hasError ? 'border-red-500 bg-red-50' : isSynchronizedRentDate ? 'bg-slate-100 border-slate-100 text-slate-500 cursor-not-allowed' : 'border-slate-200 bg-slate-50'}`}
+                                  placeholder={isSynchronizedRentDate ? 'Populated from Effective Date' : `Enter ${col.name} value`}
                                   value={temporalAction.formValues[col.id] || ''}
-                                  onChange={e => setTemporalAction({
-                                    ...temporalAction, 
-                                    formValues: { ...temporalAction.formValues, [col.id]: e.target.value }
-                                  })}
+                                  disabled={isSynchronizedRentDate}
+                                  onChange={e => {
+                                    const newErrors = { ...temporalAction.errors };
+                                    delete newErrors[col.id];
+                                    setTemporalAction({
+                                      ...temporalAction, 
+                                      formValues: { ...temporalAction.formValues, [col.id]: e.target.value },
+                                      errors: newErrors
+                                    });
+                                  }}
                                 />
                              </div>
                            )}
+                           {hasError && <p className="text-[9px] font-black text-red-500 uppercase ml-1 animate-pulse">This field is compulsory for onboarding</p>}
                         </div>
                       );
                     })}
