@@ -18,11 +18,11 @@ import {
 const RentalContext = createContext<any>(null);
 
 /**
- * 🔒 PRODUCTION SECURITY CONFIG
- * IMPORTANT: Enter your primary Gmail address here before deploying.
- * Only THIS email will be allowed to initialize the system for the first time.
+ * 🔒 PRODUCTION GENESIS KEY
+ * Leave empty to allow the first person who authenticates with your Client ID to initialize.
+ * Fill with your email to restrict the first-time setup to only you.
  */
-const OWNER_EMAIL = ""; 
+const OWNER_EMAIL: string = ""; 
 
 const DATABASE_FILENAME = "RentMaster_Pro_Database";
 const SHEET_TABS = ["Users", "PropertyTypes", "Properties", "Records", "RecordValues", "Payments", "Config", "UnitHistory"];
@@ -59,14 +59,14 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [unitHistory, setUnitHistory] = useState<UnitHistory[]>(() => initialData.current?.unitHistory || []);
   const [payments, setPayments] = useState<Payment[]>(() => initialData.current?.payments || []);
   const [config, setConfig] = useState<AppConfig>(() => initialData.current?.config || {
-    paidToOptions: ['Company Account', 'Bank Account', 'Petty Cash', 'Owner Direct'],
-    paymentModeOptions: ['Bank Transfer', 'Cash', 'Check', 'UPI/QR', 'Credit Card'],
-    cities: ['New York', 'Los Angeles', 'Chicago', 'Houston']
+    paidToOptions: [],
+    paymentModeOptions: [],
+    cities: []
   });
 
   const [tombstones, setTombstones] = useState<Set<string>>(() => {
     const saved = localStorage.getItem(TOMBSTONES_KEY);
-    return saved ? new Set(JSON.parse(saved)) : new Set();
+    return saved ? new Set<string>(JSON.parse(saved)) : new Set<string>();
   });
 
   const [user, setUser] = useState<User | null>(null);
@@ -90,9 +90,9 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     unitHistory: initialData.current?.unitHistory || [],
     payments: initialData.current?.payments || [], 
     config: initialData.current?.config || {
-      paidToOptions: ['Company Account', 'Bank Account', 'Petty Cash', 'Owner Direct'],
-      paymentModeOptions: ['Bank Transfer', 'Cash', 'Check', 'UPI/QR', 'Credit Card'],
-      cities: ['New York', 'Los Angeles', 'Chicago', 'Houston']
+      paidToOptions: [],
+      paymentModeOptions: [],
+      cities: []
     }
   });
 
@@ -209,10 +209,8 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
 
       const parse = (index: number) => data[index]?.values?.slice(1) || [];
-      // Fix: Ensure currentTombstones is treated as Set<string> to avoid 'never' issues
       const currentTombstones = new Set<string>(JSON.parse(localStorage.getItem(TOMBSTONES_KEY) || '[]'));
 
-      // Fix: Explicitly type parsed results to avoid 'never[]' inference
       const parsedUsers: User[] = parse(0).map((r: any) => ({ id: r[0], username: r[1], name: r[2], role: r[3] as UserRole, passwordHash: r[4], createdAt: r[5] })).filter(u => u.id && !currentTombstones.has(u.id));
       const parsedTypes: PropertyType[] = parse(1).map((r: any) => ({ id: r[0], name: r[1], columns: JSON.parse(r[2] || '[]'), defaultDueDateDay: parseInt(r[3] || '5') })).filter(t => t.id && !currentTombstones.has(t.id));
       const parsedProps: Property[] = parse(2).map((r: any) => ({ id: r[0], name: r[1], propertyTypeId: r[2], address: r[3], createdAt: r[4], isVisibleToManager: r[5] !== 'false', city: r[6] || '', allowedUserIds: JSON.parse(r[7] || '[]'), totalInvestment: parseFloat(r[8] || '0') })).filter(p => p.id && !currentTombstones.has(p.id));
@@ -221,7 +219,12 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const pPays: Payment[] = parse(5).map((r: any) => ({ id: r[0], recordId: r[1], month: r[2], amount: parseFloat(r[3] || '0'), status: r[4] as PaymentStatus, type: r[5], dueDate: r[6], paidAt: r[7], paidTo: r[8], paymentMode: r[9], isRefunded: r[10] === 'true' })).filter(p => p.id && !currentTombstones.has(p.recordId));
       
       const pConf = parse(6)[0];
-      const parsedConfig: AppConfig = pConf ? { paidToOptions: JSON.parse(pConf[0] || '[]'), paymentModeOptions: JSON.parse(pConf[1] || '[]'), cities: JSON.parse(pConf[2] || '[]') } : stateRef.current.config;
+      const parsedConfig: AppConfig = pConf ? { 
+        paidToOptions: JSON.parse(pConf[0] || '[]'), 
+        paymentModeOptions: JSON.parse(pConf[1] || '[]'), 
+        cities: JSON.parse(pConf[2] || '[]') 
+      } : stateRef.current.config;
+      
       const pHist: UnitHistory[] = parse(7).map((r: any) => ({ id: r[0], recordId: r[1], values: JSON.parse(r[2] || '{}'), effectiveFrom: r[3], effectiveTo: r[4] === 'null' ? null : r[4] })).filter(h => h.id && !currentTombstones.has(h.recordId));
 
       setUsers(parsedUsers);
@@ -347,13 +350,12 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               gapi.client.setToken({ access_token: response.access_token });
               
               const bootstrapResult = await bootstrapDatabase();
-              // Fix: Explicitly type cloudUsers as User[] to avoid potential 'never' inference
               const cloudUsers: User[] = (bootstrapResult as any)?.users || [];
               const isDatabaseExisting = !!bootstrapResult?.spreadsheetId;
               
               if (isDatabaseExisting) {
-                // Fix: Added safety check for username property to prevent 'never' or 'undefined' access
-                const isAuthorizedInCloud = cloudUsers.some((u: User) => (u.username || '').toLowerCase() === (userInfo.email || '').toLowerCase());
+                // FIXED: Explicitly cast to String to ensure toLowerCase exists and avoid inference of 'never'
+                const isAuthorizedInCloud = cloudUsers.some((u: User) => String(u.username || '').toLowerCase() === String(userInfo.email || '').toLowerCase());
                 if (!isAuthorizedInCloud) {
                   google.accounts.oauth2.revoke(response.access_token);
                   setAuthSession(null);
@@ -361,7 +363,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                   resolve({ error: 'UNAUTHORIZED_EMAIL' });
                   return;
                 }
-              } else if (OWNER_EMAIL && userInfo.email.toLowerCase() !== OWNER_EMAIL.toLowerCase()) {
+              } else if (OWNER_EMAIL && String(userInfo.email || '').toLowerCase() !== String(OWNER_EMAIL || '').toLowerCase()) {
                 google.accounts.oauth2.revoke(response.access_token);
                 setAuthSession(null);
                 localStorage.removeItem(CLOUD_TOKEN_KEY);
@@ -445,8 +447,8 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     isCloudSyncing, syncStatus, spreadsheetName, googleUser: authSession, spreadsheetId, googleClientId: authClientId, 
     updateClientId, authenticate, syncAll,
     login: async (username: string, password: string) => {
-      // Fix: Ensure users is treated as User[] and safely handle potential undefined/null usernames
-      const found = (users as User[]).find((u: User) => (u.username || '').toLowerCase() === (username || '').toLowerCase() && u.passwordHash === password && !tombstones.has(u.id));
+      // FIXED: Explicitly cast to String to ensure toLowerCase exists and avoid potential 'never' type inference
+      const found = (users as User[]).find((u: User) => String(u.username || '').toLowerCase() === String(username || '').toLowerCase() && u.passwordHash === password && !tombstones.has(u.id));
       if (found) { setUser(found); return true; }
       return false;
     },
@@ -463,7 +465,11 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     addRecord: (r: PropertyRecord, v: RecordValue[]) => { const now = new Date().toISOString(); const mapped = v.reduce((acc, x) => ({...acc, [x.columnId]: x.value}), {}); setRecordValues([...recordValues, ...v]); setRecords([...records, r]); setUnitHistory([...unitHistory, { id: 'h' + Date.now(), recordId: r.id, values: mapped, effectiveFrom: now, effectiveTo: null }]); },
     updateRecord,
     deleteRecord: (id: string) => { setTombstones(prev => new Set(prev).add(id)); setRecords(records.filter(r => r.id !== id)); },
-    togglePayment: (rId: string, m: string, a: number, d: string, x: Partial<Payment> = {}, t: PaymentType = 'RENT') => { const ex = payments.find(p => p.recordId === rId && p.month === m && p.type === t); setPayments(ex ? payments.filter(p => p.id !== ex.id) : [...payments, { id: 'pay' + Date.now(), recordId: rId, month: m, amount: a, status: x.status || PaymentStatus.PAID, t: t, dueDate: d, paidAt: new Date().toISOString(), ...x } as Payment]); },
+    togglePayment: (rId: string, m: string, a: number, d: string, x: Partial<Payment> = {}, t: PaymentType = 'RENT') => { 
+      const ex = payments.find(p => p.recordId === rId && p.month === m && p.type === t); 
+      // FIXED: Corrected property name from 't' to 'type' as defined in Payment interface
+      setPayments(ex ? payments.filter(p => p.id !== ex.id) : [...payments, { id: 'pay' + Date.now(), recordId: rId, month: m, amount: a, status: x.status || PaymentStatus.PAID, type: t, dueDate: d, paidAt: new Date().toISOString(), ...x } as Payment]); 
+    },
     refundDeposit: (rId: string) => setPayments(payments.map(p => p.recordId === rId && p.type === 'DEPOSIT' ? { ...p, isRefunded: true } : p)),
     updateConfig: (u: Partial<AppConfig>) => setConfig({ ...config, ...u })
   };

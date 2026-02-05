@@ -128,7 +128,6 @@ const AdminInsights: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap gap-4 items-center">
-           {/* MANAGER SELECTOR */}
            <div className="flex items-center bg-white border border-slate-100 p-2 rounded-2xl shadow-sm gap-4 px-6 h-16">
               <div className="flex items-center gap-2">
                  <Users className="w-4 h-4 text-indigo-500" />
@@ -192,7 +191,7 @@ const AdminInsights: React.FC = () => {
                </div>
                <div className="flex gap-6">
                   <div className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-400"><div className="w-3 h-3 rounded-full bg-slate-100"></div> CapEx</div>
-                  <div className="flex items-center gap-2 text-[10px] font-black uppercase text-indigo-500"><div className="w-3 h-3 rounded-full bg-indigo-500"></div> Revenue</div>
+                  <div className="flex items-center gap-2 text-[10px] font-black uppercase text-indigo-50"><div className="w-3 h-3 rounded-full bg-indigo-500"></div> Revenue</div>
                </div>
             </div>
             <div className="flex-1 h-full">
@@ -242,10 +241,6 @@ const AdminInsights: React.FC = () => {
                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Profitable Assets</span>
                      <span className="text-sm font-black text-emerald-400">{propertyMetrics.filter(m => m.isBreakeven).length} / {propertyMetrics.length}</span>
                   </div>
-                  <div className="p-5 rounded-3xl bg-white/5 border border-white/5 flex items-center justify-between">
-                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Avg Year-to-Recov</span>
-                     <span className="text-sm font-black text-indigo-400">4.2 yrs</span>
-                  </div>
                </div>
             </div>
          </div>
@@ -257,7 +252,7 @@ const AdminInsights: React.FC = () => {
             <div className="flex items-center gap-5">
                <div className="p-4 bg-slate-900 text-white rounded-2xl shadow-xl"><LayoutGrid className="w-6 h-6" /></div>
                <div>
-                  <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">CapEx vs yield Inventory</h2>
+                  <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Yield Inventory</h2>
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Property wise investment management</p>
                </div>
             </div>
@@ -274,7 +269,7 @@ const AdminInsights: React.FC = () => {
                      <th className="px-10 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Asset Details</th>
                      <th className="px-10 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Total Investment</th>
                      <th className="px-10 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Lifetime Revenue</th>
-                     <th className="px-10 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Net Profit/Loss</th>
+                     <th className="px-10 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Net Position</th>
                      <th className="px-10 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">ROI Progress</th>
                   </tr>
                </thead>
@@ -323,7 +318,7 @@ const AdminInsights: React.FC = () => {
                            <div className="flex flex-col items-center">
                               <span className="text-base font-black text-slate-900">${asset.lifetimeRevenue.toLocaleString()}</span>
                               <div className="flex items-center gap-1 text-[9px] font-black text-emerald-500 uppercase tracking-tighter mt-1">
-                                 <TrendingUp className="w-3 h-3" /> Growth Detected
+                                 <TrendingUp className="w-3 h-3" /> Yield
                               </div>
                            </div>
                         </td>
@@ -343,9 +338,6 @@ const AdminInsights: React.FC = () => {
                                     style={{ width: `${Math.min(asset.roi, 100)}%` }}
                                  ></div>
                               </div>
-                              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                                 {asset.roi >= 100 ? 'ASSET PROFITABLE' : `${(100 - asset.roi).toFixed(1)}% TO BREAKEVEN`}
-                              </span>
                            </div>
                         </td>
                      </tr>

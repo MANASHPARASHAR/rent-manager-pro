@@ -38,7 +38,6 @@ const Login: React.FC = () => {
   const [googleInfo, setGoogleInfo] = useState<{name: string, email: string} | null>(null);
 
   const hasUsers = store.users && store.users.length > 0;
-  // FIX: Setup is considered "Configured" if spreadsheetId exists, regardless of token expiry
   const isCloudConfigured = !!store.spreadsheetId;
 
   // Auto-redirect to Login if cloud is already configured and users exist
@@ -99,8 +98,6 @@ const Login: React.FC = () => {
         setError("SECURITY ALERT: This email is not authorized for this workspace. Access Denied.");
       } else if (result && !result.error) {
         setGoogleInfo({ name: result.name, email: result.email });
-        
-        // If users already exist, setup is complete, go to login
         if (store.users.length > 0) {
           setView('LOGIN');
         } else {
@@ -127,8 +124,8 @@ const Login: React.FC = () => {
     try {
       const newUser = {
         id: 'u-admin-' + Date.now(),
-        username: googleInfo?.email.toLowerCase() || 'admin',
-        name: googleInfo?.name || 'Super Admin',
+        username: googleInfo?.email.toLowerCase() || '',
+        name: googleInfo?.name || '',
         role: UserRole.ADMIN,
         passwordHash: password,
         createdAt: new Date().toISOString()
@@ -332,11 +329,11 @@ const Login: React.FC = () => {
     <div className="space-y-10 animate-in slide-in-from-bottom-8 duration-500">
       <div className="flex items-center gap-6 p-6 bg-white/5 border border-white/10 rounded-[2.5rem]">
          <div className="w-16 h-16 rounded-2xl bg-indigo-600 flex items-center justify-center shadow-xl shadow-indigo-600/20 text-white font-black text-2xl uppercase">
-            {googleInfo?.name.charAt(0)}
+            {googleInfo?.name.charAt(0) || '?'}
          </div>
          <div>
-            <h3 className="text-2xl font-black text-white uppercase tracking-tight leading-none mb-1">{googleInfo?.name}</h3>
-            <p className="text-indigo-400 text-[10px] font-black uppercase tracking-widest">Authorized Super Admin Identity</p>
+            <h3 className="text-2xl font-black text-white uppercase tracking-tight leading-none mb-1">{googleInfo?.name || 'Initialize Admin'}</h3>
+            <p className="text-indigo-400 text-[10px] font-black uppercase tracking-widest">Authorized Identity Found</p>
          </div>
       </div>
       <div className="space-y-6">
