@@ -61,6 +61,8 @@ export interface Property {
   city?: string;
   createdAt: string;
   isVisibleToManager?: boolean;
+  allowedUserIds?: string[];
+  totalInvestment?: number;
 }
 
 export interface PropertyRecord {

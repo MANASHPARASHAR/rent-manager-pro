@@ -105,7 +105,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const batchData = [
         { tab: "Users", rows: [["ID", "Username", "Name", "Role", "PassHash", "Created"], ...s.users.map((u: any) => [u.id, u.username, u.name, u.role, u.passwordHash, u.createdAt])] },
         { tab: "PropertyTypes", rows: [["ID", "Name", "ColumnsJSON", "DueDay"], ...s.propertyTypes.map((t: any) => [t.id, t.name, JSON.stringify(t.columns), t.defaultDueDateDay])] },
-        { tab: "Properties", rows: [["ID", "Name", "TypeID", "Address", "Created", "Visible", "City"], ...s.properties.map((p: any) => [p.id, p.name, p.propertyTypeId, p.address, p.createdAt, String(p.isVisibleToManager !== false), p.city || ''])] },
+        { tab: "Properties", rows: [["ID", "Name", "TypeID", "Address", "Created", "Visible", "City", "AllowedUsersJSON", "Investment"], ...s.properties.map((p: any) => [p.id, p.name, p.propertyTypeId, p.address, p.createdAt, String(p.isVisibleToManager !== false), p.city || '', JSON.stringify(p.allowedUserIds || []), p.totalInvestment || 0])] },
         { tab: "Records", rows: [["ID", "PropID", "Created", "Updated"], ...s.records.map((r: any) => [r.id, r.propertyId, r.createdAt, r.updatedAt])] },
         { tab: "RecordValues", rows: [["ID", "RecordID", "ColID", "Value"], ...s.recordValues.map((v: any) => [v.id, v.recordId, v.columnId, v.value])] },
         { tab: "Payments", rows: [["ID", "RecID", "Month", "Amount", "Status", "Type", "Due", "PaidAt", "PaidTo", "Mode", "Refunded"], ...s.payments.map((p: any) => [p.id, p.recordId, p.month, p.amount, p.status, p.type, p.dueDate, p.paidAt, p.paidTo, p.paymentMode, String(p.isRefunded === true)])] },
@@ -235,7 +235,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       const parsedUsers = parse(0).map((r: any) => ({ id: r[0], username: r[1], name: r[2], role: r[3] as UserRole, passwordHash: r[4], createdAt: r[5] })).filter(u => u.id && !currentTombstones.has(u.id));
       const parsedTypes = parse(1).map((r: any) => ({ id: r[0], name: r[1], columns: JSON.parse(r[2] || '[]'), defaultDueDateDay: parseInt(r[3] || '5') })).filter(t => t.id && !currentTombstones.has(t.id));
-      const parsedProps = parse(2).map((r: any) => ({ id: r[0], name: r[1], propertyTypeId: r[2], address: r[3], createdAt: r[4], isVisibleToManager: r[5] !== 'false', city: r[6] || '' })).filter(p => p.id && !currentTombstones.has(p.id));
+      const parsedProps = parse(2).map((r: any) => ({ id: r[0], name: r[1], propertyTypeId: r[2], address: r[3], createdAt: r[4], isVisibleToManager: r[5] !== 'false', city: r[6] || '', allowedUserIds: JSON.parse(r[7] || '[]'), totalInvestment: parseFloat(r[8] || '0') })).filter(p => p.id && !currentTombstones.has(p.id));
       const pRecords = parse(3).map(r => ({ id: r[0], propertyId: r[1], createdAt: r[2], updatedAt: r[3] })).filter(r => r.id && !currentTombstones.has(r.id));
       const pVals = parse(4).map(r => ({ id: r[0], recordId: r[1], columnId: r[2], value: r[3] })).filter(v => v.id && !currentTombstones.has(v.recordId));
       const pPays = parse(5).map(r => ({ id: r[0], recordId: r[1], month: r[2], amount: parseFloat(r[3] || '0'), status: r[4] as PaymentStatus, type: r[5], dueDate: r[6], paidAt: r[7], paidTo: r[8], paymentMode: r[9], isRefunded: r[10] === 'true' })).filter(p => p.id && !currentTombstones.has(p.recordId));
@@ -318,13 +318,11 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                 headers: { Authorization: `Bearer ${response.access_token}` }
               }).then(res => res.json());
 
-              // PRODUCTION SECURITY: Only allow if system is blank OR if email exists in authorized users
               const systemUsers = stateRef.current.users;
               const isFirstSetup = systemUsers.length === 0;
               const isAuthorized = systemUsers.some(u => u.username.toLowerCase() === userInfo.email.toLowerCase());
 
               if (!isFirstSetup && !isAuthorized) {
-                // Not authorized - force signout
                 google.accounts.oauth2.revoke(response.access_token);
                 resolve({ error: 'UNAUTHORIZED_EMAIL' });
                 return;
@@ -424,7 +422,9 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       address: '101 Midtown Blvd, NY',
       city: 'New York',
       createdAt: new Date().toISOString(),
-      isVisibleToManager: true
+      isVisibleToManager: true,
+      allowedUserIds: [],
+      totalInvestment: 500000
     };
 
     const dummyUnits = [
@@ -519,7 +519,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     addPropertyType: (t: PropertyType) => setPropertyTypes([...propertyTypes, t]),
     updatePropertyType: (t: PropertyType) => setPropertyTypes(propertyTypes.map(x => x.id === t.id ? t : x)),
     deletePropertyType: (id: string) => { setTombstones(prev => new Set(prev).add(id)); setPropertyTypes(propertyTypes.filter(t => t.id !== id)); },
-    addProperty: (p: Property) => setProperties([...properties, { ...p, isVisibleToManager: true }]),
+    addProperty: (p: Property) => setProperties([...properties, { ...p, isVisibleToManager: true, allowedUserIds: p.allowedUserIds || [] }]),
     updateProperty: (id: string, u: Partial<Property>) => setProperties(properties.map(p => p.id === id ? { ...p, ...u } : p)),
     togglePropertyVisibility: (id: string) => setProperties(properties.map(p => p.id === id ? { ...p, isVisibleToManager: p.isVisibleToManager === false } : p)),
     deleteProperty: (id: string) => { const rIds = records.filter(r => r.propertyId === id).map(r => r.id); setTombstones(prev => { const n = new Set(prev); n.add(id); rIds.forEach(rid => n.add(rid)); return n; }); setProperties(properties.filter(p => p.id !== id)); setRecords(records.filter(r => r.propertyId !== id)); },

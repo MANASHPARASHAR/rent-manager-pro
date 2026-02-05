@@ -9,7 +9,7 @@ import {
   Calendar, Download, ArrowUpRight, Wallet, 
   ChevronLeft, ChevronRight, Zap, History, User,
   CalendarDays, ChevronDown, Landmark, CreditCard, ShieldCheck,
-  Building2, Layers
+  Building2, Layers, Filter
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { PaymentStatus, Payment, UserRole } from '../types';
@@ -169,80 +169,82 @@ const Reports: React.FC = () => {
 
   return (
     <div className="space-y-10 animate-in fade-in duration-700 pb-20 max-w-[1400px] mx-auto">
-      <header className="flex flex-col xl:flex-row xl:items-end justify-between gap-8 bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
-        <div>
-          <div className="flex items-center gap-2 text-indigo-600 font-bold mb-1">
-            <PieIcon className="w-4 h-4" />
-            <span className="text-[10px] uppercase tracking-widest font-black text-indigo-400">Financial Audit Engine</span>
+      {/* HEADER SECTION - REFACTORED FOR RESPONSIVENESS */}
+      <header className="bg-white p-6 md:p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-8">
+        <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-indigo-600 font-bold">
+              <PieIcon className="w-4 h-4" />
+              <span className="text-[10px] uppercase tracking-widest font-black text-indigo-400">Financial Audit Engine</span>
+            </div>
+            <h1 className="text-3xl md:text-4xl font-black text-slate-900 tracking-tight uppercase">Capital Analysis</h1>
+            <p className="text-slate-500 font-medium text-sm">Insights into collection efficiency and revenue distribution.</p>
           </div>
-          <h1 className="text-4xl font-black text-slate-900 tracking-tight uppercase">Capital Analysis</h1>
-          <p className="text-slate-500 mt-1 font-medium">Insights into collection efficiency and revenue distribution.</p>
+          
+          <button className="hidden lg:flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg self-start">
+            <Download className="w-4 h-4" /> Export Report
+          </button>
         </div>
 
-        <div className="flex flex-col lg:flex-row items-center gap-4">
-          <div className="bg-slate-100 p-1.5 rounded-2xl flex items-center shadow-inner">
+        {/* CONTROLS SECTION - FLEX WRAP TO PREVENT OVERFLOW */}
+        <div className="flex flex-wrap items-center gap-4 border-t border-slate-50 pt-8">
+          {/* Modality Selector */}
+          <div className="flex bg-slate-100 p-1 rounded-2xl shadow-inner min-w-fit overflow-hidden">
              {(['RENT', 'ELECTRICITY', 'DEPOSIT'] as Modality[]).map((m) => (
                <button 
                 key={m}
                 onClick={() => setActiveModality(m)}
-                className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeModality === m ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}
+                className={`px-4 md:px-6 py-2.5 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all ${activeModality === m ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-600'}`}
                >
                  {m}
                </button>
              ))}
           </div>
 
-          <div className="bg-slate-100 p-1.5 rounded-2xl flex items-center shadow-inner">
+          {/* Filter Type Selector */}
+          <div className="flex bg-slate-100 p-1 rounded-2xl shadow-inner min-w-fit overflow-hidden">
              {(['monthly', 'annual', 'custom'] as FilterType[]).map((type) => (
                <button 
                 key={type}
                 onClick={() => setFilterType(type)}
-                className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${filterType === type ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                className={`px-4 py-2.5 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all ${filterType === type ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
                >
                  {type}
                </button>
              ))}
           </div>
 
-          <div className="bg-slate-50 border border-slate-100 px-4 py-2 rounded-2xl flex items-center gap-2 min-h-[50px]">
+          {/* Date Pickers - Compact & Responsive */}
+          <div className="flex-1 min-w-[280px] bg-slate-50 border border-slate-100 px-4 py-1.5 rounded-2xl flex items-center justify-center lg:justify-start gap-4">
             {filterType === 'monthly' && (
-              <div 
-                className="flex items-center gap-2 cursor-pointer hover:bg-slate-100 px-2 py-1 rounded-xl transition-colors group/month"
-                onClick={(e) => { try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(err) {} }}
-              >
-                <button 
-                  onClick={(e) => { e.stopPropagation(); navigateMonth(-1); }} 
-                  className="p-1 hover:text-indigo-600 transition-colors"
-                >
-                  <ChevronLeft className="w-4 h-4" />
+              <div className="flex items-center gap-3 w-full justify-between lg:justify-start">
+                <button onClick={() => navigateMonth(-1)} className="p-2 hover:bg-slate-200 rounded-xl transition-colors text-slate-400 hover:text-indigo-600">
+                  <ChevronLeft className="w-5 h-5" />
                 </button>
-                <div className="flex items-center gap-3">
-                  <CalendarDays className="w-4 h-4 text-indigo-500 group-hover/month:scale-110 transition-transform" />
+                <div className="flex items-center gap-3 flex-1 lg:flex-none justify-center">
+                  <CalendarDays className="w-4 h-4 text-indigo-500 shrink-0" />
                   <input 
                     type="month"
-                    className="bg-transparent border-none text-xs font-black uppercase text-slate-900 outline-none cursor-pointer"
+                    className="bg-transparent border-none text-[11px] font-black uppercase text-slate-900 outline-none cursor-pointer min-w-[120px]"
                     value={selectedMonth}
                     onChange={(e) => setSelectedMonth(e.target.value)}
                   />
                 </div>
-                <button 
-                  onClick={(e) => { e.stopPropagation(); navigateMonth(1); }} 
-                  className="p-1 hover:text-indigo-600 transition-colors"
-                >
-                  <ChevronRight className="w-4 h-4" />
+                <button onClick={() => navigateMonth(1)} className="p-2 hover:bg-slate-200 rounded-xl transition-colors text-slate-400 hover:text-indigo-600">
+                  <ChevronRight className="w-5 h-5" />
                 </button>
               </div>
             )}
 
             {filterType === 'annual' && (
-              <div className="flex items-center gap-2">
-                <button onClick={() => navigateYear(-1)} className="p-1 hover:text-indigo-600 transition-colors">
-                  <ChevronLeft className="w-4 h-4" />
+              <div className="flex items-center gap-3 w-full justify-between lg:justify-start">
+                <button onClick={() => navigateYear(-1)} className="p-2 hover:bg-slate-200 rounded-xl transition-colors text-slate-400 hover:text-indigo-600">
+                  <ChevronLeft className="w-5 h-5" />
                 </button>
-                <div className="flex items-center gap-3">
-                  <TrendingUp className="w-4 h-4 text-indigo-500" />
+                <div className="flex items-center gap-3 flex-1 lg:flex-none justify-center">
+                  <TrendingUp className="w-4 h-4 text-indigo-500 shrink-0" />
                   <select 
-                    className="bg-transparent border-none text-xs font-black uppercase text-slate-900 outline-none cursor-pointer appearance-none pr-8"
+                    className="bg-transparent border-none text-[11px] font-black uppercase text-slate-900 outline-none cursor-pointer appearance-none pr-8"
                     value={selectedYear}
                     onChange={(e) => setSelectedYear(e.target.value)}
                   >
@@ -252,37 +254,35 @@ const Reports: React.FC = () => {
                   </select>
                   <ChevronDown className="w-3 h-3 text-slate-400 -ml-7 pointer-events-none" />
                 </div>
-                <button onClick={() => navigateYear(1)} className="p-1 hover:text-indigo-600 transition-colors">
-                  <ChevronRight className="w-4 h-4" />
+                <button onClick={() => navigateYear(1)} className="p-2 hover:bg-slate-200 rounded-xl transition-colors text-slate-400 hover:text-indigo-600">
+                  <ChevronRight className="w-5 h-5" />
                 </button>
               </div>
             )}
 
             {filterType === 'custom' && (
-              <div className="flex items-center gap-3">
-                <CalendarDays className="w-4 h-4 text-indigo-500" />
-                <div className="flex items-center gap-2">
-                  <div 
-                    className="cursor-pointer hover:bg-slate-100 px-2 py-1 rounded-xl transition-colors group/start"
-                    onClick={(e) => { try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(err) {} }}
-                  >
-                     <input type="date" className="bg-transparent border-none text-[10px] font-black uppercase text-slate-900 outline-none cursor-pointer" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-                  </div>
-                  <div className="text-slate-300">→</div>
-                  <div 
-                    className="cursor-pointer hover:bg-slate-100 px-2 py-1 rounded-xl transition-colors group/end"
-                    onClick={(e) => { try { (e.currentTarget.querySelector('input') as any)?.showPicker(); } catch(err) {} }}
-                  >
-                     <input type="date" className="bg-transparent border-none text-[10px] font-black uppercase text-slate-900 outline-none cursor-pointer" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-                  </div>
+              <div className="flex items-center gap-4 w-full overflow-x-auto no-scrollbar">
+                <div className="flex items-center gap-2 bg-white/50 px-3 py-1.5 rounded-xl border border-slate-100">
+                  <CalendarDays className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                  <input type="date" className="bg-transparent border-none text-[9px] font-black uppercase text-slate-900 outline-none cursor-pointer" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                </div>
+                <div className="text-slate-300 font-bold">→</div>
+                <div className="flex items-center gap-2 bg-white/50 px-3 py-1.5 rounded-xl border border-slate-100">
+                  <CalendarDays className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                  <input type="date" className="bg-transparent border-none text-[9px] font-black uppercase text-slate-900 outline-none cursor-pointer" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
                 </div>
               </div>
             )}
           </div>
+          
+          <button className="flex lg:hidden items-center justify-center gap-2 w-full mt-2 py-4 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg">
+            <Download className="w-4 h-4" /> Export Report
+          </button>
         </div>
       </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      {/* STAT CARDS SECTION */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         {[
           { label: 'Total Settled', val: activeModality === 'RENT' ? analyticsData.totalRent : activeModality === 'ELECTRICITY' ? analyticsData.totalElectricity : (analyticsData.totalDeposits - analyticsData.totalRefunds), sub: 'Confirmed transactions', icon: Wallet, color: 'text-indigo-600', bg: 'bg-indigo-50' },
           { label: 'Electricity Revenue', val: analyticsData.totalElectricity, sub: 'Power bill collection', icon: Zap, color: 'text-amber-600', bg: 'bg-amber-50' },

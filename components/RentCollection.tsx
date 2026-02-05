@@ -39,12 +39,12 @@ import {
   ClipboardList
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
-import { PaymentStatus, ColumnType, Payment, UnitHistory, ColumnDefinition, RecordValue } from '../types';
+import { PaymentStatus, ColumnType, Payment, UnitHistory, ColumnDefinition, RecordValue, Property, UserRole } from '../types';
 
 const RentCollection: React.FC = () => {
   const store = useRentalStore();
-  const isAdmin = store.user?.role === 'ADMIN';
-  const isManager = store.user?.role === 'MANAGER';
+  const isAdmin = store.user?.role === UserRole.ADMIN;
+  const isManager = store.user?.role === UserRole.MANAGER;
   
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const d = new Date();
@@ -90,16 +90,16 @@ const RentCollection: React.FC = () => {
     setSelectedMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
   };
 
-  // Fix typo: use 'd' instead of 'date' which was undefined
   const jumpToToday = () => {
     const d = new Date();
     setSelectedMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
   };
 
   const visibleProperties = useMemo(() => {
-    if (!isManager) return store.properties;
-    return store.properties.filter((p: any) => p.isVisibleToManager !== false);
-  }, [store.properties, isManager]);
+    return (store.properties || []).filter((p: Property) => 
+      isAdmin || (p.allowedUserIds || []).includes(store.user?.id || '')
+    );
+  }, [store.properties, store.user, isAdmin]);
 
   const visiblePropertyIds = useMemo(() => visibleProperties.map((p: any) => p.id), [visibleProperties]);
 

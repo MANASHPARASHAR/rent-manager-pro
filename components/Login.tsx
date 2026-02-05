@@ -139,9 +139,15 @@ const Login: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* OPTION 1: CLOUD SYNC */}
+        {/* OPTION 1: CLOUD SYNC - Skip to login if already configured */}
         <button 
-          onClick={() => setView(clientId ? 'SETUP_CONNECT' : 'SETUP_CONFIG')}
+          onClick={() => {
+            if (isCloudConfigured) {
+              setView('LOGIN');
+            } else {
+              setView(clientId ? 'SETUP_CONNECT' : 'SETUP_CONFIG');
+            }
+          }}
           className="group relative bg-white/5 border border-white/10 p-10 rounded-[3rem] text-left hover:bg-indigo-600/10 hover:border-indigo-500/50 transition-all duration-500 overflow-hidden"
         >
           <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:opacity-20 transition-opacity">
@@ -152,9 +158,11 @@ const Login: React.FC = () => {
               <Cloud className="w-7 h-7" />
             </div>
             <h3 className="text-2xl font-black text-white uppercase tracking-tight mb-2">Workspace Link</h3>
-            <p className="text-slate-400 text-xs font-medium leading-relaxed uppercase tracking-wide">Sync with organization database via Google Cloud.</p>
+            <p className="text-slate-400 text-xs font-medium leading-relaxed uppercase tracking-wide">
+              {isCloudConfigured ? 'Directly access your synced organization database.' : 'Sync with organization database via Google Cloud.'}
+            </p>
             <div className="mt-8 flex items-center gap-2 text-[10px] font-black text-indigo-400 uppercase tracking-widest">
-              Establish Sync <ArrowRight className="w-4 h-4" />
+              {isCloudConfigured ? 'Proceed to Login' : 'Establish Sync'} <ArrowRight className="w-4 h-4" />
             </div>
           </div>
         </button>

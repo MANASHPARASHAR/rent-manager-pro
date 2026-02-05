@@ -27,7 +27,8 @@ import {
   ShieldCheck,
   Zap,
   CheckCircle,
-  AlertTriangle
+  AlertTriangle,
+  BarChart3
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { UserRole } from '../types';
@@ -59,6 +60,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { path: '/collection', label: 'Collection', icon: CreditCard },
     { path: '/reports', label: 'Analytics', icon: PieChart },
     ...(isAdmin ? [
+      { path: '/insights', label: 'Insights', icon: BarChart3 },
       { path: '/team', label: 'Team', icon: Users },
       { path: '/types', label: 'Schemas', icon: Settings }
     ] : []),
