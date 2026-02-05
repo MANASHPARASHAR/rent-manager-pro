@@ -12,7 +12,7 @@ import {
   Building2, Layers, Filter
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
-import { PaymentStatus, Payment, UserRole } from '../types';
+import { PaymentStatus, Payment, UserRole, Property } from '../types';
 
 type FilterType = 'monthly' | 'annual' | 'custom';
 type Modality = 'RENT' | 'DEPOSIT' | 'ELECTRICITY';
@@ -36,8 +36,14 @@ const Reports: React.FC = () => {
   const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4', '#ef4444', '#14b8a6', '#f43f5e'];
 
   const analyticsData = useMemo(() => {
-    const isManager = store.user?.role === UserRole.MANAGER;
-    const visibleProps = isManager ? store.properties.filter((p: any) => p.isVisibleToManager) : store.properties;
+    const isAdmin = store.user?.role === UserRole.ADMIN;
+    const userId = store.user?.id || '';
+
+    // STRICTOR VISIBILITY: Filter properties based on assigned access
+    const visibleProps = (store.properties || []).filter((p: Property) => 
+      isAdmin || (p.allowedUserIds || []).includes(userId)
+    );
+
     const visibleIds = visibleProps.map((p: any) => p.id);
     const records = store.records.filter((r: any) => visibleIds.includes(r.propertyId));
     const recordIds = records.map((r: any) => r.id);
@@ -169,7 +175,7 @@ const Reports: React.FC = () => {
 
   return (
     <div className="space-y-10 animate-in fade-in duration-700 pb-20 max-w-[1400px] mx-auto">
-      {/* HEADER SECTION - REFACTORED FOR RESPONSIVENESS */}
+      {/* HEADER SECTION */}
       <header className="bg-white p-6 md:p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-8">
         <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6">
           <div className="space-y-1">
@@ -186,9 +192,7 @@ const Reports: React.FC = () => {
           </button>
         </div>
 
-        {/* CONTROLS SECTION - FLEX WRAP TO PREVENT OVERFLOW */}
         <div className="flex flex-wrap items-center gap-4 border-t border-slate-50 pt-8">
-          {/* Modality Selector */}
           <div className="flex bg-slate-100 p-1 rounded-2xl shadow-inner min-w-fit overflow-hidden">
              {(['RENT', 'ELECTRICITY', 'DEPOSIT'] as Modality[]).map((m) => (
                <button 
@@ -201,7 +205,6 @@ const Reports: React.FC = () => {
              ))}
           </div>
 
-          {/* Filter Type Selector */}
           <div className="flex bg-slate-100 p-1 rounded-2xl shadow-inner min-w-fit overflow-hidden">
              {(['monthly', 'annual', 'custom'] as FilterType[]).map((type) => (
                <button 
@@ -214,7 +217,6 @@ const Reports: React.FC = () => {
              ))}
           </div>
 
-          {/* Date Pickers - Compact & Responsive */}
           <div className="flex-1 min-w-[280px] bg-slate-50 border border-slate-100 px-4 py-1.5 rounded-2xl flex items-center justify-center lg:justify-start gap-4">
             {filterType === 'monthly' && (
               <div className="flex items-center gap-3 w-full justify-between lg:justify-start">

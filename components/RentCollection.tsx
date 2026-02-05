@@ -259,6 +259,22 @@ const RentCollection: React.FC = () => {
     else if (type === 'DEPOSIT') amount = record.depositAmount;
     else amount = 0;
 
+    /**
+     * LOGIC FIX: Sync Settlement Date with Selected Ledger Month
+     * If the user is viewing May 2024, the date should default to May.
+     */
+    const now = new Date();
+    const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    
+    let defaultDate = '';
+    if (selectedMonth === currentMonthKey) {
+      // If viewing current month, use today's full date
+      defaultDate = now.toISOString().split('T')[0];
+    } else {
+      // If viewing a different month, default to the 1st of that month
+      defaultDate = `${selectedMonth}-01`;
+    }
+
     setPaymentModal({
       isOpen: true,
       record,
@@ -266,7 +282,7 @@ const RentCollection: React.FC = () => {
       amount,
       paidTo: store.config.paidToOptions?.[0] || '',
       mode: store.config.paymentModeOptions?.[0] || '',
-      date: new Date().toISOString().split('T')[0]
+      date: defaultDate
     });
   };
 
@@ -302,7 +318,6 @@ const RentCollection: React.FC = () => {
   const handleSaveTemporalAction = () => {
     const { type, record, formValues, effectiveDate } = temporalAction;
     
-    // NEW: Strict validation for onboarding
     if (type === 'TENANT') {
       const errors: any = {};
       record.propertyType?.columns.forEach((col: ColumnDefinition) => {
@@ -494,7 +509,7 @@ const RentCollection: React.FC = () => {
             <table className="w-full text-left">
                <thead className="sticky top-0 z-10 bg-white border-b border-slate-100 shadow-sm">
                   <tr className="bg-white">
-                     <th className="px-8 py-5 text-[11px] font-black text-slate-400 uppercase tracking-widest sticky left-0 z-20 bg-white shadow-[3px_0_10px_rgba(0,0,0,0.05)]">Unit & Member</th>
+                     <th className="px-8 py-5 text-[11px] font-black text-slate-400 uppercase tracking-widest sticky left-0 z-20 bg-white shadow-[3px_0_10_rgba(0,0,0,0.05)]">Unit & Member</th>
                      
                      {dynamicLedgerHeaders.map(header => (
                         <th key={header.id} className="px-8 py-5 text-[11px] font-black text-slate-400 uppercase tracking-widest text-center whitespace-nowrap">
@@ -511,7 +526,7 @@ const RentCollection: React.FC = () => {
                <tbody className="divide-y divide-slate-50">
                   {recordsWithRent.map((record) => (
                     <tr key={record.id} className={`group hover:bg-slate-50/50 transition-all ${record.isVacant ? 'opacity-50' : ''}`}>
-                       <td className="px-8 py-6 sticky left-0 z-10 bg-white group-hover:bg-slate-50 transition-colors shadow-[3px_0_10px_rgba(0,0,0,0.05)]">
+                       <td className="px-8 py-6 sticky left-0 z-10 bg-white group-hover:bg-slate-50 transition-colors shadow-[3px_0_10_rgba(0,0,0,0.05)]">
                           <div className="flex items-center gap-4">
                              <div className="w-12 h-12 bg-slate-50 rounded-xl flex items-center justify-center text-slate-300 shadow-inner group-hover:bg-indigo-50 group-hover:text-indigo-500 transition-colors">
                                 <Building2 className="w-6 h-6" />
@@ -607,7 +622,6 @@ const RentCollection: React.FC = () => {
                                  const statusCol = record.propertyType?.columns.find((c: any) => c.type === ColumnType.OCCUPANCY_STATUS);
                                  if (statusCol) freshValues[statusCol.id] = 'Active';
                                  
-                                 // Auto-sync initial Rent Date with today's effective date
                                  const rentDateCol = record.propertyType?.columns.find((c: any) => c.name.toLowerCase() === 'rent date');
                                  const today = new Date().toISOString().split('T')[0];
                                  if (rentDateCol) freshValues[rentDateCol.id] = today;
@@ -753,7 +767,7 @@ const RentCollection: React.FC = () => {
                  {unitTimeline.length > 0 ? (
                     unitTimeline.map((item: any, idx) => {
                        const isTenantChange = item.eventType === 'TENANT_CHANGE';
-                       const pType = item.type; // RENT, DEPOSIT, ELECTRICITY
+                       const pType = item.type;
                        
                        const getPaymentIcon = () => {
                          if (isTenantChange) return <User className="w-4 h-4 text-white" />;
@@ -867,7 +881,6 @@ const RentCollection: React.FC = () => {
                         const newDate = e.target.value;
                         const updatedValues = { ...temporalAction.formValues };
                         
-                        // NEW: Automated Rent Date syncing
                         const rentDateCol = temporalAction.record.propertyType?.columns.find((c: any) => c.name.toLowerCase() === 'rent date');
                         if (rentDateCol && temporalAction.type === 'TENANT') {
                           updatedValues[rentDateCol.id] = newDate;
@@ -889,7 +902,6 @@ const RentCollection: React.FC = () => {
                       const isStatus = col.type === ColumnType.OCCUPANCY_STATUS;
                       const isRelevant = temporalAction.type === 'TENANT' ? true : isStatus;
                       
-                      // NEW: Disable logic for synchronized Rent Date
                       const isSynchronizedRentDate = temporalAction.type === 'TENANT' && col.name.toLowerCase() === 'rent date';
 
                       if (!isRelevant) return null;
