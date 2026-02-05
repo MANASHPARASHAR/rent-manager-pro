@@ -145,6 +145,16 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [users, propertyTypes, properties, records, recordValues, unitHistory, payments, config, tombstones, syncAll]);
 
+  // 🌍 AUTO-RECONNECT SYNC: When internet comes back, push offline changes.
+  useEffect(() => {
+    const handleOnline = () => {
+      console.log("Internet restored. Triggering cloud sync...");
+      syncAll();
+    };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [syncAll]);
+
   const loadAllData = useCallback(async (id: string) => {
     const gapi = (window as any).gapi;
     if (!gapi?.client?.sheets || !authSession) {
@@ -328,7 +338,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             if (response.access_token) {
               const userInfo = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
                 headers: { Authorization: `Bearer ${response.access_token}` }
-              }).then(res => res.json());
+              }).then(res => JSON.parse(res as any));
 
               setAuthSession(response);
               const gapi = (window as any).gapi;
