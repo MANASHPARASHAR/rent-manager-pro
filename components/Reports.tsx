@@ -9,18 +9,22 @@ import {
   Calendar, Download, ArrowUpRight, Wallet, 
   ChevronLeft, ChevronRight, Zap, History, User,
   CalendarDays, ChevronDown, Landmark, CreditCard, ShieldCheck,
-  Building2, Layers, Filter
+  Building2, Layers, Filter, Users
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
-import { PaymentStatus, Payment, UserRole, Property } from '../types';
+import { PaymentStatus, Payment, UserRole, Property, User as UserType } from '../types';
 
 type FilterType = 'monthly' | 'annual' | 'custom';
 type Modality = 'RENT' | 'DEPOSIT' | 'ELECTRICITY';
 
 const Reports: React.FC = () => {
   const store = useRentalStore();
+  const isAdmin = store.user?.role === UserRole.ADMIN;
+  
   const [activeModality, setActiveModality] = useState<Modality>('RENT');
   const [filterType, setFilterType] = useState<FilterType>('monthly');
+  const [managerFilter, setManagerFilter] = useState<string>('all');
+  
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -35,14 +39,21 @@ const Reports: React.FC = () => {
 
   const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4', '#ef4444', '#14b8a6', '#f43f5e'];
 
+  const managers = useMemo(() => {
+    return (store.users || []).filter((u: UserType) => u.role === UserRole.MANAGER);
+  }, [store.users]);
+
   const analyticsData = useMemo(() => {
-    const isAdmin = store.user?.role === UserRole.ADMIN;
     const userId = store.user?.id || '';
 
-    // STRICTOR VISIBILITY: Filter properties based on assigned access
-    const visibleProps = (store.properties || []).filter((p: Property) => 
-      isAdmin || (p.allowedUserIds || []).includes(userId)
-    );
+    // STRICTOR VISIBILITY: Filter properties based on assigned access or Manager Perspective (for Admins)
+    const visibleProps = (store.properties || []).filter((p: Property) => {
+      if (isAdmin) {
+        if (managerFilter === 'all') return true;
+        return (p.allowedUserIds || []).includes(managerFilter);
+      }
+      return (p.allowedUserIds || []).includes(userId);
+    });
 
     const visibleIds = visibleProps.map((p: any) => p.id);
     const records = store.records.filter((r: any) => visibleIds.includes(r.propertyId));
@@ -145,7 +156,7 @@ const Reports: React.FC = () => {
       totalRent, totalDeposits, totalElectricity, totalRefunds, netFlow: totalRent + totalDeposits + totalElectricity - totalRefunds,
       timeSeries, propertyData, modeData, recipientData, attributionMatrix
     };
-  }, [store, filterType, selectedMonth, selectedYear, startDate, endDate, activeModality]);
+  }, [store, filterType, selectedMonth, selectedYear, startDate, endDate, activeModality, managerFilter, isAdmin]);
 
   const navigateMonth = (direction: number) => {
     const [year, month] = selectedMonth.split('-').map(Number);
@@ -187,9 +198,29 @@ const Reports: React.FC = () => {
             <p className="text-slate-500 font-medium text-sm">Insights into collection efficiency and revenue distribution.</p>
           </div>
           
-          <button className="hidden lg:flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg self-start">
-            <Download className="w-4 h-4" /> Export Report
-          </button>
+          <div className="flex flex-wrap items-center gap-4">
+            {isAdmin && (
+              <div className="flex items-center bg-slate-50 border border-slate-100 p-2 rounded-2xl shadow-sm gap-4 px-6 h-14">
+                 <div className="flex items-center gap-2">
+                    <Users className="w-4 h-4 text-indigo-500" />
+                    <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Perspective:</span>
+                 </div>
+                 <select 
+                   className="bg-transparent border-none text-xs font-black uppercase text-indigo-600 outline-none cursor-pointer"
+                   value={managerFilter}
+                   onChange={(e) => setManagerFilter(e.target.value)}
+                 >
+                    <option value="all">Portfolio (All)</option>
+                    {managers.map(m => (
+                       <option key={m.id} value={m.id}>{m.name}</option>
+                    ))}
+                 </select>
+              </div>
+            )}
+            <button className="flex items-center gap-2 px-6 py-4 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg self-start">
+              <Download className="w-4 h-4" /> Export Report
+            </button>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-4 border-t border-slate-50 pt-8">
