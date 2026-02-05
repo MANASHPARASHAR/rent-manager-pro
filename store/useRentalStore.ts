@@ -19,8 +19,6 @@ const RentalContext = createContext<any>(null);
 
 /**
  * 🔒 PRODUCTION SECURITY CONFIG
- * IMPORTANT: Enter your primary Gmail address here before deploying.
- * Only THIS email will be allowed to initialize the system for the first time.
  */
 const OWNER_EMAIL = ""; 
 
@@ -72,7 +70,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [user, setUser] = useState<User | null>(null);
   const [isBooting, setIsBooting] = useState(true);
   const [isCloudSyncing, setIsCloudSyncing] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<'synced' | 'pending' | 'error' | 'reauth'>('synced');
+  const [syncStatus, setSyncStatus] = useState<'synced' | 'pending' | 'error' | 'reauth' | 'not_found'>('synced');
 
   const lastSyncHash = useRef('');
   const tokenClientRef = useRef<any>(null);
@@ -95,15 +93,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       cities: ['New York', 'Los Angeles', 'Chicago', 'Houston']
     }
   });
-
-  const startTokenRefreshTimer = useCallback(() => {
-    if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
-    refreshTimerRef.current = setInterval(() => {
-      if (tokenClientRef.current && authClientId) {
-        tokenClientRef.current.requestAccessToken({ prompt: '' }); 
-      }
-    }, 50 * 60 * 1000);
-  }, [authClientId]);
 
   const syncAll = useCallback(async () => {
     if (!spreadsheetId || !authSession || isSyncInProgress.current) return; 
@@ -131,7 +120,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ];
 
       for (const item of batchData) {
-        await gapi.client.sheets.spreadsheets.values.clear({ spreadsheetId, range: `${item.tab}!A1:Z5000` });
+        await gapi.client.sheets.spreadsheets.values.clear({ spreadsheetId, range: `${item.tab}!A1:Z10000` });
       }
 
       const data = batchData.map(item => ({
@@ -173,7 +162,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
         syncTimeoutRef.current = setTimeout(() => {
           syncAll();
-        }, 2000); 
+        }, 2500); 
     }
   }, [users, propertyTypes, properties, records, recordValues, unitHistory, payments, config, tombstones, syncAll]);
 
@@ -188,8 +177,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     try {
       const fileMeta = await gapi.client.drive.files.get({ fileId: id, fields: 'name, trashed' });
       if (fileMeta.result.trashed) {
-        setIsBooting(false);
-        hasLoadedInitialData.current = true;
+        setSyncStatus('not_found');
         return;
       }
       
@@ -198,15 +186,11 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       const response = await gapi.client.sheets.spreadsheets.values.batchGet({
         spreadsheetId: id,
-        ranges: SHEET_TABS.map(tab => `${tab}!A1:Z5000`),
+        ranges: SHEET_TABS.map(tab => `${tab}!A1:Z10000`),
       });
 
       const data = response.result.valueRanges;
-      if (!data) {
-        setIsBooting(false);
-        hasLoadedInitialData.current = true;
-        return;
-      }
+      if (!data) return;
 
       const parse = (index: number) => data[index]?.values?.slice(1) || [];
       const currentTombstones = new Set<string>(JSON.parse(localStorage.getItem(TOMBSTONES_KEY) || '[]'));
@@ -272,7 +256,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                     localStorage.setItem(CLOUD_TOKEN_KEY, JSON.stringify(response));
                     gapi.client.setToken({ access_token: response.access_token });
                     setSyncStatus('synced');
-                    startTokenRefreshTimer();
                     if (spreadsheetId) loadAllData(spreadsheetId);
                   } else {
                     setSyncStatus('reauth');
@@ -282,7 +265,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
               if (authSession?.access_token) {
                 gapi.client.setToken({ access_token: authSession.access_token });
-                startTokenRefreshTimer();
               }
               resolve(true);
             } catch (e) { resolve(false); }
@@ -291,7 +273,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       };
       checkGapi();
     });
-  }, [authSession, authClientId, spreadsheetId, startTokenRefreshTimer, loadAllData]);
+  }, [authSession, authClientId, spreadsheetId, loadAllData]);
 
   const bootstrapDatabase = useCallback(async () => {
     if (!authSession) {
@@ -316,20 +298,18 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         const cloudData = await loadAllData(dbId);
         return { spreadsheetId: dbId, ...cloudData };
       } else {
+        // DON'T AUTO CREATE. Alert the logic that no DB was found to prevent duplicate creation.
         return { spreadsheetId: null, isNew: true };
       }
     } catch (error: any) {
-      if (error.status === 401) {
-        setSyncStatus('reauth');
-        if (tokenClientRef.current) tokenClientRef.current.requestAccessToken({ prompt: '' });
-      }
+      if (error.status === 401) setSyncStatus('reauth');
       setIsBooting(false);
       hasLoadedInitialData.current = true;
       return null;
     }
   }, [authSession, initGoogleClient, loadAllData]);
 
-  const authenticate = useCallback(async (providedId?: string, silent: boolean = false) => {
+  const authenticate = useCallback(async (providedId?: string, forceRefresh: boolean = false) => {
     const rawId = providedId || authClientId;
     if (!rawId.trim()) return null;
 
@@ -354,6 +334,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               const isDatabaseExisting = !!bootstrapResult?.spreadsheetId;
               
               if (isDatabaseExisting) {
+                // If cloud has users, check if this email is one of them (Whitelist security)
                 const isAuthorizedInCloud = cloudUsers.some((u: User) => String(u.username || '').toLowerCase() === String(userInfo.email || '').toLowerCase());
                 if (!isAuthorizedInCloud) {
                   google.accounts.oauth2.revoke(response.access_token);
@@ -362,15 +343,10 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                   resolve({ error: 'UNAUTHORIZED_EMAIL' });
                   return;
                 }
-              } else if (OWNER_EMAIL && String(userInfo.email || '').toLowerCase() !== String(OWNER_EMAIL || '').toLowerCase()) {
-                google.accounts.oauth2.revoke(response.access_token);
-                setAuthSession(null);
-                localStorage.removeItem(CLOUD_TOKEN_KEY);
-                resolve({ error: 'UNAUTHORIZED_EMAIL' });
-                return;
               }
 
               if (!isDatabaseExisting) {
+                // IMPORTANT: Only create if user confirms it's a fresh install
                 const createResponse = await gapi.client.sheets.spreadsheets.create({
                   resource: {
                     properties: { title: DATABASE_FILENAME },
@@ -384,7 +360,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
               localStorage.setItem(CLOUD_TOKEN_KEY, JSON.stringify(response));
               setSyncStatus('synced');
-              startTokenRefreshTimer();
               resolve(userInfo);
             } else {
               resolve(null);
@@ -392,59 +367,28 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           },
         });
         tokenClientRef.current = client;
-        (client as any).requestAccessToken({ prompt: silent ? '' : 'consent' });
+        (client as any).requestAccessToken({ prompt: forceRefresh ? 'consent' : '' });
       } else { resolve(null); }
     });
-  }, [authClientId, bootstrapDatabase, startTokenRefreshTimer]);
-
-  const updateClientId = useCallback((id: string) => {
-    setAuthClientId(id);
-    localStorage.setItem('rentmaster_google_client_id', id);
-  }, []);
+  }, [authClientId, bootstrapDatabase]);
 
   useEffect(() => { 
     initGoogleClient().then(() => {
-      if (authSession) {
-        bootstrapDatabase();
-      } else {
-        setIsBooting(false);
-        hasLoadedInitialData.current = true;
-      }
+      if (authSession) bootstrapDatabase();
+      else setIsBooting(false);
     });
-    return () => {
-      if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
-    };
   }, [initGoogleClient, authSession]);
-
-  const updateRecord = async (recordId: string, values: RecordValue[], effectiveDate?: string) => {
-    const effDate = effectiveDate ? new Date(effectiveDate).toISOString() : new Date().toISOString();
-    const mappedNewValues = values.reduce((acc, v) => ({...acc, [v.columnId]: v.value}), {});
-    const activeIdx = unitHistory.findIndex(h => h.recordId === recordId && h.effectiveTo === null);
-    let updatedHistory = [...unitHistory];
-    
-    if (activeIdx !== -1) {
-      const active = updatedHistory[activeIdx];
-      const closeOutTime = new Date(new Date(effDate).getTime() - 1000).toISOString();
-      updatedHistory[activeIdx] = { ...active, effectiveTo: closeOutTime };
-    }
-    
-    const newEntry: UnitHistory = { 
-      id: 'h' + Date.now() + Math.random().toString(36).substr(2, 5), 
-      recordId, 
-      values: mappedNewValues, 
-      effectiveFrom: effDate, 
-      effectiveTo: null 
-    };
-    
-    setUnitHistory([...updatedHistory, newEntry]);
-    setRecordValues(recordValues.filter(v => v.recordId !== recordId).concat(values));
-    setRecords(records.map(r => r.id === recordId ? { ...r, updatedAt: new Date().toISOString() } : r));
-  };
 
   const value = {
     isBooting, user, users, propertyTypes, properties, records, recordValues, unitHistory, payments, config,
     isCloudSyncing, syncStatus, spreadsheetName, googleUser: authSession, spreadsheetId, googleClientId: authClientId, 
-    updateClientId, authenticate, syncAll,
+    updateClientId: (id: string) => { setAuthClientId(id); localStorage.setItem('rentmaster_google_client_id', id); },
+    authenticate, syncAll,
+    manualLinkSpreadsheet: async (id: string) => {
+      setSpreadsheetId(id);
+      localStorage.setItem('rentmaster_active_sheet_id', id);
+      return loadAllData(id);
+    },
     login: async (username: string, password: string) => {
       const found = (users as User[]).find((u: User) => String(u.username || '').toLowerCase() === String(username || '').toLowerCase() && u.passwordHash === password && !tombstones.has(u.id));
       if (found) { setUser(found); return true; }
@@ -458,16 +402,27 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     deletePropertyType: (id: string) => { setTombstones(prev => new Set(prev).add(id)); setPropertyTypes(propertyTypes.filter(t => t.id !== id)); },
     addProperty: (p: Property) => setProperties([...properties, { ...p, isVisibleToManager: true, allowedUserIds: p.allowedUserIds || [] }]),
     updateProperty: (id: string, u: Partial<Property>) => setProperties(properties.map(p => p.id === id ? { ...p, ...u } : p)),
-    togglePropertyVisibility: (id: string) => setProperties(properties.map(p => p.id === id ? { ...p, isVisibleToManager: p.isVisibleToManager === false } : p)),
     deleteProperty: (id: string) => { const rIds = records.filter(r => r.propertyId === id).map(r => r.id); setTombstones(prev => { const n = new Set(prev); n.add(id); rIds.forEach(rid => n.add(rid)); return n; }); setProperties(properties.filter(p => p.id !== id)); setRecords(records.filter(r => r.propertyId !== id)); },
     addRecord: (r: PropertyRecord, v: RecordValue[]) => { const now = new Date().toISOString(); const mapped = v.reduce((acc, x) => ({...acc, [x.columnId]: x.value}), {}); setRecordValues([...recordValues, ...v]); setRecords([...records, r]); setUnitHistory([...unitHistory, { id: 'h' + Date.now(), recordId: r.id, values: mapped, effectiveFrom: now, effectiveTo: null }]); },
-    updateRecord,
+    updateRecord: async (recordId: string, values: RecordValue[], effectiveDate?: string) => {
+        const effDate = effectiveDate ? new Date(effectiveDate).toISOString() : new Date().toISOString();
+        const mappedNewValues = values.reduce((acc, v) => ({...acc, [v.columnId]: v.value}), {});
+        const activeIdx = unitHistory.findIndex(h => h.recordId === recordId && h.effectiveTo === null);
+        let updatedHistory = [...unitHistory];
+        if (activeIdx !== -1) {
+          const active = updatedHistory[activeIdx];
+          const closeOutTime = new Date(new Date(effDate).getTime() - 1000).toISOString();
+          updatedHistory[activeIdx] = { ...active, effectiveTo: closeOutTime };
+        }
+        const newEntry: UnitHistory = { id: 'h' + Date.now(), recordId, values: mappedNewValues, effectiveFrom: effDate, effectiveTo: null };
+        setUnitHistory([...updatedHistory, newEntry]);
+        setRecordValues(recordValues.filter(v => v.recordId !== recordId).concat(values));
+    },
     deleteRecord: (id: string) => { setTombstones(prev => new Set(prev).add(id)); setRecords(records.filter(r => r.id !== id)); },
     togglePayment: (rId: string, m: string, a: number, d: string, x: Partial<Payment> = {}, t: PaymentType = 'RENT') => { 
       const ex = payments.find(p => p.recordId === rId && p.month === m && p.type === t); 
       setPayments(ex ? payments.filter(p => p.id !== ex.id) : [...payments, { id: 'pay' + Date.now(), recordId: rId, month: m, amount: a, status: x.status || PaymentStatus.PAID, type: t, dueDate: d, paidAt: new Date().toISOString(), ...x } as Payment]); 
     },
-    refundDeposit: (rId: string) => setPayments(payments.map(p => p.recordId === rId && p.type === 'DEPOSIT' ? { ...p, isRefunded: true } : p)),
     updateConfig: (u: Partial<AppConfig>) => setConfig({ ...config, ...u })
   };
 

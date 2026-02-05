@@ -22,7 +22,9 @@ import {
   ChevronUp,
   ChevronDown,
   X,
-  Users
+  Users,
+  Layers,
+  Activity
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
@@ -128,7 +130,6 @@ const AdminInsights: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap gap-4 items-center">
-           {/* MANAGER SELECTOR */}
            <div className="flex items-center bg-white border border-slate-100 p-2 rounded-2xl shadow-sm gap-4 px-6 h-16">
               <div className="flex items-center gap-2">
                  <Users className="w-4 h-4 text-indigo-500" />
@@ -209,43 +210,72 @@ const AdminInsights: React.FC = () => {
             </div>
          </div>
 
+         {/* BREAKEVEN ANALYSIS CARD */}
          <div className="xl:col-span-4 bg-slate-900 p-10 rounded-[3rem] shadow-2xl flex flex-col relative overflow-hidden">
             <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-600/10 blur-[100px] rounded-full"></div>
             <div className="relative z-10 flex flex-col h-full">
-               <div className="flex items-center gap-4 mb-10">
-                  <div className="p-4 bg-white/10 text-white rounded-2xl"><PieChart className="w-6 h-6" /></div>
+               <div className="flex items-center gap-4 mb-8">
+                  <div className="p-4 bg-white/10 text-white rounded-2xl"><Activity className="w-6 h-6" /></div>
                   <div>
-                     <h2 className="text-xl font-black text-white uppercase tracking-tight">Breakeven Analysis</h2>
-                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-1">Portfolio Recovery progress</p>
+                     <h2 className="text-xl font-black text-white uppercase tracking-tight">Breakeven Engine</h2>
+                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-1">Asset Lifecycle Tracking</p>
                   </div>
                </div>
                
-               <div className="flex-1 flex flex-col justify-center items-center py-10">
-                  <div className="relative w-56 h-56">
-                     <svg className="w-full h-full transform -rotate-90">
-                        <circle className="text-slate-800" strokeWidth="20" stroke="currentColor" fill="transparent" r="90" cx="112" cy="112" />
-                        <circle 
-                           className="text-indigo-500" strokeWidth="20" strokeDasharray={565.48} 
-                           strokeDashoffset={565.48 - (565.48 * Math.min(portfolioStats.avgROI, 100)) / 100} 
-                           strokeLinecap="round" stroke="currentColor" fill="transparent" r="90" cx="112" cy="112" 
-                        />
-                     </svg>
-                     <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
-                        <span className="text-4xl font-black">{Math.min(portfolioStats.avgROI, 100).toFixed(0)}%</span>
-                        <span className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Recovered</span>
+               {/* TOTAL PORTFOLIO BREAKEVEN */}
+               <div className="bg-white/5 border border-white/10 rounded-[2.5rem] p-8 mb-8">
+                  <div className="flex justify-between items-end mb-6">
+                     <div>
+                        <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Portfolio Aggregate</p>
+                        <h3 className="text-2xl font-black text-white leading-none">Total Recovery</h3>
                      </div>
+                     <div className="text-right">
+                        <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-1">Portfolio ROI</p>
+                        <h4 className="text-2xl font-black text-indigo-400 leading-none">{portfolioStats.avgROI.toFixed(1)}%</h4>
+                     </div>
+                  </div>
+                  
+                  <div className="w-full h-4 bg-slate-800 rounded-full overflow-hidden border border-slate-700 p-1">
+                     <div 
+                        className={`h-full rounded-full transition-all duration-1000 ${portfolioStats.avgROI >= 100 ? 'bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.4)]' : 'bg-indigo-500'}`} 
+                        style={{ width: `${Math.min(portfolioStats.avgROI, 100)}%` }}
+                     ></div>
+                  </div>
+                  <div className="flex justify-between mt-4">
+                     <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">CapEx: ${portfolioStats.totalInvestment.toLocaleString()}</span>
+                     <span className={`text-[9px] font-black uppercase tracking-widest ${portfolioStats.avgROI >= 100 ? 'text-emerald-500' : 'text-slate-400'}`}>
+                        {portfolioStats.avgROI >= 100 ? 'Fully Recovered' : `${(100 - portfolioStats.avgROI).toFixed(1)}% Remaining`}
+                     </span>
                   </div>
                </div>
 
-               <div className="space-y-4 mt-8">
-                  <div className="p-5 rounded-3xl bg-white/5 border border-white/5 flex items-center justify-between">
-                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Profitable Assets</span>
-                     <span className="text-sm font-black text-emerald-400">{propertyMetrics.filter(m => m.isBreakeven).length} / {propertyMetrics.length}</span>
-                  </div>
-                  <div className="p-5 rounded-3xl bg-white/5 border border-white/5 flex items-center justify-between">
-                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Avg Year-to-Recov</span>
-                     <span className="text-sm font-black text-indigo-400">4.2 yrs</span>
-                  </div>
+               {/* PROPERTY WISE PROGRESS */}
+               <div className="flex-1 space-y-4 overflow-y-auto custom-scrollbar pr-2 max-h-[350px]">
+                  <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2 pl-2">Individual Asset Status</p>
+                  {propertyMetrics.map((asset) => (
+                     <div key={asset.id} className="p-5 rounded-3xl bg-white/5 border border-white/5 flex flex-col gap-3 group hover:bg-white/10 transition-colors">
+                        <div className="flex justify-between items-start">
+                           <div className="flex items-center gap-3">
+                              <Building2 className="w-3.5 h-3.5 text-slate-500" />
+                              <span className="text-xs font-black text-white uppercase tracking-tight truncate max-w-[120px]">{asset.name}</span>
+                           </div>
+                           <span className={`text-[10px] font-black uppercase tracking-tighter ${asset.roi >= 100 ? 'text-emerald-400' : 'text-indigo-400'}`}>
+                              {asset.roi.toFixed(0)}%
+                           </span>
+                        </div>
+                        <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                           <div 
+                              className={`h-full rounded-full transition-all duration-1000 ${asset.roi >= 100 ? 'bg-emerald-500' : 'bg-indigo-500'}`} 
+                              style={{ width: `${Math.min(asset.roi, 100)}%` }}
+                           ></div>
+                        </div>
+                        {asset.roi >= 100 && (
+                           <div className="flex items-center gap-1.5 text-[8px] font-black text-emerald-500/80 uppercase tracking-widest mt-1">
+                              <TrendingUp className="w-2.5 h-2.5" /> Surplus: ${asset.profit.toLocaleString()}
+                           </div>
+                        )}
+                     </div>
+                  ))}
                </div>
             </div>
          </div>
