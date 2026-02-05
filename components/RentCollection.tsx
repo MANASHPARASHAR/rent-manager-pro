@@ -36,10 +36,7 @@ import {
   Save,
   User,
   MapPin,
-  ClipboardList,
-  Settings,
-  Plus,
-  Trash2
+  ClipboardList
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { PaymentStatus, ColumnType, Payment, UnitHistory, ColumnDefinition, RecordValue, Property, UserRole } from '../types';
@@ -47,6 +44,7 @@ import { PaymentStatus, ColumnType, Payment, UnitHistory, ColumnDefinition, Reco
 const RentCollection: React.FC = () => {
   const store = useRentalStore();
   const isAdmin = store.user?.role === UserRole.ADMIN;
+  const isManager = store.user?.role === UserRole.MANAGER;
   
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const d = new Date();
@@ -60,8 +58,8 @@ const RentCollection: React.FC = () => {
     record: null, 
     type: 'RENT', 
     amount: 0, 
-    paidTo: store.config.paidToOptions[0] || '', 
-    mode: store.config.paymentModeOptions[0] || '', 
+    paidTo: store.config.paidToOptions[0], 
+    mode: store.config.paymentModeOptions[0], 
     date: new Date().toISOString().split('T')[0] 
   });
 
@@ -70,12 +68,6 @@ const RentCollection: React.FC = () => {
     record: null,
     type: 'RENT',
     monthKey: ''
-  });
-
-  const [configModal, setConfigModal] = useState({
-    isOpen: false,
-    newPaidTo: '',
-    newMode: ''
   });
 
   const [historyModal, setHistoryModal] = useState<{ isOpen: boolean; record: any | null }>({
@@ -101,26 +93,6 @@ const RentCollection: React.FC = () => {
   const jumpToToday = () => {
     const d = new Date();
     setSelectedMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
-  };
-
-  const handleAddPaidTo = () => {
-    if (!configModal.newPaidTo.trim()) return;
-    store.updateConfig({ paidToOptions: [...store.config.paidToOptions, configModal.newPaidTo.trim()] });
-    setConfigModal({ ...configModal, newPaidTo: '' });
-  };
-
-  const handleRemovePaidTo = (val: string) => {
-    store.updateConfig({ paidToOptions: store.config.paidToOptions.filter((o: string) => o !== val) });
-  };
-
-  const handleAddMode = () => {
-    if (!configModal.newMode.trim()) return;
-    store.updateConfig({ paymentModeOptions: [...store.config.paymentModeOptions, configModal.newMode.trim()] });
-    setConfigModal({ ...configModal, newMode: '' });
-  };
-
-  const handleRemoveMode = (val: string) => {
-    store.updateConfig({ paymentModeOptions: store.config.paymentModeOptions.filter((o: string) => o !== val) });
   };
 
   const visibleProperties = useMemo(() => {
@@ -254,15 +226,15 @@ const RentCollection: React.FC = () => {
     let amount = 0;
     if (type === 'RENT') amount = record.rentAmount;
     else if (type === 'DEPOSIT') amount = record.depositAmount;
-    else amount = 0;
+    else amount = 0; // Electricity requires manual entry
 
     setPaymentModal({
       isOpen: true,
       record,
       type,
       amount,
-      paidTo: store.config.paidToOptions[0] || '',
-      mode: store.config.paymentModeOptions[0] || '',
+      paidTo: store.config.paidToOptions[0],
+      mode: store.config.paymentModeOptions[0],
       date: new Date().toISOString().split('T')[0]
     });
   };
@@ -323,13 +295,10 @@ const RentCollection: React.FC = () => {
              <div className="px-3 py-1 bg-indigo-600 text-white rounded-lg text-[11px] font-black uppercase tracking-wider shadow-sm flex items-center gap-2">
                 <Sparkles className="w-3.5 h-3.5" /> Ledger Engine
              </div>
-             {isAdmin && (
-               <button 
-                onClick={() => setConfigModal({ ...configModal, isOpen: true })}
-                className="p-1.5 bg-white border border-slate-200 text-slate-400 hover:text-indigo-600 rounded-lg shadow-sm transition-all"
-               >
-                 <Settings className="w-4 h-4" />
-               </button>
+             {store.isCloudSyncing && (
+               <div className="flex items-center gap-1.5 text-[11px] font-black text-amber-600 uppercase tracking-widest animate-pulse">
+                  <RotateCcw className="w-3 h-3 animate-spin" /> Live Sync
+               </div>
              )}
           </div>
           <h1 className="text-4xl font-black text-slate-900 uppercase tracking-tight">
@@ -364,74 +333,6 @@ const RentCollection: React.FC = () => {
           </div>
         </div>
       </div>
-
-      {/* COLLECTION CONFIG MODAL */}
-      {configModal.isOpen && isAdmin && (
-        <div className="fixed inset-0 z-[1100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-           <div className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col">
-              <div className="p-8 bg-indigo-600 text-white flex justify-between items-center">
-                 <div className="flex items-center gap-4">
-                    <Settings className="w-6 h-6 text-indigo-200" />
-                    <h3 className="text-xl font-black uppercase tracking-tight">Collection Parameters</h3>
-                 </div>
-                 <button onClick={() => setConfigModal({...configModal, isOpen: false})} className="p-2 hover:bg-white/10 rounded-full transition-colors text-indigo-100"><X className="w-6 h-6" /></button>
-              </div>
-
-              <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-10">
-                 {/* Paid To Config */}
-                 <div className="space-y-6">
-                    <div className="space-y-2">
-                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Target Recipients</label>
-                       <div className="flex gap-2">
-                          <input 
-                             className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500" 
-                             placeholder="e.g. Petty Cash"
-                             value={configModal.newPaidTo}
-                             onChange={e => setConfigModal({...configModal, newPaidTo: e.target.value})}
-                          />
-                          <button onClick={handleAddPaidTo} className="p-3 bg-indigo-600 text-white rounded-xl shadow-lg active:scale-95 transition-all"><Plus className="w-5 h-5" /></button>
-                       </div>
-                    </div>
-                    <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                       {store.config.paidToOptions.map((opt: string) => (
-                          <div key={opt} className="flex items-center justify-between p-3.5 bg-slate-50 rounded-xl border border-slate-100 group">
-                             <span className="text-[11px] font-black uppercase text-slate-600">{opt}</span>
-                             <button onClick={() => handleRemovePaidTo(opt)} className="p-1.5 text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"><Trash2 className="w-3.5 h-3.5" /></button>
-                          </div>
-                       ))}
-                    </div>
-                 </div>
-
-                 {/* Modes Config */}
-                 <div className="space-y-6">
-                    <div className="space-y-2">
-                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Payment Channels</label>
-                       <div className="flex gap-2">
-                          <input 
-                             className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500" 
-                             placeholder="e.g. UPI/QR"
-                             value={configModal.newMode}
-                             onChange={e => setConfigModal({...configModal, newMode: e.target.value})}
-                          />
-                          <button onClick={handleAddMode} className="p-3 bg-indigo-600 text-white rounded-xl shadow-lg active:scale-95 transition-all"><Plus className="w-5 h-5" /></button>
-                       </div>
-                    </div>
-                    <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                       {store.config.paymentModeOptions.map((opt: string) => (
-                          <div key={opt} className="flex items-center justify-between p-3.5 bg-slate-50 rounded-xl border border-slate-100 group">
-                             <span className="text-[11px] font-black uppercase text-slate-600">{opt}</span>
-                             <button onClick={() => handleRemoveMode(opt)} className="p-1.5 text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"><Trash2 className="w-3.5 h-3.5" /></button>
-                          </div>
-                       ))}
-                    </div>
-                 </div>
-              </div>
-              <div className="p-8 border-t border-slate-100 bg-slate-50/50">
-                 <button onClick={() => setConfigModal({...configModal, isOpen: false})} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl">Close Settings</button>
-              </div>
-           </div>
-        </div>
-      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {[

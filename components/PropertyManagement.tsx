@@ -21,8 +21,7 @@ import {
   Layers,
   Loader2,
   Users,
-  CheckCircle2,
-  Globe
+  CheckCircle2
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { UserRole, Property, User } from '../types';
@@ -168,20 +167,6 @@ const PropertyManagement: React.FC = () => {
     });
   };
 
-  const handleAddCity = () => {
-    if (!newCityInput.trim()) return;
-    if (store.config.cities.includes(newCityInput.trim())) {
-      setError("City already exists in registry.");
-      return;
-    }
-    store.updateConfig({ cities: [...store.config.cities, newCityInput.trim()] });
-    setNewCityInput('');
-  };
-
-  const handleRemoveCity = (city: string) => {
-    store.updateConfig({ cities: store.config.cities.filter((c: string) => c !== city) });
-  };
-
   const filteredProperties = useMemo(() => {
     return (store.properties || []).filter((p: Property) => {
       const isAuthorized = isAdmin || (p.allowedUserIds || []).includes(store.user?.id || '');
@@ -224,80 +209,14 @@ const PropertyManagement: React.FC = () => {
         </div>
       )}
 
-      {/* CITY CONFIG MODAL */}
-      {showCityConfig && isAdmin && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col">
-            <div className="p-8 bg-slate-900 text-white flex justify-between items-center">
-              <div className="flex items-center gap-4">
-                <Globe className="w-6 h-6 text-indigo-400" />
-                <h3 className="text-xl font-black uppercase tracking-tight">City Registry</h3>
-              </div>
-              <button onClick={() => setShowCityConfig(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors text-slate-400"><X className="w-6 h-6" /></button>
-            </div>
-            
-            <div className="p-8 space-y-6">
-              <div className="space-y-3">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Add New Location</label>
-                <div className="flex gap-3">
-                  <input 
-                    className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all"
-                    placeholder="Enter city name..."
-                    value={newCityInput}
-                    onChange={e => setNewCityInput(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && handleAddCity()}
-                  />
-                  <button onClick={handleAddCity} className="p-4 bg-indigo-600 text-white rounded-2xl shadow-lg shadow-indigo-100 active:scale-95 transition-all">
-                    <Plus className="w-6 h-6" />
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Current Active Cities</label>
-                {store.config.cities.length > 0 ? store.config.cities.map((city: string) => (
-                  <div key={city} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 group">
-                    <span className="text-sm font-black uppercase text-slate-700">{city}</span>
-                    <button onClick={() => handleRemoveCity(city)} className="p-2 text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                )) : (
-                  <div className="py-10 text-center opacity-40">
-                    <Navigation className="w-8 h-8 mx-auto mb-3 text-slate-300" />
-                    <p className="text-[10px] font-black uppercase tracking-widest">No Cities Registered</p>
-                  </div>
-                )}
-              </div>
-
-              <button onClick={() => setShowCityConfig(false)} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl">Close Registry</button>
-            </div>
-          </div>
-        </div>
-      )}
-
       <header className="flex justify-between items-end">
         <div>
           <h1 className="text-3xl font-black text-gray-900 tracking-tight uppercase">Your Properties</h1>
           <p className="text-gray-500 mt-1 font-medium">Manage all rental locations and assign personnel access.</p>
         </div>
         <div className="flex items-center gap-3">
-          {isAdmin && (
-            <button 
-              onClick={() => setShowCityConfig(true)} 
-              className="p-3 bg-white border border-gray-200 text-gray-400 rounded-xl hover:text-indigo-600 shadow-sm active:scale-95 transition-all hover:bg-indigo-50/50"
-            >
-              <Settings className="w-5 h-5" />
-            </button>
-          )}
-          {isAdmin && (
-            <button 
-              onClick={() => { setIsAdding(true); setEditingProp(null); setFormProp({ name: '', address: '', typeId: store.propertyTypes?.[0]?.id || '', city: store.config?.cities?.[0] || '', allowedUserIds: [] }); }} 
-              className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl flex items-center gap-2 hover:bg-indigo-700 shadow-lg font-black uppercase text-[10px] tracking-widest active:scale-95 transition-all"
-            >
-              <Plus className="w-5 h-5" /> Add Property
-            </button>
-          )}
+          {isAdmin && <button onClick={() => setShowCityConfig(true)} className="p-3 bg-white border border-gray-200 text-gray-400 rounded-xl hover:text-indigo-600 shadow-sm active:scale-95"><Settings className="w-5 h-5" /></button>}
+          {isAdmin && <button onClick={() => { setIsAdding(true); setEditingProp(null); setFormProp({ name: '', address: '', typeId: store.propertyTypes?.[0]?.id || '', city: store.config?.cities?.[0] || '', allowedUserIds: [] }); }} className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl flex items-center gap-2 hover:bg-indigo-700 shadow-lg font-black uppercase text-[10px] tracking-widest"><Plus className="w-5 h-5" /> Add Property</button>}
         </div>
       </header>
 
@@ -313,13 +232,7 @@ const PropertyManagement: React.FC = () => {
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-1.5"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Property Name</label><input required className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500" placeholder="e.g. Skyline Towers" value={formProp.name} onChange={e => setFormProp({...formProp, name: e.target.value})} /></div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">City</label>
-                  <select required className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-4 text-sm font-bold outline-none" value={formProp.city} onChange={e => setFormProp({...formProp, city: e.target.value})}>
-                    <option value="">Select City...</option>
-                    {(store.config?.cities || []).map((city: string) => <option key={city} value={city}>{city}</option>)}
-                  </select>
-                </div>
+                <div className="space-y-1.5"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">City</label><select required className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-4 text-sm font-bold outline-none" value={formProp.city} onChange={e => setFormProp({...formProp, city: e.target.value})}><option value="">Select City...</option>{(store.config?.cities || []).map((city: string) => <option key={city} value={city}>{city}</option>)}</select></div>
               </div>
 
               <div className="space-y-1.5"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Location Address</label><input required className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Street, City, State" value={formProp.address} onChange={e => setFormProp({...formProp, address: e.target.value})} /></div>

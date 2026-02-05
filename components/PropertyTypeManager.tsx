@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { 
@@ -90,9 +89,13 @@ const PropertyTypeManager: React.FC = () => {
     setEditingId(null);
     setNewTypeName('');
     setDefaultDueDateDay(5);
-    // Minimal production clean slate
     setTempColumns([
-      { id: generateId('col_'), name: 'Tenant Name', type: ColumnType.TEXT, required: true, isRentCalculatable: false, isDefaultInLedger: true, order: 0 }
+      { id: generateId('col_'), name: 'Tenant Name', type: ColumnType.TEXT, required: true, isRentCalculatable: false, isDefaultInLedger: true, order: 0 },
+      { id: generateId('col_'), name: 'Tenant Number', type: ColumnType.NUMBER, required: true, isRentCalculatable: false, isDefaultInLedger: true, order: 1 },
+      { id: generateId('col_'), name: 'Monthly Rent', type: ColumnType.CURRENCY, required: true, isRentCalculatable: true, isDefaultInLedger: true, order: 2 },
+      { id: generateId('col_'), name: 'Security Deposit', type: ColumnType.SECURITY_DEPOSIT, required: true, isRentCalculatable: false, isDefaultInLedger: false, order: 3 },
+      { id: generateId('col_'), name: 'Rent Date', type: ColumnType.DATE, required: true, isRentCalculatable: false, isDefaultInLedger: true, order: 4 },
+      { id: generateId('col_'), name: 'Occupancy Status', type: ColumnType.OCCUPANCY_STATUS, required: true, isRentCalculatable: false, isDefaultInLedger: true, options: ['Active', 'Vacant'], order: 5 },
     ]);
   };
 
@@ -119,12 +122,33 @@ const PropertyTypeManager: React.FC = () => {
     setTempColumns(tempColumns.map(c => {
       if (c.id === id) {
         let updated = { ...c, ...updates };
-        const systemTypes = [ColumnType.SECURITY_DEPOSIT, ColumnType.OCCUPANCY_STATUS, ColumnType.RENT_DUE_DAY];
-        const nameLower = updated.name.toLowerCase();
         
-        if (systemTypes.includes(updated.type) || nameLower === 'tenant name') {
+        // Block modification of core system fields logic
+        const systemTypes = [
+          ColumnType.SECURITY_DEPOSIT, 
+          ColumnType.OCCUPANCY_STATUS, 
+          ColumnType.RENT_DUE_DAY
+        ];
+
+        const nameLower = updated.name.toLowerCase();
+        const isMandatoryDefault = 
+          nameLower === 'tenant name' || 
+          nameLower === 'tenant number' || 
+          nameLower === 'monthly rent' || 
+          nameLower === 'rent date';
+
+        if (systemTypes.includes(updated.type) || isMandatoryDefault) {
           updated.required = true;
-          updated.isRentCalculatable = false;
+          if (nameLower !== 'monthly rent') {
+            updated.isRentCalculatable = false;
+          } else {
+            updated.isRentCalculatable = true;
+            updated.type = ColumnType.CURRENCY;
+          }
+          // Special handling for tenant number to remain numeric
+          if (nameLower === 'tenant number') {
+            updated.type = ColumnType.NUMBER;
+          }
         }
 
         if (updated.type === ColumnType.OCCUPANCY_STATUS && (!updated.options || updated.options.length === 0)) {
@@ -132,7 +156,7 @@ const PropertyTypeManager: React.FC = () => {
         }
         
         if (updated.type === ColumnType.DROPDOWN && (!updated.options || updated.options.length === 0)) {
-          updated.options = ['Option 1'];
+          updated.options = ['Option 1', 'Option 2'];
         }
         
         return updated;
@@ -144,15 +168,22 @@ const PropertyTypeManager: React.FC = () => {
   const getDropdownOptionsError = (col: ColumnDefinition) => {
     if (col.type !== ColumnType.DROPDOWN && col.type !== ColumnType.OCCUPANCY_STATUS) return null;
     if (!col.options || col.options.length === 0) return "At least one option is required.";
+    
     const options = col.options;
     if (options.some(o => o.trim() === "")) return "Empty values are not allowed.";
+    const trimmedAndLower = options.map(o => o.trim().toLowerCase());
+    const duplicates = trimmedAndLower.filter((item, index) => trimmedAndLower.indexOf(item) !== index);
+    if (duplicates.length > 0) return `Duplicate option detected: "${options[trimmedAndLower.indexOf(duplicates[0])]}".`;
     return null;
   };
 
   const validateSchema = (typeName: string, cols: ColumnDefinition[]) => {
     if (!typeName.trim()) { setError("Property Type name is required."); return false; }
-    if (cols.length === 0) { setError("At least one field is required."); return false; }
-    if (cols.some(c => !c.name.trim())) { setError("All fields must have names."); return false; }
+    if (cols.some(c => !c.name.trim())) { setError("Please ensure all fields have names."); return false; }
+    for (const col of cols) {
+      const dropdownError = getDropdownOptionsError(col);
+      if (dropdownError) { setError(`Error in field "${col.name}": ${dropdownError}`); return false; }
+    }
     return true;
   };
 
@@ -160,9 +191,9 @@ const PropertyTypeManager: React.FC = () => {
     if (!validateSchema(newTypeName, tempColumns)) return;
     setConfirmConfig({
       isOpen: true,
-      title: "Create Schema",
-      message: `Initialize "${newTypeName}" schema?`,
-      actionLabel: "Confirm",
+      title: "Confirm Schema Creation",
+      message: `Initialize "${newTypeName}" with ${tempColumns.length} fields?`,
+      actionLabel: "Create Type",
       onConfirm: () => {
         store.addPropertyType({ id: generateId('pt_'), name: newTypeName.trim(), columns: tempColumns, defaultDueDateDay });
         setIsAdding(false);
@@ -176,9 +207,9 @@ const PropertyTypeManager: React.FC = () => {
     if (!type || !validateSchema(type.name, tempColumns)) return;
     setConfirmConfig({
       isOpen: true,
-      title: "Update Schema",
-      message: `Structural changes will be applied to all linked units. Continue?`,
-      actionLabel: "Apply Changes",
+      title: "Update Schema Structure",
+      message: `Warning: Structural changes will be applied to all linked units immediately.`,
+      actionLabel: "Save Changes",
       onConfirm: () => {
         store.updatePropertyType({ ...type, columns: tempColumns, defaultDueDateDay });
         setEditingId(null);
@@ -191,9 +222,9 @@ const PropertyTypeManager: React.FC = () => {
     setConfirmConfig({
       isOpen: true,
       isDanger: true,
-      title: "Delete Schema",
-      message: `Warning: This will render existing data for units using "${name}" inaccessible.`,
-      actionLabel: "Confirm Deletion",
+      title: "Delete Property Schema",
+      message: `CRITICAL: Deleting "${name}" will break data access for all units currently using this schema.`,
+      actionLabel: "Confirm Final Deletion",
       onConfirm: () => {
         store.deletePropertyType(id);
         setConfirmConfig(prev => ({ ...prev, isOpen: false }));
@@ -201,8 +232,23 @@ const PropertyTypeManager: React.FC = () => {
     });
   };
 
+  const handleDeleteColumn = (id: string, name: string) => {
+    setConfirmConfig({
+      isOpen: true,
+      isDanger: true,
+      title: "Remove Data Field",
+      message: `Are you sure you want to remove "${name}"? Existing record data for this field will be lost.`,
+      actionLabel: "Remove Field",
+      onConfirm: () => {
+        setTempColumns(tempColumns.filter(c => c.id !== id));
+        setConfirmConfig(prev => ({ ...prev, isOpen: false }));
+      }
+    });
+  };
+
   const handleDragStart = (e: React.DragEvent, index: number) => {
     setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
   };
 
   const handleDragOver = (e: React.DragEvent, index: number) => {
@@ -239,17 +285,17 @@ const PropertyTypeManager: React.FC = () => {
       <header className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-black text-gray-900 tracking-tight uppercase">Property Schema</h1>
-          <p className="text-gray-500 mt-1 font-medium">Define data structures for different rental types.</p>
+          <p className="text-gray-500 mt-1 font-medium">Configure dynamic structures for your rentals.</p>
         </div>
         {!isAdding && !editingId && (
           <button onClick={handleStartAdd} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 hover:bg-indigo-700 transition-all font-bold shadow-lg shadow-indigo-100 active:scale-95">
-            <Plus className="w-5 h-5" /> New Schema
+            <Plus className="w-5 h-5" /> New Property Type
           </button>
         )}
       </header>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 p-4 rounded-xl flex items-center gap-3 text-red-700 animate-in fade-in">
+        <div className="bg-red-50 border border-red-200 p-4 rounded-xl flex items-center gap-3 text-red-700 animate-in fade-in slide-in-from-top-2">
           <AlertCircle className="w-5 h-5 shrink-0" /><p className="text-sm font-bold">{error}</p>
         </div>
       )}
@@ -257,16 +303,16 @@ const PropertyTypeManager: React.FC = () => {
       {(isAdding || editingId) && (
         <div className="bg-white border-2 border-indigo-100 p-8 rounded-[2.5rem] shadow-2xl space-y-8 animate-in zoom-in-95 duration-300">
           <div className="flex items-center justify-between pb-6 border-b border-gray-100">
-            <div><h2 className="text-2xl font-black text-gray-900 uppercase">{isAdding ? 'Initialize Schema' : 'Refine Schema'}</h2></div>
+            <div><h2 className="text-2xl font-black text-gray-900 uppercase">{isAdding ? 'Create New Type' : 'Edit Schema'}</h2></div>
             <button onClick={() => { setIsAdding(false); setEditingId(null); }} className="p-2 text-gray-400 hover:text-gray-600 transition-colors"><X className="w-6 h-6" /></button>
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Schema Title</label>
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Type Name</label>
               <input 
                 className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-4 text-lg font-black text-gray-900 outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all" 
-                placeholder="e.g. Apartment Unit" 
+                placeholder="e.g. Standard Residence" 
                 value={isAdding ? newTypeName : store.propertyTypes.find((t: any) => t.id === editingId)?.name || ''} 
                 onChange={(e) => isAdding ? setNewTypeName(e.target.value) : store.updatePropertyType({ ...store.propertyTypes.find((t: any) => t.id === editingId)!, name: e.target.value })} 
               />
@@ -279,59 +325,79 @@ const PropertyTypeManager: React.FC = () => {
 
           <div className="space-y-4">
              {tempColumns.map((col, index) => {
+               const dropdownError = getDropdownOptionsError(col);
+               
                const nameLower = col.name.toLowerCase();
-               const isTenantName = nameLower === 'tenant name';
+               const isMandatoryDefault = 
+                 nameLower === 'tenant name' || 
+                 nameLower === 'tenant number' || 
+                 nameLower === 'monthly rent' || 
+                 nameLower === 'rent date';
+
+               const isSystemType = 
+                 col.type === ColumnType.SECURITY_DEPOSIT || 
+                 col.type === ColumnType.OCCUPANCY_STATUS || 
+                 col.type === ColumnType.RENT_DUE_DAY;
+
+               const isBlocked = isMandatoryDefault || isSystemType;
+               
                return (
-                 <div key={col.id} draggable={!isTenantName} onDragStart={(e) => handleDragStart(e, index)} onDragOver={(e) => handleDragOver(e, index)} className={`grid grid-cols-12 gap-x-4 items-center bg-white p-5 rounded-3xl border ${isTenantName ? 'border-amber-200 bg-amber-50/5' : 'border-gray-100 shadow-sm'} hover:border-indigo-200 transition-all group`}>
+                 <div key={col.id} draggable={!isBlocked} onDragStart={(e) => handleDragStart(e, index)} onDragOver={(e) => handleDragOver(e, index)} className={`grid grid-cols-12 gap-x-4 items-center bg-white p-5 rounded-3xl border ${dropdownError ? 'border-red-400 ring-2 ring-red-400/20 shadow-lg' : isBlocked ? 'border-amber-200 bg-amber-50/10 shadow-sm' : 'border-gray-100 shadow-sm'} hover:border-indigo-200 transition-all group`}>
                    <div className="col-span-1 flex items-center justify-center cursor-grab active:cursor-grabbing">
-                      {isTenantName ? <User className="w-6 h-6 text-amber-500" /> : <GripVertical className="w-6 h-6 text-gray-300" />}
+                      {isBlocked ? <Activity className={`w-6 h-6 ${col.type === ColumnType.SECURITY_DEPOSIT ? 'text-amber-500' : 'text-indigo-500'}`} /> : <GripVertical className="w-6 h-6 text-gray-300" />}
                    </div>
                    <div className="col-span-4">
-                      <input className={`w-full bg-gray-50 border border-gray-100 p-3 rounded-xl text-sm font-black outline-none group-hover:bg-white transition-colors`} value={col.name} onChange={e => handleUpdateColumn(col.id, {name: e.target.value})} />
+                      <div className="relative">
+                         <input className={`w-full bg-gray-50 border border-gray-100 p-3 rounded-xl text-sm font-black outline-none group-hover:bg-white transition-colors ${isBlocked ? 'text-slate-400' : ''}`} value={col.name} onChange={e => handleUpdateColumn(col.id, {name: e.target.value})} disabled={isBlocked} />
+                         {isBlocked && <Lock className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-300" />}
+                      </div>
                    </div>
                    <div className="col-span-2">
-                     <select className="w-full border border-gray-100 p-3 rounded-xl text-sm font-black bg-gray-50 outline-none group-hover:bg-white transition-colors" value={col.type} onChange={e => handleUpdateColumn(col.id, {type: e.target.value as ColumnType})}>
+                     <select className="w-full border border-gray-100 p-3 rounded-xl text-sm font-black bg-gray-50 outline-none group-hover:bg-white transition-colors disabled:opacity-60" value={col.type} onChange={e => handleUpdateColumn(col.id, {type: e.target.value as ColumnType})} disabled={isBlocked}>
                        {Object.values(ColumnType).map(t => (
-                         <option key={t} value={t}>{t.split('_').map(w => w.toUpperCase()).join(' ')}</option>
+                         <option key={t} value={t}>
+                           {t.split('_').map(w => w.toUpperCase()).join(' ')}
+                         </option>
                        ))}
                      </select>
                    </div>
                    <div className="col-span-4 flex justify-around">
-                      <label className="flex flex-col items-center gap-1">
+                      <label className={`flex flex-col items-center gap-1 transition-opacity ${isBlocked && nameLower !== 'monthly rent' ? 'opacity-50' : 'opacity-100'}`}>
                         <span className="text-[8px] font-black text-gray-400 uppercase">Rent Calc</span>
-                        <input type="checkbox" checked={col.isRentCalculatable} onChange={e => handleUpdateColumn(col.id, {isRentCalculatable: e.target.checked})} className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                        <input type="checkbox" disabled={isBlocked} checked={col.isRentCalculatable} onChange={e => handleUpdateColumn(col.id, {isRentCalculatable: e.target.checked})} className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
                       </label>
-                      <label className="flex flex-col items-center gap-1">
+                      <label className={`flex flex-col items-center gap-1 transition-opacity ${isBlocked ? 'opacity-50' : 'opacity-100'}`}>
                         <span className="text-[8px] font-black text-gray-400 uppercase">Required</span>
-                        <input type="checkbox" checked={col.required} onChange={e => handleUpdateColumn(col.id, {required: e.target.checked})} className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                        <input type="checkbox" disabled={isBlocked} checked={col.required} onChange={e => handleUpdateColumn(col.id, {required: e.target.checked})} className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
                       </label>
                       <label className="flex flex-col items-center gap-1">
                         <span className="text-[8px] font-black text-gray-400 uppercase">Ledger</span>
-                        <input type="checkbox" checked={col.isDefaultInLedger} onChange={e => handleUpdateColumn(col.id, {isDefaultInLedger: e.target.checked})} className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                        <input type="checkbox" checked={col.isDefaultInLedger} onChange={e => handleUpdateColumn(col.id, {isDefaultInLedger: e.target.checked})} className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" title="Show as column in Rent Collection ledger" />
                       </label>
                    </div>
                    <div className="col-span-1 text-right">
-                     {!isTenantName && <button onClick={() => setTempColumns(tempColumns.filter(c => c.id !== col.id))} className="p-3 text-gray-300 hover:text-red-500 transition-colors"><Trash2 className="w-5 h-5" /></button>}
+                     {!isBlocked && <button onClick={() => handleDeleteColumn(col.id, col.name)} className="p-3 text-gray-300 hover:text-red-500 transition-colors"><Trash2 className="w-5 h-5" /></button>}
                    </div>
 
                    {(col.type === ColumnType.DROPDOWN || col.type === ColumnType.OCCUPANCY_STATUS) && (
                       <div className="col-span-12 mt-4 ml-11 p-6 bg-indigo-50/50 rounded-2xl border border-indigo-100 animate-in slide-in-from-top-2">
-                         <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-2 block">Options (Comma Separated)</label>
-                         <input className="w-full bg-white border border-indigo-200 p-4 rounded-xl text-xs font-bold outline-none shadow-sm" placeholder="e.g. Active, Vacant" value={col.options?.join(', ') || ''} onChange={e => handleUpdateColumn(col.id, { options: e.target.value.split(',').map(s => s.trim()).filter(s => s !== "") })} />
+                         <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-2 block">Selection Options (Comma Separated)</label>
+                         <input className={`w-full bg-white border ${dropdownError ? 'border-red-500 ring-2 ring-red-500/20' : 'border-indigo-200'} p-4 rounded-xl text-xs font-bold outline-none shadow-sm`} placeholder="e.g. Active, Vacant" value={col.options?.join(', ') || ''} onChange={e => handleUpdateColumn(col.id, { options: e.target.value.split(',').map(s => s.trim()) })} />
+                         {dropdownError && <p className="mt-3 text-[10px] text-red-700 font-black uppercase">{dropdownError}</p>}
                       </div>
                    )}
                  </div>
                );
              })}
              <button onClick={handleAddColumn} className="w-full py-6 border-4 border-dashed border-indigo-50 rounded-3xl text-indigo-400 font-black text-xs uppercase hover:bg-indigo-50 transition-all flex items-center justify-center gap-3">
-               <Plus className="w-6 h-6" /> Add Data Field
+               <Plus className="w-6 h-6" /> Add Custom Field
              </button>
           </div>
           
           <div className="flex justify-end gap-4 pt-8 border-t border-gray-100">
             <button onClick={() => { setIsAdding(false); setEditingId(null); }} className="px-8 py-3.5 text-gray-500 font-black text-xs uppercase tracking-widest hover:text-slate-800">Cancel</button>
             <button onClick={() => isAdding ? saveNewType() : saveEditChanges(editingId!)} className="bg-indigo-600 text-white px-12 py-3.5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-xl hover:bg-indigo-700">
-              {isAdding ? 'Initialize Schema' : 'Save Structure'}
+              {isAdding ? 'Create Schema' : 'Update Schema'}
             </button>
           </div>
         </div>
@@ -347,7 +413,7 @@ const PropertyTypeManager: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="text-2xl font-black text-gray-900 tracking-tight uppercase">{type.name}</h3>
-                  <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">{type.columns.length} Fields • Due Day: {type.defaultDueDateDay}</p>
+                  <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">{type.columns.length} Fields Defined • Due Day: {type.defaultDueDateDay}</p>
                 </div>
               </div>
             </div>
