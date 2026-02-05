@@ -1,3 +1,4 @@
+
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -16,27 +17,39 @@ import {
   UserCheck,
   Fingerprint,
   Database,
-  Plus
+  Plus,
+  Filter,
+  Users
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
 import { useRentalStore } from '../store/useRentalStore';
-import { PaymentStatus, UserRole, Payment, ColumnType, UnitHistory } from '../types';
+import { PaymentStatus, UserRole, Payment, ColumnType, UnitHistory, User as UserType } from '../types';
 
 const Dashboard: React.FC = () => {
   const store = useRentalStore();
   const navigate = useNavigate();
   const user = store.user;
-  const isManager = user?.role === UserRole.MANAGER;
   const isAdmin = user?.role === UserRole.ADMIN;
+  
+  // ADMIN FILTER STATE
+  const [adminUserFilter, setAdminUserFilter] = useState<string>('all');
 
   const visibleProperties = useMemo(() => {
-    if (!isManager) return store.properties;
-    return store.properties.filter((p: any) => p.isVisibleToManager);
-  }, [store.properties, isManager]);
+    if (isAdmin) {
+      if (adminUserFilter === 'all') return store.properties;
+      return store.properties.filter((p: any) => p.allowedUserIds?.includes(adminUserFilter));
+    }
+    // Strict visibility for Managers/Viewers: only assigned properties
+    return store.properties.filter((p: any) => p.allowedUserIds?.includes(user?.id));
+  }, [store.properties, isAdmin, adminUserFilter, user?.id]);
 
   const visiblePropertyIds = useMemo(() => visibleProperties.map((p: any) => p.id), [visibleProperties]);
+
+  const managers = useMemo(() => {
+    return (store.users || []).filter((u: UserType) => u.role === UserRole.MANAGER);
+  }, [store.users]);
 
   const [currentMonthKey] = useState(() => {
     const d = new Date();
@@ -60,7 +73,6 @@ const Dashboard: React.FC = () => {
     const overdueUnitsList: any[] = [];
 
     records.forEach(record => {
-      // BUG-A FIX: Lookup historical state for the target month
       const historicalState = store.unitHistory.find((h: UnitHistory) => {
         if (h.recordId !== record.id) return false;
         const from = new Date(h.effectiveFrom);
@@ -175,11 +187,29 @@ const Dashboard: React.FC = () => {
           </div>
           
           <p className="text-slate-500 mt-6 font-medium text-base lg:text-lg max-w-xl">
-             Real-time oversight for <span className="text-slate-900 font-black">{stats.totalProperties} properties</span> currently under your command.
+             Real-time oversight for <span className="text-slate-900 font-black">{stats.totalProperties} properties</span> {adminUserFilter !== 'all' ? `assigned to manager` : `under your command`}.
           </p>
         </div>
         
-        <div className="flex flex-wrap gap-4">
+        <div className="flex flex-wrap items-center gap-4">
+          {isAdmin && (
+             <div className="flex items-center bg-white border border-slate-200 p-2 rounded-2xl shadow-sm gap-4 px-6">
+                <div className="flex items-center gap-2">
+                   <Users className="w-4 h-4 text-indigo-500" />
+                   <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Manager Perspective:</span>
+                </div>
+                <select 
+                  className="bg-transparent border-none text-xs font-black uppercase text-indigo-600 outline-none cursor-pointer"
+                  value={adminUserFilter}
+                  onChange={(e) => setAdminUserFilter(e.target.value)}
+                >
+                   <option value="all">Complete Portfolio (All)</option>
+                   {managers.map(m => (
+                      <option key={m.id} value={m.id}>{m.name}</option>
+                   ))}
+                </select>
+             </div>
+          )}
           <button 
             onClick={() => navigate('/reports')}
             className="group bg-slate-950 text-white px-8 py-5 rounded-2xl flex items-center gap-3 hover:bg-slate-800 transition-all font-black uppercase text-[10px] tracking-widest shadow-2xl shadow-slate-200"
@@ -189,25 +219,29 @@ const Dashboard: React.FC = () => {
         </div>
       </header>
 
-      {store.properties.length === 0 ? (
+      {visibleProperties.length === 0 ? (
         <div className="py-24 text-center bg-white rounded-[3rem] border-2 border-dashed border-slate-100 flex flex-col items-center animate-in zoom-in-95 duration-500">
            <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mb-8">
               <Home className="w-10 h-10 text-slate-200" />
            </div>
-           <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight mb-2">No Assets Detected</h2>
+           <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight mb-2">
+             {adminUserFilter !== 'all' ? 'No Assigned Assets' : 'No Assets Detected'}
+           </h2>
            <p className="text-slate-400 font-medium max-w-sm mx-auto mb-10 leading-relaxed">
-             Your portfolio is currently empty. Start adding your own properties or use demo data to explore features.
+             {adminUserFilter !== 'all' 
+               ? "This manager has no properties assigned to their account." 
+               : "Your portfolio is currently empty. Start adding properties to see data."}
            </p>
-           <div className="flex flex-wrap justify-center gap-4">
-              <button onClick={() => navigate('/properties')} className="bg-indigo-600 text-white px-8 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-100 flex items-center gap-2 hover:bg-indigo-700 active:scale-95 transition-all">
-                 <Plus className="w-5 h-5" /> Initialize First Property
-              </button>
-              {isAdmin && (
-                <button onClick={() => store.seedDummyData()} className="bg-white border border-slate-200 text-slate-600 px-8 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-sm flex items-center gap-2 hover:bg-slate-50 active:scale-95 transition-all">
-                  <Database className="w-5 h-5" /> Seed Demo Data
-                </button>
-              )}
-           </div>
+           {isAdmin && adminUserFilter === 'all' && (
+              <div className="flex flex-wrap justify-center gap-4">
+                 <button onClick={() => navigate('/properties')} className="bg-indigo-600 text-white px-8 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-100 flex items-center gap-2 hover:bg-indigo-700 active:scale-95 transition-all">
+                    <Plus className="w-5 h-5" /> Initialize First Property
+                 </button>
+                 <button onClick={() => store.seedDummyData()} className="bg-white border border-slate-200 text-slate-600 px-8 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-sm flex items-center gap-2 hover:bg-slate-50 active:scale-95 transition-all">
+                   <Database className="w-5 h-5" /> Seed Demo Data
+                 </button>
+              </div>
+           )}
         </div>
       ) : (
         <>

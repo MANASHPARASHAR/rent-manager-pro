@@ -38,7 +38,15 @@ const Login: React.FC = () => {
   const [googleInfo, setGoogleInfo] = useState<{name: string, email: string} | null>(null);
 
   const hasUsers = store.users && store.users.length > 0;
-  const isCloudConfigured = !!store.spreadsheetId && !!store.googleUser;
+  // FIX: Setup is considered "Configured" if spreadsheetId exists, regardless of token expiry
+  const isCloudConfigured = !!store.spreadsheetId;
+
+  // Auto-redirect to Login if cloud is already configured and users exist
+  useEffect(() => {
+    if (isCloudConfigured && hasUsers && view === 'CHOICE') {
+      setView('LOGIN');
+    }
+  }, [isCloudConfigured, hasUsers]);
 
   // Handle errors automatically
   useEffect(() => {
@@ -139,7 +147,6 @@ const Login: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* OPTION 1: CLOUD SYNC - Skip to login if already configured */}
         <button 
           onClick={() => {
             if (isCloudConfigured) {
@@ -159,7 +166,7 @@ const Login: React.FC = () => {
             </div>
             <h3 className="text-2xl font-black text-white uppercase tracking-tight mb-2">Workspace Link</h3>
             <p className="text-slate-400 text-xs font-medium leading-relaxed uppercase tracking-wide">
-              {isCloudConfigured ? 'Directly access your synced organization database.' : 'Sync with organization database via Google Cloud.'}
+              {isCloudConfigured ? 'Organization database is already linked.' : 'Sync with organization database via Google Cloud.'}
             </p>
             <div className="mt-8 flex items-center gap-2 text-[10px] font-black text-indigo-400 uppercase tracking-widest">
               {isCloudConfigured ? 'Proceed to Login' : 'Establish Sync'} <ArrowRight className="w-4 h-4" />
@@ -167,10 +174,9 @@ const Login: React.FC = () => {
           </div>
         </button>
 
-        {/* OPTION 2: LOGIN */}
         <button 
           onClick={() => {
-            if (!hasUsers) setError("System not initialized. Use Workspace Link first.");
+            if (!hasUsers && !isCloudConfigured) setError("System not initialized. Use Workspace Link first.");
             else setView('LOGIN');
           }}
           className="group relative bg-white/5 border border-white/10 p-10 rounded-[3rem] text-left hover:bg-emerald-600/10 hover:border-emerald-500/50 transition-all duration-500 overflow-hidden"

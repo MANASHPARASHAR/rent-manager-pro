@@ -21,14 +21,15 @@ import {
   Info,
   ChevronUp,
   ChevronDown,
-  X
+  X,
+  Users
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   Cell, ComposedChart, Line, Area
 } from 'recharts';
 import { useRentalStore } from '../store/useRentalStore';
-import { PaymentStatus, UserRole, Property } from '../types';
+import { PaymentStatus, UserRole, Property, User as UserType } from '../types';
 
 const AdminInsights: React.FC = () => {
   const store = useRentalStore();
@@ -36,6 +37,9 @@ const AdminInsights: React.FC = () => {
   
   const [editingId, setEditingId] = useState<string | null>(null);
   const [tempInvestment, setTempInvestment] = useState<string>('0');
+  
+  // ADMIN FILTER STATE
+  const [managerFilter, setManagerFilter] = useState<string>('all');
 
   // AUTHORIZATION GUARD
   if (!isAdmin) {
@@ -52,34 +56,44 @@ const AdminInsights: React.FC = () => {
     );
   }
 
+  const managers = useMemo(() => {
+    return (store.users || []).filter((u: UserType) => u.role === UserRole.MANAGER);
+  }, [store.users]);
+
   const propertyMetrics = useMemo(() => {
-    return store.properties.map((p: Property) => {
-      const records = store.records.filter((r: any) => r.propertyId === p.id);
-      const recordIds = records.map((r: any) => r.id);
-      
-      const lifetimeRevenue = store.payments
-        .filter((pay: any) => 
-          recordIds.includes(pay.recordId) && 
-          pay.status === PaymentStatus.PAID && 
-          (pay.type === 'RENT' || pay.type === 'ELECTRICITY')
-        )
-        .reduce((sum: number, pay: any) => sum + pay.amount, 0);
+    return store.properties
+      .filter((p: Property) => {
+        if (managerFilter === 'all') return true;
+        return p.allowedUserIds?.includes(managerFilter);
+      })
+      .map((p: Property) => {
+        const records = store.records.filter((r: any) => r.propertyId === p.id);
+        const recordIds = records.map((r: any) => r.id);
+        
+        const lifetimeRevenue = store.payments
+          .filter((pay: any) => 
+            recordIds.includes(pay.recordId) && 
+            pay.status === PaymentStatus.PAID && 
+            (pay.type === 'RENT' || pay.type === 'ELECTRICITY')
+          )
+          .reduce((sum: number, pay: any) => sum + pay.amount, 0);
 
-      const investment = p.totalInvestment || 0;
-      const profit = lifetimeRevenue - investment;
-      const roi = investment > 0 ? (lifetimeRevenue / investment) * 100 : 0;
-      const isBreakeven = lifetimeRevenue >= investment && investment > 0;
+        const investment = p.totalInvestment || 0;
+        const profit = lifetimeRevenue - investment;
+        const roi = investment > 0 ? (lifetimeRevenue / investment) * 100 : 0;
+        const isBreakeven = lifetimeRevenue >= investment && investment > 0;
 
-      return {
-        ...p,
-        lifetimeRevenue,
-        investment,
-        profit,
-        roi,
-        isBreakeven
-      };
-    }).sort((a, b) => b.lifetimeRevenue - a.lifetimeRevenue);
-  }, [store.properties, store.payments, store.records]);
+        return {
+          ...p,
+          lifetimeRevenue,
+          investment,
+          profit,
+          roi,
+          isBreakeven
+        };
+      })
+      .sort((a, b) => b.lifetimeRevenue - a.lifetimeRevenue);
+  }, [store.properties, store.payments, store.records, managerFilter]);
 
   const portfolioStats = useMemo(() => {
     const totalRevenue = propertyMetrics.reduce((s, m) => s + m.lifetimeRevenue, 0);
@@ -113,13 +127,31 @@ const AdminInsights: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex gap-4">
-           <div className="px-8 py-5 bg-white border border-slate-100 rounded-[2rem] shadow-sm flex flex-col">
-              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Portfolio ROI</span>
-              <div className="flex items-center gap-3">
-                 <h3 className="text-3xl font-black text-slate-900 leading-none">{portfolioStats.avgROI.toFixed(1)}%</h3>
-                 <div className={`p-1.5 rounded-lg ${portfolioStats.avgROI >= 100 ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
-                    {portfolioStats.avgROI >= 100 ? <ShieldCheck className="w-4 h-4" /> : <TrendingUp className="w-4 h-4" />}
+        <div className="flex flex-wrap gap-4 items-center">
+           {/* MANAGER SELECTOR */}
+           <div className="flex items-center bg-white border border-slate-100 p-2 rounded-2xl shadow-sm gap-4 px-6 h-16">
+              <div className="flex items-center gap-2">
+                 <Users className="w-4 h-4 text-indigo-500" />
+                 <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Visibility Filter:</span>
+              </div>
+              <select 
+                className="bg-transparent border-none text-xs font-black uppercase text-indigo-600 outline-none cursor-pointer"
+                value={managerFilter}
+                onChange={(e) => setManagerFilter(e.target.value)}
+              >
+                 <option value="all">Global Portfolio (All)</option>
+                 {managers.map(m => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                 ))}
+              </select>
+           </div>
+
+           <div className="px-8 py-4 bg-white border border-slate-100 rounded-[2rem] shadow-sm flex flex-col justify-center h-16">
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Focus ROI</span>
+              <div className="flex items-center gap-3 leading-none">
+                 <h3 className="text-2xl font-black text-slate-900 leading-none">{portfolioStats.avgROI.toFixed(1)}%</h3>
+                 <div className={`p-1 rounded-lg ${portfolioStats.avgROI >= 100 ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
+                    {portfolioStats.avgROI >= 100 ? <ShieldCheck className="w-3.5 h-3.5" /> : <TrendingUp className="w-3.5 h-3.5" />}
                  </div>
               </div>
            </div>
