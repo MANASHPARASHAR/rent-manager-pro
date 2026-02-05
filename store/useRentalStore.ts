@@ -78,12 +78,13 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     users, propertyTypes, properties, records, recordValues, unitHistory, payments, config 
   });
 
-  const syncAll = useCallback(async () => {
-    if (!spreadsheetId || !authSession || isSyncInProgress.current) return; 
+  const syncAll = useCallback(async (forcedId?: string) => {
+    const activeId = forcedId || spreadsheetId;
+    if (!activeId || !authSession || isSyncInProgress.current) return; 
     
     const s = stateRef.current;
     const currentHash = JSON.stringify(s);
-    if (currentHash === lastSyncHash.current) return;
+    if (currentHash === lastSyncHash.current && !forcedId) return;
     
     isSyncInProgress.current = true;
     setIsCloudSyncing(true);
@@ -104,7 +105,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ];
 
       for (const item of batchData) {
-        await gapi.client.sheets.spreadsheets.values.clear({ spreadsheetId, range: `${item.tab}!A1:Z10000` });
+        await gapi.client.sheets.spreadsheets.values.clear({ spreadsheetId: activeId, range: `${item.tab}!A1:Z10000` });
       }
 
       const data = batchData.map(item => ({
@@ -113,7 +114,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }));
 
       await gapi.client.sheets.spreadsheets.values.batchUpdate({
-        spreadsheetId,
+        spreadsheetId: activeId,
         resource: {
           data,
           valueInputOption: 'RAW'
@@ -125,6 +126,8 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     } catch (e: any) {
       if (e.status === 401) {
         setSyncStatus('reauth');
+      } else if (e.status === 404) {
+        setSyncStatus('not_found');
       } else {
         setSyncStatus('error');
       }
@@ -143,6 +146,34 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         syncTimeoutRef.current = setTimeout(() => syncAll(), 2500); 
     }
   }, [users, propertyTypes, properties, records, recordValues, unitHistory, payments, config, tombstones, syncAll]);
+
+  const restoreCloudFromLocal = useCallback(async () => {
+    if (!authSession) return;
+    setIsCloudSyncing(true);
+    setSyncStatus('pending');
+    try {
+      const gapi = (window as any).gapi;
+      const createResponse = await gapi.client.sheets.spreadsheets.create({
+        resource: {
+          properties: { title: DATABASE_FILENAME },
+          sheets: SHEET_TABS.map(title => ({ properties: { title } }))
+        }
+      });
+      const newId = createResponse.result.spreadsheetId;
+      setSpreadsheetId(newId);
+      localStorage.setItem('rentmaster_active_sheet_id', newId);
+      
+      // Force an immediate full sync of the local state to the new spreadsheet
+      await syncAll(newId);
+      setSyncStatus('synced');
+      return true;
+    } catch (e) {
+      setSyncStatus('error');
+      return false;
+    } finally {
+      setIsCloudSyncing(false);
+    }
+  }, [authSession, syncAll]);
 
   const loadAllData = useCallback(async (id: string) => {
     const gapi = (window as any).gapi;
@@ -199,7 +230,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setPayments(pPays);
       setConfig(parsedConfig);
       
-      // AUTO-UPDATE CLIENT ID IF FOUND IN CLOUD
       if (parsedConfig.googleClientId && parsedConfig.googleClientId !== authClientId) {
         setAuthClientId(parsedConfig.googleClientId);
         localStorage.setItem('rentmaster_google_client_id', parsedConfig.googleClientId);
@@ -210,6 +240,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return { users: pUsers };
     } catch (e: any) {
       if (e.status === 401) setSyncStatus('reauth');
+      if (e.status === 404) setSyncStatus('not_found');
       return null;
     } finally {
       setIsBooting(false);
@@ -261,10 +292,12 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         localStorage.setItem('rentmaster_active_sheet_id', dbId);
         return await loadAllData(dbId);
       } else {
+        setSyncStatus('not_found');
         return { spreadsheetId: null, isNew: true };
       }
     } catch (error: any) {
       if (error.status === 401) setSyncStatus('reauth');
+      if (error.status === 404) setSyncStatus('not_found');
       setIsBooting(false);
       hasLoadedInitialData.current = true;
       return null;
@@ -316,7 +349,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                 const newId = createResponse.result.spreadsheetId;
                 setSpreadsheetId(newId);
                 localStorage.setItem('rentmaster_active_sheet_id', newId);
-                // SAVE CLIENT ID TO CONFIG IMMEDIATELY
                 setConfig(prev => ({ ...prev, googleClientId: rawId.trim() }));
               }
 
@@ -349,7 +381,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       localStorage.setItem('rentmaster_google_client_id', id);
       setConfig(prev => ({ ...prev, googleClientId: id }));
     },
-    authenticate, syncAll,
+    authenticate, syncAll, restoreCloudFromLocal,
     login: async (username: string, password: string) => {
       const found = (users as User[]).find((u: User) => String(u.username || '').toLowerCase() === String(username || '').toLowerCase() && u.passwordHash === password && !tombstones.has(u.id));
       if (found) { setUser(found); return true; }
