@@ -237,9 +237,6 @@ const Dashboard: React.FC = () => {
                  <button onClick={() => navigate('/properties')} className="bg-indigo-600 text-white px-8 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-100 flex items-center gap-2 hover:bg-indigo-700 active:scale-95 transition-all">
                     <Plus className="w-5 h-5" /> Initialize First Property
                  </button>
-                 <button onClick={() => store.seedDummyData()} className="bg-white border border-slate-200 text-slate-600 px-8 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-sm flex items-center gap-2 hover:bg-slate-50 active:scale-95 transition-all">
-                   <Database className="w-5 h-5" /> Seed Demo Data
-                 </button>
               </div>
            )}
         </div>
@@ -250,7 +247,7 @@ const Dashboard: React.FC = () => {
               { label: 'MTD Revenue', val: `$${stats.monthlyTotalCollected.toLocaleString()}`, sub: 'Settled this month', icon: DollarSign, color: 'bg-indigo-600' },
               { label: 'Asset Load', val: `${Math.round(stats.occupancyRate)}%`, sub: `${stats.activeUnits} Units Occupied`, icon: Home, color: 'bg-emerald-600' },
               { label: 'Portfolio Cap', val: `$${stats.monthlyRentExpected.toLocaleString()}`, sub: 'Monthly target', icon: Target, color: 'bg-slate-950' },
-              { label: 'Yield Rate', val: `${Math.round(stats.collectionRate)}%`, sub: 'Payment efficiency', icon: TrendingUp, color: 'bg-amber-500' },
+              { label: 'Yield Rate', val: `${Math.round(stats.collectionRate)}%`, sub: 'Payment efficiency', icon: TrendingUp, color: 'bg-amber-50' },
             ].map((item, i) => (
               <div key={i} className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm hover:translate-y-[-2px] transition-all duration-300">
                 <div className="flex justify-between items-start mb-6">
@@ -301,7 +298,7 @@ const Dashboard: React.FC = () => {
                 {stats.overdueUnitsList.length > 0 ? stats.overdueUnitsList.map((item, idx) => (
                   <div key={idx} className="flex items-center justify-between p-5 bg-slate-50 rounded-[2rem] border border-transparent hover:bg-indigo-50 transition-all group">
                     <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-slate-400 group-hover:text-indigo-600 transition-colors"><User className="w-5 h-5" /></div>
+                      <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-slate-300 shadow-inner group-hover:bg-indigo-50 group-hover:text-indigo-500 transition-colors"><User className="w-5 h-5" /></div>
                       <div className="overflow-hidden">
                         <p className="text-xs font-black text-slate-900 uppercase truncate">{item.tenant}</p>
                         <p className="text-[9px] font-bold text-slate-400 uppercase tracking-tight truncate">{item.propertyName}</p>

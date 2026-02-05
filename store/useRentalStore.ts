@@ -18,12 +18,11 @@ import {
 const RentalContext = createContext<any>(null);
 
 /**
- * 🔒 RIGID SECURITY CONFIG
- * 1. Enter your primary Gmail address here.
- * 2. Only THIS email will be allowed to perform the FIRST initialization of the system.
- * 3. Once initialized, only users added via the 'Team' dashboard can sync.
+ * 🔒 PRODUCTION SECURITY CONFIG
+ * IMPORTANT: Enter your primary Gmail address here before deploying.
+ * Only THIS email will be allowed to initialize the system for the first time.
  */
-const OWNER_EMAIL = ""; // 👈 SET YOUR EMAIL HERE (e.g., "myemail@gmail.com")
+const OWNER_EMAIL = ""; 
 
 const DATABASE_FILENAME = "RentMaster_Pro_Database";
 const SHEET_TABS = ["Users", "PropertyTypes", "Properties", "Records", "RecordValues", "Payments", "Config", "UnitHistory"];
@@ -210,18 +209,20 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
 
       const parse = (index: number) => data[index]?.values?.slice(1) || [];
-      const currentTombstones = new Set(JSON.parse(localStorage.getItem(TOMBSTONES_KEY) || '[]'));
+      // Fix: Ensure currentTombstones is treated as Set<string> to avoid 'never' issues
+      const currentTombstones = new Set<string>(JSON.parse(localStorage.getItem(TOMBSTONES_KEY) || '[]'));
 
-      const parsedUsers = parse(0).map((r: any) => ({ id: r[0], username: r[1], name: r[2], role: r[3] as UserRole, passwordHash: r[4], createdAt: r[5] })).filter(u => u.id && !currentTombstones.has(u.id));
-      const parsedTypes = parse(1).map((r: any) => ({ id: r[0], name: r[1], columns: JSON.parse(r[2] || '[]'), defaultDueDateDay: parseInt(r[3] || '5') })).filter(t => t.id && !currentTombstones.has(t.id));
-      const parsedProps = parse(2).map((r: any) => ({ id: r[0], name: r[1], propertyTypeId: r[2], address: r[3], createdAt: r[4], isVisibleToManager: r[5] !== 'false', city: r[6] || '', allowedUserIds: JSON.parse(r[7] || '[]'), totalInvestment: parseFloat(r[8] || '0') })).filter(p => p.id && !currentTombstones.has(p.id));
-      const pRecords = parse(3).map(r => ({ id: r[0], propertyId: r[1], createdAt: r[2], updatedAt: r[3] })).filter(r => r.id && !currentTombstones.has(r.id));
-      const pVals = parse(4).map(r => ({ id: r[0], recordId: r[1], columnId: r[2], value: r[3] })).filter(v => v.id && !currentTombstones.has(v.recordId));
-      const pPays = parse(5).map(r => ({ id: r[0], recordId: r[1], month: r[2], amount: parseFloat(r[3] || '0'), status: r[4] as PaymentStatus, type: r[5], dueDate: r[6], paidAt: r[7], paidTo: r[8], paymentMode: r[9], isRefunded: r[10] === 'true' })).filter(p => p.id && !currentTombstones.has(p.recordId));
+      // Fix: Explicitly type parsed results to avoid 'never[]' inference
+      const parsedUsers: User[] = parse(0).map((r: any) => ({ id: r[0], username: r[1], name: r[2], role: r[3] as UserRole, passwordHash: r[4], createdAt: r[5] })).filter(u => u.id && !currentTombstones.has(u.id));
+      const parsedTypes: PropertyType[] = parse(1).map((r: any) => ({ id: r[0], name: r[1], columns: JSON.parse(r[2] || '[]'), defaultDueDateDay: parseInt(r[3] || '5') })).filter(t => t.id && !currentTombstones.has(t.id));
+      const parsedProps: Property[] = parse(2).map((r: any) => ({ id: r[0], name: r[1], propertyTypeId: r[2], address: r[3], createdAt: r[4], isVisibleToManager: r[5] !== 'false', city: r[6] || '', allowedUserIds: JSON.parse(r[7] || '[]'), totalInvestment: parseFloat(r[8] || '0') })).filter(p => p.id && !currentTombstones.has(p.id));
+      const pRecords: PropertyRecord[] = parse(3).map((r: any) => ({ id: r[0], propertyId: r[1], createdAt: r[2], updatedAt: r[3] })).filter(r => r.id && !currentTombstones.has(r.id));
+      const pVals: RecordValue[] = parse(4).map((r: any) => ({ id: r[0], recordId: r[1], columnId: r[2], value: r[3] })).filter(v => v.id && !currentTombstones.has(v.recordId));
+      const pPays: Payment[] = parse(5).map((r: any) => ({ id: r[0], recordId: r[1], month: r[2], amount: parseFloat(r[3] || '0'), status: r[4] as PaymentStatus, type: r[5], dueDate: r[6], paidAt: r[7], paidTo: r[8], paymentMode: r[9], isRefunded: r[10] === 'true' })).filter(p => p.id && !currentTombstones.has(p.recordId));
       
       const pConf = parse(6)[0];
-      const parsedConfig = pConf ? { paidToOptions: JSON.parse(pConf[0] || '[]'), paymentModeOptions: JSON.parse(pConf[1] || '[]'), cities: JSON.parse(pConf[2] || '[]') } : stateRef.current.config;
-      const pHist = parse(7).map(r => ({ id: r[0], recordId: r[1], values: JSON.parse(r[2] || '{}'), effectiveFrom: r[3], effectiveTo: r[4] === 'null' ? null : r[4] })).filter(h => h.id && !currentTombstones.has(h.recordId));
+      const parsedConfig: AppConfig = pConf ? { paidToOptions: JSON.parse(pConf[0] || '[]'), paymentModeOptions: JSON.parse(pConf[1] || '[]'), cities: JSON.parse(pConf[2] || '[]') } : stateRef.current.config;
+      const pHist: UnitHistory[] = parse(7).map((r: any) => ({ id: r[0], recordId: r[1], values: JSON.parse(r[2] || '{}'), effectiveFrom: r[3], effectiveTo: r[4] === 'null' ? null : r[4] })).filter(h => h.id && !currentTombstones.has(h.recordId));
 
       setUsers(parsedUsers);
       setPropertyTypes(parsedTypes);
@@ -312,7 +313,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         const cloudData = await loadAllData(dbId);
         return { spreadsheetId: dbId, ...cloudData };
       } else {
-        // Only trigger creation if authorized or if it's the first creation
         return { spreadsheetId: null, isNew: true };
       }
     } catch (error: any) {
@@ -342,19 +342,18 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                 headers: { Authorization: `Bearer ${response.access_token}` }
               }).then(res => res.json());
 
-              // CLOUD-FIRST SECURITY CHECK
               setAuthSession(response);
               const gapi = (window as any).gapi;
               gapi.client.setToken({ access_token: response.access_token });
               
               const bootstrapResult = await bootstrapDatabase();
-              
-              const cloudUsers = bootstrapResult?.users || [];
+              // Fix: Explicitly type cloudUsers as User[] to avoid potential 'never' inference
+              const cloudUsers: User[] = (bootstrapResult as any)?.users || [];
               const isDatabaseExisting = !!bootstrapResult?.spreadsheetId;
               
-              // 1. If database exists in cloud, check if THIS email is authorized
               if (isDatabaseExisting) {
-                const isAuthorizedInCloud = cloudUsers.some((u: any) => u.username.toLowerCase() === userInfo.email.toLowerCase());
+                // Fix: Added safety check for username property to prevent 'never' or 'undefined' access
+                const isAuthorizedInCloud = cloudUsers.some((u: User) => (u.username || '').toLowerCase() === (userInfo.email || '').toLowerCase());
                 if (!isAuthorizedInCloud) {
                   google.accounts.oauth2.revoke(response.access_token);
                   setAuthSession(null);
@@ -362,9 +361,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                   resolve({ error: 'UNAUTHORIZED_EMAIL' });
                   return;
                 }
-              } 
-              // 2. If no database exists (New System), check against hard-coded OWNER_EMAIL
-              else if (OWNER_EMAIL && userInfo.email.toLowerCase() !== OWNER_EMAIL.toLowerCase()) {
+              } else if (OWNER_EMAIL && userInfo.email.toLowerCase() !== OWNER_EMAIL.toLowerCase()) {
                 google.accounts.oauth2.revoke(response.access_token);
                 setAuthSession(null);
                 localStorage.removeItem(CLOUD_TOKEN_KEY);
@@ -372,7 +369,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                 return;
               }
 
-              // Finalize creation if it's a new system
               if (!isDatabaseExisting) {
                 const createResponse = await gapi.client.sheets.spreadsheets.create({
                   resource: {
@@ -422,7 +418,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const updateRecord = async (recordId: string, values: RecordValue[], effectiveDate?: string) => {
     const effDate = effectiveDate ? new Date(effectiveDate).toISOString() : new Date().toISOString();
     const mappedNewValues = values.reduce((acc, v) => ({...acc, [v.columnId]: v.value}), {});
-    
     const activeIdx = unitHistory.findIndex(h => h.recordId === recordId && h.effectiveTo === null);
     let updatedHistory = [...unitHistory];
     
@@ -445,131 +440,13 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setRecords(records.map(r => r.id === recordId ? { ...r, updatedAt: new Date().toISOString() } : r));
   };
 
-  const seedDummyData = useCallback(() => {
-    const ptId = 'pt_demo_premium';
-    const propId = 'p_demo_skyline';
-    const colIds = {
-      tenant: 'col_demo_name',
-      phone: 'col_demo_phone',
-      rent: 'col_demo_rent',
-      electricity: 'col_demo_elec',
-      deposit: 'col_demo_dep',
-      date: 'col_demo_date',
-      status: 'col_demo_status'
-    };
-
-    const pt: PropertyType = {
-      id: ptId,
-      name: 'Residential Premium',
-      columns: [
-        { id: colIds.tenant, name: 'Tenant Name', type: ColumnType.TEXT, required: true, isRentCalculatable: false, isDefaultInLedger: true, order: 0 },
-        { id: colIds.phone, name: 'Phone Number', type: ColumnType.NUMBER, required: true, isRentCalculatable: false, isDefaultInLedger: true, order: 1 },
-        { id: colIds.rent, name: 'Monthly Rent', type: ColumnType.CURRENCY, required: true, isRentCalculatable: true, isDefaultInLedger: true, order: 2 },
-        { id: colIds.electricity, name: 'Elec. Reading (Base)', type: ColumnType.NUMBER, required: false, isRentCalculatable: false, isDefaultInLedger: true, order: 3 },
-        { id: colIds.deposit, name: 'Security Deposit', type: ColumnType.SECURITY_DEPOSIT, required: true, isRentCalculatable: false, order: 4 },
-        { id: colIds.date, name: 'Join Date', type: ColumnType.DATE, required: true, isRentCalculatable: false, order: 5 },
-        { id: colIds.status, name: 'Occupancy', type: ColumnType.OCCUPANCY_STATUS, required: true, isRentCalculatable: false, isDefaultInLedger: true, options: ['Active', 'Vacant'], order: 6 },
-      ],
-      defaultDueDateDay: 5
-    };
-
-    const prop: Property = {
-      id: propId,
-      name: 'Skyline Terrace',
-      propertyTypeId: ptId,
-      address: '101 Midtown Blvd, NY',
-      city: 'New York',
-      createdAt: new Date().toISOString(),
-      isVisibleToManager: true,
-      allowedUserIds: [],
-      totalInvestment: 500000
-    };
-
-    const dummyUnits = [
-      { id: '101', tenant: 'Alice Smith', phone: '5550001001', rent: '2500', elec: '100', dep: '2500', status: 'Active', date: '2024-01-10' },
-      { id: '102', tenant: 'Bob Johnson', phone: '5550001002', rent: '2200', elec: '150', dep: '2200', status: 'Active', date: '2024-03-15' },
-      { id: '103', tenant: '', phone: '', rent: '2400', elec: '0', dep: '2400', status: 'Vacant', date: '2024-01-01' }
-    ];
-
-    const newRecords: PropertyRecord[] = [];
-    const newRecordValues: RecordValue[] = [];
-    const newHistory: UnitHistory[] = [];
-    const newHistoryArr: UnitHistory[] = [];
-    const newPayments: Payment[] = [];
-
-    const now = new Date();
-    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-
-    dummyUnits.forEach(u => {
-      const rid = `r_demo_${u.id}`;
-      newRecords.push({ id: rid, propertyId: propId, createdAt: u.date + 'T00:00:00Z', updatedAt: new Date().toISOString() });
-      
-      const valuesMap = {
-        [colIds.tenant]: u.tenant,
-        [colIds.phone]: u.phone,
-        [colIds.rent]: u.rent,
-        [colIds.electricity]: u.elec,
-        [colIds.deposit]: u.dep,
-        [colIds.date]: u.date,
-        [colIds.status]: u.status
-      };
-
-      Object.entries(valuesMap).forEach(([cid, val]) => {
-        newRecordValues.push({ id: `v_demo_${rid}_${cid}`, recordId: rid, columnId: cid, value: val });
-      });
-
-      newHistoryArr.push({
-        id: `h_demo_${rid}`,
-        recordId: rid,
-        values: valuesMap,
-        effectiveFrom: u.date + 'T00:00:00Z',
-        effectiveTo: null
-      });
-
-      if (u.status === 'Active') {
-        newPayments.push({
-          id: `pay_demo_${rid}_dep`,
-          recordId: rid,
-          month: 'ONE_TIME',
-          amount: parseFloat(u.dep),
-          status: PaymentStatus.PAID,
-          type: 'DEPOSIT',
-          dueDate: 'N/A',
-          paidAt: u.date,
-          paidTo: 'Company Account',
-          paymentMode: 'Bank Transfer'
-        });
-
-        newPayments.push({
-          id: `pay_demo_${rid}_rent`,
-          recordId: rid,
-          month: currentMonth,
-          amount: parseFloat(u.rent),
-          status: PaymentStatus.PAID,
-          type: 'RENT',
-          dueDate: `${currentMonth}-05`,
-          paidAt: `${currentMonth}-02`,
-          paidTo: 'Bank Account',
-          paymentMode: 'UPI/QR'
-        });
-      }
-    });
-
-    setPropertyTypes([pt]);
-    setProperties([prop]);
-    setRecords(newRecords);
-    setRecordValues(newRecordValues);
-    setUnitHistory(newHistoryArr);
-    setPayments(newPayments);
-  }, []);
-
   const value = {
     isBooting, user, users, propertyTypes, properties, records, recordValues, unitHistory, payments, config,
     isCloudSyncing, syncStatus, spreadsheetName, googleUser: authSession, spreadsheetId, googleClientId: authClientId, 
     updateClientId, authenticate, syncAll,
     login: async (username: string, password: string) => {
-      // FIX: Explicitly type the user object in the find callback to resolve 'never' type inference issue.
-      const found = users.find((u: User) => u.username.toLowerCase() === username.toLowerCase() && u.passwordHash === password && !tombstones.has(u.id));
+      // Fix: Ensure users is treated as User[] and safely handle potential undefined/null usernames
+      const found = (users as User[]).find((u: User) => (u.username || '').toLowerCase() === (username || '').toLowerCase() && u.passwordHash === password && !tombstones.has(u.id));
       if (found) { setUser(found); return true; }
       return false;
     },
@@ -586,10 +463,9 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     addRecord: (r: PropertyRecord, v: RecordValue[]) => { const now = new Date().toISOString(); const mapped = v.reduce((acc, x) => ({...acc, [x.columnId]: x.value}), {}); setRecordValues([...recordValues, ...v]); setRecords([...records, r]); setUnitHistory([...unitHistory, { id: 'h' + Date.now(), recordId: r.id, values: mapped, effectiveFrom: now, effectiveTo: null }]); },
     updateRecord,
     deleteRecord: (id: string) => { setTombstones(prev => new Set(prev).add(id)); setRecords(records.filter(r => r.id !== id)); },
-    togglePayment: (rId: string, m: string, a: number, d: string, x: Partial<Payment> = {}, t: PaymentType = 'RENT') => { const ex = payments.find(p => p.recordId === rId && p.month === m && p.type === t); setPayments(ex ? payments.filter(p => p.id !== ex.id) : [...payments, { id: 'pay' + Date.now(), recordId: rId, month: m, amount: a, status: x.status || PaymentStatus.PAID, type: t, dueDate: d, paidAt: new Date().toISOString(), ...x } as Payment]); },
+    togglePayment: (rId: string, m: string, a: number, d: string, x: Partial<Payment> = {}, t: PaymentType = 'RENT') => { const ex = payments.find(p => p.recordId === rId && p.month === m && p.type === t); setPayments(ex ? payments.filter(p => p.id !== ex.id) : [...payments, { id: 'pay' + Date.now(), recordId: rId, month: m, amount: a, status: x.status || PaymentStatus.PAID, t: t, dueDate: d, paidAt: new Date().toISOString(), ...x } as Payment]); },
     refundDeposit: (rId: string) => setPayments(payments.map(p => p.recordId === rId && p.type === 'DEPOSIT' ? { ...p, isRefunded: true } : p)),
-    updateConfig: (u: Partial<AppConfig>) => setConfig({ ...config, ...u }),
-    seedDummyData
+    updateConfig: (u: Partial<AppConfig>) => setConfig({ ...config, ...u })
   };
 
   return React.createElement(RentalContext.Provider, { value }, children);
