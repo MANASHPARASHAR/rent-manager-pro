@@ -99,7 +99,6 @@ const RentCollection: React.FC = () => {
   };
 
   const jumpToToday = () => {
-    // Corrected 'date' to 'd' to correctly reference the local Date instance.
     const d = new Date();
     setSelectedMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
   };
@@ -159,7 +158,6 @@ const RentCollection: React.FC = () => {
   const recordsWithRent = useMemo(() => {
     const today = new Date(); today.setHours(0,0,0,0);
     const [y, m] = selectedMonth.split('-').map(Number);
-    const contextDate = new Date(y, m, 0, 23, 59, 59);
 
     return store.records
       .filter((r: any) => visiblePropertyIds.includes(r.propertyId))
@@ -167,6 +165,14 @@ const RentCollection: React.FC = () => {
         const property = store.properties.find((p: any) => p.id === record.propertyId);
         const propertyType = store.propertyTypes.find((t: any) => t.id === property?.propertyTypeId);
         
+        /**
+         * LOGIC FIX: Mid-Month Transitions
+         * We look at the Rent Due Date of the selected month to determine the "Active" tenant for that cycle.
+         * This prevents mid-month vacancies from wiping data prematurely.
+         */
+        const dueDay = propertyType?.defaultDueDateDay || 5;
+        const contextDate = new Date(y, m - 1, dueDay, 12, 0, 0);
+
         const historicalState = store.unitHistory.find((h: UnitHistory) => {
           if (h.recordId !== record.id) return false;
           const from = new Date(h.effectiveFrom);
@@ -199,7 +205,7 @@ const RentCollection: React.FC = () => {
         if (isVacant) statusBadge = 'VACANT';
         else if (isRentPaid) statusBadge = 'PAID';
         else {
-          const deadline = new Date(y, m - 1, propertyType?.defaultDueDateDay || 5, 23, 59, 59);
+          const deadline = new Date(y, m - 1, dueDay, 23, 59, 59);
           if (today > deadline) statusBadge = 'OVERDUE';
         }
 
@@ -786,7 +792,7 @@ const RentCollection: React.FC = () => {
                                        </div>
                                        <div className="text-right">
                                           <p className="text-base font-black text-indigo-600">${item.amount.toLocaleString()}</p>
-                                          {item.month !== 'ONE_TIME' && <p className="text-[9px] font-black text-slate-400 uppercase">{item.month}</p>}
+                                          {item.month && item.month !== 'ONE_TIME' && <p className="text-[9px] font-black text-slate-400 uppercase">{item.month}</p>}
                                        </div>
                                     </div>
                                  </div>
