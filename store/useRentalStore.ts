@@ -67,6 +67,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isBooting, setIsBooting] = useState(true);
   const [isCloudSyncing, setIsCloudSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'synced' | 'pending' | 'error' | 'reauth' | 'not_found'>('synced');
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
 
   const lastSyncHash = useRef('');
   const tokenClientRef = useRef<any>(null);
@@ -123,14 +124,11 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       lastSyncHash.current = currentHash;
       setSyncStatus('synced');
+      setLastSyncedAt(new Date().toLocaleTimeString());
     } catch (e: any) {
-      if (e.status === 401) {
-        setSyncStatus('reauth');
-      } else if (e.status === 404) {
-        setSyncStatus('not_found');
-      } else {
-        setSyncStatus('error');
-      }
+      if (e.status === 401) setSyncStatus('reauth');
+      else if (e.status === 404) setSyncStatus('not_found');
+      else setSyncStatus('error');
     } finally {
       setIsCloudSyncing(false);
       isSyncInProgress.current = false;
@@ -147,34 +145,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [users, propertyTypes, properties, records, recordValues, unitHistory, payments, config, tombstones, syncAll]);
 
-  const restoreCloudFromLocal = useCallback(async () => {
-    if (!authSession) return;
-    setIsCloudSyncing(true);
-    setSyncStatus('pending');
-    try {
-      const gapi = (window as any).gapi;
-      const createResponse = await gapi.client.sheets.spreadsheets.create({
-        resource: {
-          properties: { title: DATABASE_FILENAME },
-          sheets: SHEET_TABS.map(title => ({ properties: { title } }))
-        }
-      });
-      const newId = createResponse.result.spreadsheetId;
-      setSpreadsheetId(newId);
-      localStorage.setItem('rentmaster_active_sheet_id', newId);
-      
-      // Force an immediate full sync of the local state to the new spreadsheet
-      await syncAll(newId);
-      setSyncStatus('synced');
-      return true;
-    } catch (e) {
-      setSyncStatus('error');
-      return false;
-    } finally {
-      setIsCloudSyncing(false);
-    }
-  }, [authSession, syncAll]);
-
   const loadAllData = useCallback(async (id: string) => {
     const gapi = (window as any).gapi;
     if (!gapi?.client?.sheets || !authSession) {
@@ -184,6 +154,8 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
 
     try {
+      // 🛡️ SECURITY FIX: Check if file exists before attempting to read. 
+      // If 404, we DONT clear the state. We keep local data.
       const fileMeta = await gapi.client.drive.files.get({ fileId: id, fields: 'name, trashed' });
       if (fileMeta.result.trashed) {
         setSyncStatus('not_found');
@@ -221,22 +193,29 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       
       const pHist: UnitHistory[] = parse(7).map((r: any) => ({ id: r[0], recordId: r[1], values: JSON.parse(r[2] || '{}'), effectiveFrom: r[3], effectiveTo: r[4] === 'null' ? null : r[4] })).filter(h => h.id && !currentTombstones.has(h.recordId));
 
-      setUsers(pUsers);
-      setPropertyTypes(pTypes);
-      setProperties(pProps);
-      setRecords(pRecs);
-      setRecordValues(pVals);
-      setUnitHistory(pHist);
-      setPayments(pPays);
-      setConfig(parsedConfig);
-      
-      if (parsedConfig.googleClientId && parsedConfig.googleClientId !== authClientId) {
-        setAuthClientId(parsedConfig.googleClientId);
-        localStorage.setItem('rentmaster_google_client_id', parsedConfig.googleClientId);
-      }
+      // ONLY UPDATE LOCAL STATE IF CLOUD DATA IS ACTUALLY LOADED
+      if (pUsers.length > 0) {
+        setUsers(pUsers);
+        setPropertyTypes(pTypes);
+        setProperties(pProps);
+        setRecords(pRecs);
+        setRecordValues(pVals);
+        setUnitHistory(pHist);
+        setPayments(pPays);
+        setConfig(parsedConfig);
+        
+        if (parsedConfig.googleClientId && parsedConfig.googleClientId !== authClientId) {
+          setAuthClientId(parsedConfig.googleClientId);
+          localStorage.setItem('rentmaster_google_client_id', parsedConfig.googleClientId);
+        }
 
-      lastSyncHash.current = JSON.stringify({ users: pUsers, propertyTypes: pTypes, properties: pProps, records: pRecs, recordValues: pVals, unitHistory: pHist, payments: pPays, config: parsedConfig });
+        const fullState = { users: pUsers, propertyTypes: pTypes, properties: pProps, records: pRecs, recordValues: pVals, unitHistory: pHist, payments: pPays, config: parsedConfig };
+        lastSyncHash.current = JSON.stringify(fullState);
+        localStorage.setItem(LOCAL_CACHE_KEY, lastSyncHash.current);
+      }
+      
       setSyncStatus('synced');
+      setLastSyncedAt(new Date().toLocaleTimeString());
       return { users: pUsers };
     } catch (e: any) {
       if (e.status === 401) setSyncStatus('reauth');
@@ -247,6 +226,38 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       hasLoadedInitialData.current = true;
     }
   }, [authSession, authClientId, config]);
+
+  const pullLatestData = useCallback(async () => {
+    if (!spreadsheetId) return;
+    setIsCloudSyncing(true);
+    await loadAllData(spreadsheetId);
+    setIsCloudSyncing(false);
+  }, [spreadsheetId, loadAllData]);
+
+  const restoreCloudFromLocal = useCallback(async () => {
+    if (!authSession) return;
+    setIsCloudSyncing(true);
+    setSyncStatus('pending');
+    try {
+      const gapi = (window as any).gapi;
+      const createResponse = await gapi.client.sheets.spreadsheets.create({
+        resource: {
+          properties: { title: DATABASE_FILENAME },
+          sheets: SHEET_TABS.map(title => ({ properties: { title } }))
+        }
+      });
+      const newId = createResponse.result.spreadsheetId;
+      setSpreadsheetId(newId);
+      localStorage.setItem('rentmaster_active_sheet_id', newId);
+      await syncAll(newId);
+      return true;
+    } catch (e) {
+      setSyncStatus('error');
+      return false;
+    } finally {
+      setIsCloudSyncing(false);
+    }
+  }, [authSession, syncAll]);
 
   const initGoogleClient = useCallback(async () => {
     return new Promise((resolve) => {
@@ -376,6 +387,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const value = {
     isBooting, user, users, propertyTypes, properties, records, recordValues, unitHistory, payments, config,
     isCloudSyncing, syncStatus, spreadsheetName, googleUser: authSession, spreadsheetId, googleClientId: authClientId, 
+    lastSyncedAt, pullLatestData,
     updateClientId: (id: string) => { 
       setAuthClientId(id); 
       localStorage.setItem('rentmaster_google_client_id', id);

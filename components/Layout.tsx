@@ -26,7 +26,8 @@ import {
   DatabaseZap,
   Trash2,
   CloudUpload,
-  Loader2
+  Loader2,
+  DownloadCloud
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { UserRole } from '../types';
@@ -79,6 +80,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     } finally {
       setIsRestoring(false);
     }
+  };
+
+  const handleManualPull = async () => {
+    await store.pullLatestData();
   };
 
   const handleSaveSetup = async () => {
@@ -230,13 +235,25 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                          {store.isCloudSyncing ? "Syncing..." : isCloudActive ? "Cloud Live" : "Offline Cache"}
                       </span>
                    </div>
-                   {isCloudActive ? <CheckCircle className="w-3.5 h-3.5 text-emerald-500" /> : <DatabaseZap className="w-3.5 h-3.5 text-amber-500" />}
+                   <button 
+                    onClick={handleManualPull}
+                    disabled={store.isCloudSyncing || !store.spreadsheetId}
+                    className="p-1.5 bg-white/5 hover:bg-indigo-600 text-slate-400 hover:text-white rounded-lg transition-all active:scale-90"
+                    title="Pull latest data from Cloud"
+                   >
+                     <DownloadCloud className="w-4 h-4" />
+                   </button>
                 </div>
-                {!isCloudActive && (
-                  <p className="text-[8px] font-bold text-slate-500 uppercase leading-relaxed border-t border-white/5 pt-3">
-                    {isCloudNotFound ? "Cloud database missing. Restore now." : "Your local changes are protected and will sync when cloud is re-linked."}
-                  </p>
-                )}
+                
+                <div className="flex flex-col gap-1 border-t border-white/5 pt-3">
+                   <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-slate-500">
+                      <span>Last Sync:</span>
+                      <span className="text-indigo-400">{store.lastSyncedAt || 'Waiting...'}</span>
+                   </div>
+                   <p className="text-[8px] font-bold text-slate-500 uppercase leading-relaxed mt-1">
+                      {isCloudNotFound ? "Cloud database missing. Restore now." : "Local-First Sync: Fast & Private."}
+                   </p>
+                </div>
              </div>
           )}
         </div>
