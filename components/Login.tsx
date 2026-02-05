@@ -12,7 +12,9 @@ import {
   Shield,
   Database,
   ArrowRight,
-  Key
+  Key,
+  CloudOff,
+  RefreshCw
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { UserRole } from '../types';
@@ -29,9 +31,11 @@ const Login: React.FC = () => {
   
   const hasUsers = store.users && store.users.length > 0;
   const isCloudConfigured = !!store.spreadsheetId;
-  const isSystemInitialized = hasUsers || isCloudConfigured;
+  const isCloudNotFound = store.syncStatus === 'not_found';
+  
+  // Logic: System is initialized if it has users OR a configured cloud sheet
+  const isSystemInitialized = hasUsers || (isCloudConfigured && !isCloudNotFound);
 
-  // SECURITY LOCK: If system has users, force LOGIN view and never allow SETUP
   useEffect(() => {
     if (!store.isBooting) {
       if (isSystemInitialized) {
@@ -108,8 +112,10 @@ const Login: React.FC = () => {
            </span>
         </div>
         <div className="flex items-center gap-2">
-           <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></div>
-           <span className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Master Key Valid</span>
+           <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${isCloudNotFound ? 'bg-rose-500' : 'bg-indigo-500'}`}></div>
+           <span className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">
+             {isCloudNotFound ? 'Cloud Disconnected' : 'Master Key Valid'}
+           </span>
         </div>
       </div>
 
@@ -121,6 +127,20 @@ const Login: React.FC = () => {
       <form onSubmit={handleLogin} className="space-y-6">
         {error && <div className="bg-red-500/10 border border-red-500/20 p-5 rounded-2xl flex items-center gap-4 text-red-400 text-xs font-black uppercase tracking-widest animate-in shake"><AlertCircle className="w-6 h-6 shrink-0" />{error}</div>}
         
+        {isCloudNotFound && (
+          <div className="bg-rose-500/10 border border-rose-500/20 p-5 rounded-3xl flex flex-col gap-3">
+             <div className="flex items-center gap-4">
+                <CloudOff className="w-6 h-6 text-rose-500 shrink-0" />
+                <p className="text-[9px] text-rose-400 font-black uppercase leading-relaxed tracking-wider">
+                   Alert: The linked Google Sheet was not found. Logging in will allow you to restore from local backup.
+                </p>
+             </div>
+             <button type="button" onClick={() => setView('CHOICE')} className="text-[8px] font-black text-rose-500 uppercase flex items-center gap-1.5 self-end hover:underline">
+               <RefreshCw className="w-2.5 h-2.5" /> Emergency Setup Mode
+             </button>
+          </div>
+        )}
+
         <div className="space-y-2">
           <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Team ID (Email)</label>
           <div className="relative group">
@@ -145,7 +165,7 @@ const Login: React.FC = () => {
       <div className="p-6 bg-white/5 border border-white/10 rounded-3xl flex items-center gap-4">
          <Database className="w-5 h-5 text-indigo-400" />
          <p className="text-[9px] text-slate-500 font-bold uppercase leading-relaxed tracking-wider">
-            Enterprise database is linked to your Master Client ID. Setup mode is permanently disabled.
+            {isCloudNotFound ? "Cloud database link broken. Please login to repair connection." : "Enterprise database is linked to your Master Client ID."}
          </p>
       </div>
     </div>
@@ -176,6 +196,12 @@ const Login: React.FC = () => {
           </div>
         </button>
       </div>
+      
+      {hasUsers && (
+        <button onClick={() => setView('LOGIN')} className="w-full text-[10px] font-black text-slate-500 uppercase hover:text-white transition-colors tracking-[0.2em]">
+          Return to Member Login
+        </button>
+      )}
     </div>
   );
 

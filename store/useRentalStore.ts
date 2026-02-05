@@ -154,8 +154,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
 
     try {
-      // 🛡️ SECURITY FIX: Check if file exists before attempting to read. 
-      // If 404, we DONT clear the state. We keep local data.
       const fileMeta = await gapi.client.drive.files.get({ fileId: id, fields: 'name, trashed' });
       if (fileMeta.result.trashed) {
         setSyncStatus('not_found');
@@ -193,7 +191,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       
       const pHist: UnitHistory[] = parse(7).map((r: any) => ({ id: r[0], recordId: r[1], values: JSON.parse(r[2] || '{}'), effectiveFrom: r[3], effectiveTo: r[4] === 'null' ? null : r[4] })).filter(h => h.id && !currentTombstones.has(h.recordId));
 
-      // ONLY UPDATE LOCAL STATE IF CLOUD DATA IS ACTUALLY LOADED
       if (pUsers.length > 0) {
         setUsers(pUsers);
         setPropertyTypes(pTypes);
@@ -304,6 +301,8 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         return await loadAllData(dbId);
       } else {
         setSyncStatus('not_found');
+        setIsBooting(false); // CRITICAL FIX: Ensure booting stops even if no file found
+        hasLoadedInitialData.current = true;
         return { spreadsheetId: null, isNew: true };
       }
     } catch (error: any) {
