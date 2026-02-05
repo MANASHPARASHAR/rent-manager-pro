@@ -17,6 +17,14 @@ import {
 
 const RentalContext = createContext<any>(null);
 
+/**
+ * 🔒 RIGID SECURITY CONFIG
+ * 1. Enter your primary Gmail address here.
+ * 2. Only THIS email will be allowed to perform the FIRST initialization of the system.
+ * 3. Once initialized, only users added via the 'Team' dashboard can sync.
+ */
+const OWNER_EMAIL = ""; // 👈 SET YOUR EMAIL HERE (e.g., "myemail@gmail.com")
+
 const DATABASE_FILENAME = "RentMaster_Pro_Database";
 const SHEET_TABS = ["Users", "PropertyTypes", "Properties", "Records", "RecordValues", "Payments", "Config", "UnitHistory"];
 const CLOUD_TOKEN_KEY = 'rentmaster_cloud_token_persistent_v1';
@@ -72,6 +80,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const isSyncInProgress = useRef(false);
   const hasLoadedInitialData = useRef(false);
   const syncTimeoutRef = useRef<any>(null);
+  const refreshTimerRef = useRef<any>(null);
 
   const stateRef = useRef({ 
     users: initialData.current?.users || [], 
@@ -87,6 +96,15 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       cities: ['New York', 'Los Angeles', 'Chicago', 'Houston']
     }
   });
+
+  const startTokenRefreshTimer = useCallback(() => {
+    if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
+    refreshTimerRef.current = setInterval(() => {
+      if (tokenClientRef.current && authClientId) {
+        tokenClientRef.current.requestAccessToken({ prompt: '' }); 
+      }
+    }, 50 * 60 * 1000);
+  }, [authClientId]);
 
   const syncAll = useCallback(async () => {
     if (!spreadsheetId || !authSession || isSyncInProgress.current) return; 
@@ -133,8 +151,12 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       lastSyncHash.current = currentHash;
       setSyncStatus('synced');
     } catch (e: any) {
-      if (e.status === 401) setSyncStatus('reauth');
-      else setSyncStatus('error');
+      if (e.status === 401) {
+        setSyncStatus('reauth');
+        if (tokenClientRef.current) tokenClientRef.current.requestAccessToken({ prompt: '' });
+      } else {
+        setSyncStatus('error');
+      }
     } finally {
       setIsCloudSyncing(false);
       isSyncInProgress.current = false;
@@ -152,52 +174,9 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
         syncTimeoutRef.current = setTimeout(() => {
           syncAll();
-        }, 1000); 
+        }, 2000); 
     }
   }, [users, propertyTypes, properties, records, recordValues, unitHistory, payments, config, tombstones, syncAll]);
-
-  const initGoogleClient = useCallback(async () => {
-    return new Promise((resolve) => {
-      const checkGapi = () => {
-        const gapi = (window as any).gapi;
-        const google = (window as any).google;
-        if (gapi && google?.accounts?.oauth2) {
-          gapi.load('client', async () => {
-            try {
-              await gapi.client.init({
-                discoveryDocs: [
-                  "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest",
-                  "https://sheets.googleapis.com/$discovery/rest?version=v4"
-                ],
-              });
-              
-              tokenClientRef.current = google.accounts.oauth2.initTokenClient({
-                client_id: authClientId.trim(),
-                scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
-                callback: (response: any) => {
-                  if (response.access_token) {
-                    setAuthSession(response);
-                    localStorage.setItem(CLOUD_TOKEN_KEY, JSON.stringify(response));
-                    gapi.client.setToken({ access_token: response.access_token });
-                    setSyncStatus('synced');
-                    if (spreadsheetId) loadAllData(spreadsheetId);
-                  } else {
-                    setSyncStatus('reauth');
-                  }
-                },
-              });
-
-              if (authSession?.access_token) {
-                gapi.client.setToken({ access_token: authSession.access_token });
-              }
-              resolve(true);
-            } catch (e) { resolve(false); }
-          });
-        } else { setTimeout(checkGapi, 100); }
-      };
-      checkGapi();
-    });
-  }, [authSession, authClientId, spreadsheetId]);
 
   const loadAllData = useCallback(async (id: string) => {
     const gapi = (window as any).gapi;
@@ -255,19 +234,66 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       
       lastSyncHash.current = JSON.stringify({ users: parsedUsers, propertyTypes: parsedTypes, properties: parsedProps, records: pRecords, recordValues: pVals, unitHistory: pHist, payments: pPays, config: parsedConfig });
       setSyncStatus('synced');
+      return { users: parsedUsers };
     } catch (e: any) {
       if (e.status === 401) setSyncStatus('reauth');
+      return null;
     } finally {
       setIsBooting(false);
       hasLoadedInitialData.current = true;
     }
-  }, [authSession, spreadsheetId]);
+  }, [authSession]);
+
+  const initGoogleClient = useCallback(async () => {
+    return new Promise((resolve) => {
+      const checkGapi = () => {
+        const gapi = (window as any).gapi;
+        const google = (window as any).google;
+        if (gapi && google?.accounts?.oauth2) {
+          gapi.load('client', async () => {
+            try {
+              await gapi.client.init({
+                discoveryDocs: [
+                  "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest",
+                  "https://sheets.googleapis.com/$discovery/rest?version=v4"
+                ],
+              });
+              
+              tokenClientRef.current = google.accounts.oauth2.initTokenClient({
+                client_id: authClientId.trim(),
+                scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
+                callback: (response: any) => {
+                  if (response.access_token) {
+                    setAuthSession(response);
+                    localStorage.setItem(CLOUD_TOKEN_KEY, JSON.stringify(response));
+                    gapi.client.setToken({ access_token: response.access_token });
+                    setSyncStatus('synced');
+                    startTokenRefreshTimer();
+                    if (spreadsheetId) loadAllData(spreadsheetId);
+                  } else {
+                    setSyncStatus('reauth');
+                  }
+                },
+              });
+
+              if (authSession?.access_token) {
+                gapi.client.setToken({ access_token: authSession.access_token });
+                startTokenRefreshTimer();
+              }
+              resolve(true);
+            } catch (e) { resolve(false); }
+          });
+        } else { setTimeout(checkGapi, 200); }
+      };
+      checkGapi();
+    });
+  }, [authSession, authClientId, spreadsheetId, startTokenRefreshTimer, loadAllData]);
 
   const bootstrapDatabase = useCallback(async () => {
     if (!authSession) {
       setIsBooting(false);
       hasLoadedInitialData.current = true;
-      return;
+      return null;
     }
     try {
       const gapi = (window as any).gapi;
@@ -281,21 +307,19 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       let dbId: string;
       if (searchResponse.result.files && searchResponse.result.files.length > 0) {
         dbId = searchResponse.result.files[0].id;
+        setSpreadsheetId(dbId);
+        localStorage.setItem('rentmaster_active_sheet_id', dbId);
+        const cloudData = await loadAllData(dbId);
+        return { spreadsheetId: dbId, ...cloudData };
       } else {
-        const createResponse = await gapi.client.sheets.spreadsheets.create({
-          resource: {
-            properties: { title: DATABASE_FILENAME },
-            sheets: SHEET_TABS.map(title => ({ properties: { title } }))
-          }
-        });
-        dbId = createResponse.result.spreadsheetId;
+        // Only trigger creation if authorized or if it's the first creation
+        return { spreadsheetId: null, isNew: true };
       }
-
-      setSpreadsheetId(dbId);
-      localStorage.setItem('rentmaster_active_sheet_id', dbId);
-      await loadAllData(dbId);
-      return dbId;
     } catch (error: any) {
+      if (error.status === 401) {
+        setSyncStatus('reauth');
+        if (tokenClientRef.current) tokenClientRef.current.requestAccessToken({ prompt: '' });
+      }
       setIsBooting(false);
       hasLoadedInitialData.current = true;
       return null;
@@ -318,21 +342,52 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                 headers: { Authorization: `Bearer ${response.access_token}` }
               }).then(res => res.json());
 
-              const systemUsers = stateRef.current.users;
-              const isFirstSetup = systemUsers.length === 0;
-              const isAuthorized = systemUsers.some(u => u.username.toLowerCase() === userInfo.email.toLowerCase());
-
-              if (!isFirstSetup && !isAuthorized) {
+              // CLOUD-FIRST SECURITY CHECK
+              setAuthSession(response);
+              const gapi = (window as any).gapi;
+              gapi.client.setToken({ access_token: response.access_token });
+              
+              const bootstrapResult = await bootstrapDatabase();
+              
+              const cloudUsers = bootstrapResult?.users || [];
+              const isDatabaseExisting = !!bootstrapResult?.spreadsheetId;
+              
+              // 1. If database exists in cloud, check if THIS email is authorized
+              if (isDatabaseExisting) {
+                const isAuthorizedInCloud = cloudUsers.some((u: any) => u.username.toLowerCase() === userInfo.email.toLowerCase());
+                if (!isAuthorizedInCloud) {
+                  google.accounts.oauth2.revoke(response.access_token);
+                  setAuthSession(null);
+                  localStorage.removeItem(CLOUD_TOKEN_KEY);
+                  resolve({ error: 'UNAUTHORIZED_EMAIL' });
+                  return;
+                }
+              } 
+              // 2. If no database exists (New System), check against hard-coded OWNER_EMAIL
+              else if (OWNER_EMAIL && userInfo.email.toLowerCase() !== OWNER_EMAIL.toLowerCase()) {
                 google.accounts.oauth2.revoke(response.access_token);
+                setAuthSession(null);
+                localStorage.removeItem(CLOUD_TOKEN_KEY);
                 resolve({ error: 'UNAUTHORIZED_EMAIL' });
                 return;
               }
 
-              setAuthSession(response);
+              // Finalize creation if it's a new system
+              if (!isDatabaseExisting) {
+                const createResponse = await gapi.client.sheets.spreadsheets.create({
+                  resource: {
+                    properties: { title: DATABASE_FILENAME },
+                    sheets: SHEET_TABS.map(title => ({ properties: { title } }))
+                  }
+                });
+                const newId = createResponse.result.spreadsheetId;
+                setSpreadsheetId(newId);
+                localStorage.setItem('rentmaster_active_sheet_id', newId);
+              }
+
               localStorage.setItem(CLOUD_TOKEN_KEY, JSON.stringify(response));
               setSyncStatus('synced');
-              
-              await bootstrapDatabase();
+              startTokenRefreshTimer();
               resolve(userInfo);
             } else {
               resolve(null);
@@ -343,7 +398,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         (client as any).requestAccessToken({ prompt: silent ? '' : 'consent' });
       } else { resolve(null); }
     });
-  }, [authClientId, bootstrapDatabase]);
+  }, [authClientId, bootstrapDatabase, startTokenRefreshTimer]);
 
   const updateClientId = useCallback((id: string) => {
     setAuthClientId(id);
@@ -359,6 +414,9 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         hasLoadedInitialData.current = true;
       }
     });
+    return () => {
+      if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
+    };
   }, [initGoogleClient, authSession]);
 
   const updateRecord = async (recordId: string, values: RecordValue[], effectiveDate?: string) => {
@@ -436,6 +494,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const newRecords: PropertyRecord[] = [];
     const newRecordValues: RecordValue[] = [];
     const newHistory: UnitHistory[] = [];
+    const newHistoryArr: UnitHistory[] = [];
     const newPayments: Payment[] = [];
 
     const now = new Date();
@@ -459,7 +518,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         newRecordValues.push({ id: `v_demo_${rid}_${cid}`, recordId: rid, columnId: cid, value: val });
       });
 
-      newHistory.push({
+      newHistoryArr.push({
         id: `h_demo_${rid}`,
         recordId: rid,
         values: valuesMap,
@@ -500,7 +559,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setProperties([prop]);
     setRecords(newRecords);
     setRecordValues(newRecordValues);
-    setUnitHistory(newHistory);
+    setUnitHistory(newHistoryArr);
     setPayments(newPayments);
   }, []);
 
@@ -509,7 +568,8 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     isCloudSyncing, syncStatus, spreadsheetName, googleUser: authSession, spreadsheetId, googleClientId: authClientId, 
     updateClientId, authenticate, syncAll,
     login: async (username: string, password: string) => {
-      const found = users.find(u => u.username.toLowerCase() === username.toLowerCase() && u.passwordHash === password && !tombstones.has(u.id));
+      // FIX: Explicitly type the user object in the find callback to resolve 'never' type inference issue.
+      const found = users.find((u: User) => u.username.toLowerCase() === username.toLowerCase() && u.passwordHash === password && !tombstones.has(u.id));
       if (found) { setUser(found); return true; }
       return false;
     },
