@@ -36,7 +36,10 @@ import {
   Save,
   User,
   MapPin,
-  ClipboardList
+  ClipboardList,
+  Settings,
+  Plus,
+  Trash2
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { PaymentStatus, ColumnType, Payment, UnitHistory, ColumnDefinition, RecordValue, Property, UserRole } from '../types';
@@ -44,7 +47,6 @@ import { PaymentStatus, ColumnType, Payment, UnitHistory, ColumnDefinition, Reco
 const RentCollection: React.FC = () => {
   const store = useRentalStore();
   const isAdmin = store.user?.role === UserRole.ADMIN;
-  const isManager = store.user?.role === UserRole.MANAGER;
   
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const d = new Date();
@@ -58,8 +60,8 @@ const RentCollection: React.FC = () => {
     record: null, 
     type: 'RENT', 
     amount: 0, 
-    paidTo: store.config.paidToOptions[0], 
-    mode: store.config.paymentModeOptions[0], 
+    paidTo: store.config.paidToOptions?.[0] || '', 
+    mode: store.config.paymentModeOptions?.[0] || '', 
     date: new Date().toISOString().split('T')[0] 
   });
 
@@ -68,6 +70,12 @@ const RentCollection: React.FC = () => {
     record: null,
     type: 'RENT',
     monthKey: ''
+  });
+
+  const [configModal, setConfigModal] = useState({
+    isOpen: false,
+    newPaidTo: '',
+    newMode: ''
   });
 
   const [historyModal, setHistoryModal] = useState<{ isOpen: boolean; record: any | null }>({
@@ -91,8 +99,29 @@ const RentCollection: React.FC = () => {
   };
 
   const jumpToToday = () => {
+    // Corrected 'date' to 'd' to correctly reference the local Date instance.
     const d = new Date();
     setSelectedMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  };
+
+  const handleAddPaidTo = () => {
+    if (!configModal.newPaidTo.trim()) return;
+    store.updateConfig({ paidToOptions: [...(store.config.paidToOptions || []), configModal.newPaidTo.trim()] });
+    setConfigModal({ ...configModal, newPaidTo: '' });
+  };
+
+  const handleRemovePaidTo = (val: string) => {
+    store.updateConfig({ paidToOptions: (store.config.paidToOptions || []).filter((o: string) => o !== val) });
+  };
+
+  const handleAddMode = () => {
+    if (!configModal.newMode.trim()) return;
+    store.updateConfig({ paymentModeOptions: [...(store.config.paymentModeOptions || []), configModal.newMode.trim()] });
+    setConfigModal({ ...configModal, newMode: '' });
+  };
+
+  const handleRemoveMode = (val: string) => {
+    store.updateConfig({ paymentModeOptions: (store.config.paymentModeOptions || []).filter((o: string) => o !== val) });
   };
 
   const visibleProperties = useMemo(() => {
@@ -226,15 +255,15 @@ const RentCollection: React.FC = () => {
     let amount = 0;
     if (type === 'RENT') amount = record.rentAmount;
     else if (type === 'DEPOSIT') amount = record.depositAmount;
-    else amount = 0; // Electricity requires manual entry
+    else amount = 0;
 
     setPaymentModal({
       isOpen: true,
       record,
       type,
       amount,
-      paidTo: store.config.paidToOptions[0],
-      mode: store.config.paymentModeOptions[0],
+      paidTo: store.config.paidToOptions?.[0] || '',
+      mode: store.config.paymentModeOptions?.[0] || '',
       date: new Date().toISOString().split('T')[0]
     });
   };
@@ -295,10 +324,13 @@ const RentCollection: React.FC = () => {
              <div className="px-3 py-1 bg-indigo-600 text-white rounded-lg text-[11px] font-black uppercase tracking-wider shadow-sm flex items-center gap-2">
                 <Sparkles className="w-3.5 h-3.5" /> Ledger Engine
              </div>
-             {store.isCloudSyncing && (
-               <div className="flex items-center gap-1.5 text-[11px] font-black text-amber-600 uppercase tracking-widest animate-pulse">
-                  <RotateCcw className="w-3 h-3 animate-spin" /> Live Sync
-               </div>
+             {isAdmin && (
+               <button 
+                onClick={() => setConfigModal({ ...configModal, isOpen: true })}
+                className="p-1.5 bg-white border border-slate-200 text-slate-400 hover:text-indigo-600 rounded-lg shadow-sm transition-all hover:bg-indigo-50"
+               >
+                 <Settings className="w-4 h-4" />
+               </button>
              )}
           </div>
           <h1 className="text-4xl font-black text-slate-900 uppercase tracking-tight">
@@ -333,6 +365,74 @@ const RentCollection: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* COLLECTION CONFIG MODAL */}
+      {configModal.isOpen && isAdmin && (
+        <div className="fixed inset-0 z-[1100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+           <div className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col">
+              <div className="p-8 bg-indigo-600 text-white flex justify-between items-center">
+                 <div className="flex items-center gap-4">
+                    <Settings className="w-6 h-6 text-indigo-200" />
+                    <h3 className="text-xl font-black uppercase tracking-tight">Collection Parameters</h3>
+                 </div>
+                 <button onClick={() => setConfigModal({...configModal, isOpen: false})} className="p-2 hover:bg-white/10 rounded-full transition-colors text-indigo-100"><X className="w-6 h-6" /></button>
+              </div>
+
+              <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-10">
+                 {/* Paid To Config */}
+                 <div className="space-y-6">
+                    <div className="space-y-2">
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Target Recipients</label>
+                       <div className="flex gap-2">
+                          <input 
+                             className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500" 
+                             placeholder="e.g. Petty Cash"
+                             value={configModal.newPaidTo}
+                             onChange={e => setConfigModal({...configModal, newPaidTo: e.target.value})}
+                          />
+                          <button onClick={handleAddPaidTo} className="p-3 bg-indigo-600 text-white rounded-xl shadow-lg active:scale-95 transition-all"><Plus className="w-5 h-5" /></button>
+                       </div>
+                    </div>
+                    <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                       {(store.config.paidToOptions || []).map((opt: string) => (
+                          <div key={opt} className="flex items-center justify-between p-3.5 bg-slate-50 rounded-xl border border-slate-100 group">
+                             <span className="text-[11px] font-black uppercase text-slate-600">{opt}</span>
+                             <button onClick={() => handleRemovePaidTo(opt)} className="p-1.5 text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"><Trash2 className="w-3.5 h-3.5" /></button>
+                          </div>
+                       ))}
+                    </div>
+                 </div>
+
+                 {/* Modes Config */}
+                 <div className="space-y-6">
+                    <div className="space-y-2">
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Payment Channels</label>
+                       <div className="flex gap-2">
+                          <input 
+                             className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500" 
+                             placeholder="e.g. UPI/QR"
+                             value={configModal.newMode}
+                             onChange={e => setConfigModal({...configModal, newMode: e.target.value})}
+                          />
+                          <button onClick={handleAddMode} className="p-3 bg-indigo-600 text-white rounded-xl shadow-lg active:scale-95 transition-all"><Plus className="w-5 h-5" /></button>
+                       </div>
+                    </div>
+                    <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                       {(store.config.paymentModeOptions || []).map((opt: string) => (
+                          <div key={opt} className="flex items-center justify-between p-3.5 bg-slate-50 rounded-xl border border-slate-100 group">
+                             <span className="text-[11px] font-black uppercase text-slate-600">{opt}</span>
+                             <button onClick={() => handleRemoveMode(opt)} className="p-1.5 text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"><Trash2 className="w-3.5 h-3.5" /></button>
+                          </div>
+                       ))}
+                    </div>
+                 </div>
+              </div>
+              <div className="p-8 border-t border-slate-100 bg-slate-50/50">
+                 <button onClick={() => setConfigModal({...configModal, isOpen: false})} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl">Close Settings</button>
+              </div>
+           </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {[
@@ -573,13 +673,13 @@ const RentCollection: React.FC = () => {
                     <div className="space-y-2">
                        <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">Channel</label>
                        <select className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 text-xs font-black uppercase outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all cursor-pointer" value={paymentModal.mode} onChange={e => setPaymentModal({...paymentModal, mode: e.target.value})}>
-                          {store.config.paymentModeOptions.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
+                          {(store.config.paymentModeOptions || []).map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
                        </select>
                     </div>
                     <div className="space-y-2">
                        <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">Target Account</label>
                        <select className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 text-xs font-black uppercase outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all cursor-pointer" value={paymentModal.paidTo} onChange={e => setPaymentModal({...paymentModal, paidTo: e.target.value})}>
-                          {store.config.paidToOptions.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
+                          {(store.config.paidToOptions || []).map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
                        </select>
                     </div>
                  </div>
@@ -622,56 +722,79 @@ const RentCollection: React.FC = () => {
 
               <div className="flex-1 overflow-y-auto custom-scrollbar p-10 space-y-8 bg-slate-50/30">
                  {unitTimeline.length > 0 ? (
-                    unitTimeline.map((item: any, idx) => (
-                       <div key={idx} className="relative pl-10">
-                          {idx !== unitTimeline.length - 1 && <div className="absolute left-[13px] top-8 bottom-[-32px] w-0.5 bg-slate-200"></div>}
-                          <div className={`absolute left-0 top-1 w-8 h-8 rounded-full border-4 border-white shadow-md flex items-center justify-center z-10 ${item.eventType === 'TENANT_CHANGE' ? 'bg-indigo-600' : item.type === 'RENT' ? 'bg-emerald-500' : item.type === 'ELECTRICITY' ? 'bg-amber-500' : 'bg-amber-500'}`}>
-                             {item.eventType === 'TENANT_CHANGE' ? <User className="w-4 h-4 text-white" /> : <DollarSign className="w-4 h-4 text-white" />}
-                          </div>
+                    unitTimeline.map((item: any, idx) => {
+                       const isTenantChange = item.eventType === 'TENANT_CHANGE';
+                       const pType = item.type; // RENT, DEPOSIT, ELECTRICITY
+                       
+                       const getPaymentIcon = () => {
+                         if (isTenantChange) return <User className="w-4 h-4 text-white" />;
+                         if (pType === 'RENT') return <Wallet className="w-4 h-4 text-white" />;
+                         if (pType === 'ELECTRICITY') return <Zap className="w-4 h-4 text-white" />;
+                         if (pType === 'DEPOSIT') return <Landmark className="w-4 h-4 text-white" />;
+                         return <DollarSign className="w-4 h-4 text-white" />;
+                       };
 
-                          <div className="bg-white border border-slate-100 rounded-[2rem] p-7 shadow-sm hover:shadow-md transition-all">
-                             <div className="flex items-center justify-between mb-4">
-                                <span className={`text-[9px] font-black uppercase tracking-wider px-4 py-1.5 rounded-full text-white ${item.eventType === 'TENANT_CHANGE' ? 'bg-slate-900' : item.type === 'RENT' ? 'bg-emerald-600' : item.type === 'ELECTRICITY' ? 'bg-amber-600' : 'bg-amber-600'}`}>
-                                   {item.eventType === 'TENANT_CHANGE' ? 'Migration Event' : `${item.type} Settle`}
-                                </span>
-                                <span className="text-xs font-black text-slate-400 uppercase">{new Date(item.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                             </div>
+                       const getBadgeConfig = () => {
+                         if (isTenantChange) return { label: 'Migration Event', bg: 'bg-slate-900' };
+                         if (pType === 'RENT') return { label: 'Rent Collection', bg: 'bg-emerald-600' };
+                         if (pType === 'ELECTRICITY') return { label: 'Electricity Bill', bg: 'bg-amber-600' };
+                         if (pType === 'DEPOSIT') return { label: 'Security Deposit', bg: 'bg-indigo-600' };
+                         return { label: (pType || 'Payment') + ' Settlement', bg: 'bg-slate-500' };
+                       };
 
-                             {item.eventType === 'TENANT_CHANGE' ? (
-                                <div className="space-y-4">
-                                   <div className="p-5 bg-indigo-50/50 border border-indigo-100 rounded-2xl">
-                                      <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-3">Historical Snapshot</p>
-                                      <div className="grid grid-cols-2 gap-y-4">
-                                         {Object.entries(item.values).map(([colId, val]: [string, any]) => {
-                                            const col = historyModal.record?.propertyType?.columns.find((c: any) => c.id === colId);
-                                            if (!col || !val) return null;
-                                            return (
-                                              <div key={colId} className="space-y-1">
-                                                 <p className="text-[8px] font-black text-slate-400 uppercase">{col.name}</p>
-                                                 <p className="text-sm font-black text-slate-900 truncate">{val}</p>
-                                              </div>
-                                            );
-                                         })}
-                                      </div>
-                                   </div>
-                                </div>
-                             ) : (
-                                <div className="flex flex-col gap-4">
-                                   <div className="flex items-center justify-between">
-                                      <div className="flex flex-col">
-                                         <p className="text-sm font-black text-slate-900">{item.paymentMode || 'Direct Channel'}</p>
-                                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{item.paidTo || 'Default Account'}</p>
-                                      </div>
-                                      <div className="text-right">
-                                         <p className="text-base font-black text-indigo-600">${item.amount.toLocaleString()}</p>
-                                         {item.month !== 'ONE_TIME' && <p className="text-[9px] font-black text-slate-400 uppercase">{item.month}</p>}
-                                      </div>
-                                   </div>
-                                </div>
-                             )}
-                          </div>
-                       </div>
-                    ))
+                       const config = getBadgeConfig();
+
+                       return (
+                        <div key={idx} className="relative pl-10">
+                           {idx !== unitTimeline.length - 1 && <div className="absolute left-[13px] top-8 bottom-[-32px] w-0.5 bg-slate-200"></div>}
+                           <div className={`absolute left-0 top-1 w-8 h-8 rounded-full border-4 border-white shadow-md flex items-center justify-center z-10 ${config.bg}`}>
+                              {getPaymentIcon()}
+                           </div>
+
+                           <div className="bg-white border border-slate-100 rounded-[2rem] p-7 shadow-sm hover:shadow-md transition-all">
+                              <div className="flex items-center justify-between mb-4">
+                                 <span className={`text-[9px] font-black uppercase tracking-wider px-4 py-1.5 rounded-full text-white ${config.bg}`}>
+                                    {config.label}
+                                 </span>
+                                 <span className="text-xs font-black text-slate-400 uppercase">{new Date(item.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                              </div>
+
+                              {isTenantChange ? (
+                                 <div className="space-y-4">
+                                    <div className="p-5 bg-indigo-50/50 border border-indigo-100 rounded-2xl">
+                                       <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-3">Historical Snapshot</p>
+                                       <div className="grid grid-cols-2 gap-y-4">
+                                          {Object.entries(item.values).map(([colId, val]: [string, any]) => {
+                                             const col = historyModal.record?.propertyType?.columns.find((c: any) => c.id === colId);
+                                             if (!col || !val) return null;
+                                             return (
+                                               <div key={colId} className="space-y-1">
+                                                  <p className="text-[8px] font-black text-slate-400 uppercase">{col.name}</p>
+                                                  <p className="text-sm font-black text-slate-900 truncate">{val}</p>
+                                               </div>
+                                             );
+                                          })}
+                                       </div>
+                                    </div>
+                                 </div>
+                              ) : (
+                                 <div className="flex flex-col gap-4">
+                                    <div className="flex items-center justify-between">
+                                       <div className="flex flex-col">
+                                          <p className="text-sm font-black text-slate-900">{item.paymentMode || 'Direct Channel'}</p>
+                                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{item.paidTo || 'Default Account'}</p>
+                                       </div>
+                                       <div className="text-right">
+                                          <p className="text-base font-black text-indigo-600">${item.amount.toLocaleString()}</p>
+                                          {item.month !== 'ONE_TIME' && <p className="text-[9px] font-black text-slate-400 uppercase">{item.month}</p>}
+                                       </div>
+                                    </div>
+                                 </div>
+                              )}
+                           </div>
+                        </div>
+                       );
+                    })
                  ) : (
                     <div className="flex flex-col items-center justify-center h-full text-center py-24 opacity-40">
                        <History className="w-20 h-20 text-slate-200 mb-8" />
