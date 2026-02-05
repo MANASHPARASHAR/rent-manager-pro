@@ -145,7 +145,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [users, propertyTypes, properties, records, recordValues, unitHistory, payments, config, tombstones, syncAll]);
 
-  // 🌍 AUTO-RECONNECT SYNC: When internet comes back, push offline changes.
   useEffect(() => {
     const handleOnline = () => {
       console.log("Internet restored. Triggering cloud sync...");
@@ -311,7 +310,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         return await loadAllData(dbId);
       } else {
         setSyncStatus('not_found');
-        setIsBooting(false); // CRITICAL FIX: Ensure booting stops even if no file found
+        setIsBooting(false);
         hasLoadedInitialData.current = true;
         return { spreadsheetId: null, isNew: true };
       }
@@ -338,7 +337,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             if (response.access_token) {
               const userInfo = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
                 headers: { Authorization: `Bearer ${response.access_token}` }
-              }).then(res => JSON.parse(res as any));
+              }).then(res => res.json());
 
               setAuthSession(response);
               const gapi = (window as any).gapi;
@@ -404,12 +403,24 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     },
     authenticate, syncAll, restoreCloudFromLocal,
     login: async (username: string, password: string) => {
-      const found = (users as User[]).find((u: User) => String(u.username || '').toLowerCase() === String(username || '').toLowerCase() && u.passwordHash === password && !tombstones.has(u.id));
+      const normalizedUsername = String(username || '').trim().toLowerCase();
+      const normalizedPassword = String(password || '').trim();
+      
+      const found = (users as User[]).find((u: User) => 
+        String(u.username || '').trim().toLowerCase() === normalizedUsername && 
+        String(u.passwordHash || '').trim() === normalizedPassword && 
+        !tombstones.has(u.id)
+      );
+      
       if (found) { setUser(found); return true; }
       return false;
     },
     logout: () => setUser(null),
-    addUser: (u: User, a: boolean) => { setUsers([...users, u]); if (a) setUser(u); },
+    addUser: (u: User, a: boolean) => { 
+      const newUser = { ...u, username: String(u.username || '').trim().toLowerCase() };
+      setUsers(prev => [...prev, newUser]); 
+      if (a) setUser(newUser); 
+    },
     deleteUser: (id: string) => { setTombstones(prev => new Set(prev).add(id)); setUsers(users.filter(u => u.id !== id)); },
     addPropertyType: (t: PropertyType) => setPropertyTypes([...propertyTypes, t]),
     updatePropertyType: (t: PropertyType) => setPropertyTypes(propertyTypes.map(x => x.id === t.id ? t : x)),
