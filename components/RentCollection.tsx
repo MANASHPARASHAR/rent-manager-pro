@@ -90,6 +90,7 @@ const RentCollection: React.FC = () => {
     setSelectedMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
   };
 
+  // Fix typo: use 'd' instead of 'date' which was undefined
   const jumpToToday = () => {
     const d = new Date();
     setSelectedMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
@@ -114,7 +115,8 @@ const RentCollection: React.FC = () => {
       type.columns.forEach((col: ColumnDefinition) => {
         if (col.isDefaultInLedger && !seenNames.has(col.name.toLowerCase())) {
           const lowerName = col.name.toLowerCase();
-          if (lowerName !== 'tenant name' && lowerName !== 'unit' && lowerName !== 'occupancy') {
+          const excluded = ['tenant name', 'unit', 'occupancy', 'electricity bill', 'elec. reading'];
+          if (!excluded.some(ex => lowerName.includes(ex))) {
              columns.push({ name: col.name, id: col.id });
              seenNames.add(lowerName);
           }
@@ -158,6 +160,9 @@ const RentCollection: React.FC = () => {
         const monthlyPayment = store.payments.find((p: any) => p.recordId === record.id && p.month === selectedMonth && p.type === 'RENT');
         const isRentPaid = !!monthlyPayment && monthlyPayment.status === PaymentStatus.PAID;
 
+        const electricityPayment = store.payments.find((p: any) => p.recordId === record.id && p.month === selectedMonth && p.type === 'ELECTRICITY');
+        const isElectricityPaid = !!electricityPayment && electricityPayment.status === PaymentStatus.PAID;
+
         const depositPayment = store.payments.find((p: any) => p.recordId === record.id && p.type === 'DEPOSIT');
         const isDepositPaid = !!depositPayment && depositPayment.status === PaymentStatus.PAID;
 
@@ -169,7 +174,7 @@ const RentCollection: React.FC = () => {
           if (today > deadline) statusBadge = 'OVERDUE';
         }
 
-        return { ...record, property, propertyType, tenantName, rentAmount: parseFloat(rentValue), depositAmount: parseFloat(depositValue), isRentPaid, isDepositPaid, isVacant, statusBadge, rawValuesMap: activeValues };
+        return { ...record, property, propertyType, tenantName, rentAmount: parseFloat(rentValue), depositAmount: parseFloat(depositValue), isRentPaid, isElectricityPaid, electricityPaidAmount: electricityPayment?.amount || 0, isDepositPaid, isVacant, statusBadge, rawValuesMap: activeValues };
       })
       .filter((r: any) => {
         const matchesProp = selectedPropertyId === 'all' || r.propertyId === selectedPropertyId;
@@ -217,24 +222,29 @@ const RentCollection: React.FC = () => {
     return [...pHistory, ...uHistory].sort((a, b) => b.timestamp - a.timestamp);
   }, [store.payments, store.unitHistory, historyModal.record]);
 
-  const handleOpenPayment = (record: any, type: 'RENT' | 'DEPOSIT') => {
+  const handleOpenPayment = (record: any, type: 'RENT' | 'DEPOSIT' | 'ELECTRICITY') => {
+    let amount = 0;
+    if (type === 'RENT') amount = record.rentAmount;
+    else if (type === 'DEPOSIT') amount = record.depositAmount;
+    else amount = 0; // Electricity requires manual entry
+
     setPaymentModal({
       isOpen: true,
       record,
       type,
-      amount: type === 'RENT' ? record.rentAmount : record.depositAmount,
+      amount,
       paidTo: store.config.paidToOptions[0],
       mode: store.config.paymentModeOptions[0],
       date: new Date().toISOString().split('T')[0]
     });
   };
 
-  const handleOpenRevert = (record: any, type: 'RENT' | 'DEPOSIT') => {
+  const handleOpenRevert = (record: any, type: 'RENT' | 'DEPOSIT' | 'ELECTRICITY') => {
     setRevertModal({
       isOpen: true,
       record,
       type,
-      monthKey: type === 'RENT' ? selectedMonth : 'ONE_TIME'
+      monthKey: (type === 'RENT' || type === 'ELECTRICITY') ? selectedMonth : 'ONE_TIME'
     });
   };
 
@@ -246,7 +256,7 @@ const RentCollection: React.FC = () => {
 
   const handleCollect = () => {
     const { record, type, amount, paidTo, mode, date } = paymentModal;
-    const monthKey = type === 'RENT' ? selectedMonth : 'ONE_TIME';
+    const monthKey = (type === 'RENT' || type === 'ELECTRICITY') ? selectedMonth : 'ONE_TIME';
     
     store.togglePayment(record.id, monthKey, amount, date, {
       status: PaymentStatus.PAID,
@@ -279,7 +289,6 @@ const RentCollection: React.FC = () => {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500 max-w-7xl mx-auto pb-20">
-      {/* HEADER SECTION - Upgraded Sizing */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="space-y-2">
           <div className="flex items-center gap-2">
@@ -325,7 +334,6 @@ const RentCollection: React.FC = () => {
         </div>
       </div>
 
-      {/* STATS OVERVIEW - Larger Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {[
           { label: 'Settled Revenue', value: ledgerStats.collected, icon: Wallet, color: 'emerald', sub: `${Math.round((ledgerStats.collected / (ledgerStats.collected + ledgerStats.pending || 1)) * 100)}% Collection Rate` },
@@ -347,7 +355,6 @@ const RentCollection: React.FC = () => {
         ))}
       </div>
 
-      {/* MAIN LEDGER AREA - Enhanced Table Scale */}
       <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
          <div className="px-8 py-6 border-b border-slate-50 flex items-center justify-between bg-slate-50/30">
             <div className="flex items-center gap-4">
@@ -371,7 +378,7 @@ const RentCollection: React.FC = () => {
             <table className="w-full text-left">
                <thead className="sticky top-0 z-10 bg-white border-b border-slate-100 shadow-sm">
                   <tr className="bg-white">
-                     <th className="px-8 py-5 text-[11px] font-black text-slate-400 uppercase tracking-widest sticky left-0 z-20 bg-white shadow-[3px_0_10px_rgba(0,0,0,0.05)]">Unit & Primary Member</th>
+                     <th className="px-8 py-5 text-[11px] font-black text-slate-400 uppercase tracking-widest sticky left-0 z-20 bg-white shadow-[3px_0_10px_rgba(0,0,0,0.05)]">Unit & Member</th>
                      
                      {dynamicLedgerHeaders.map(header => (
                         <th key={header.id} className="px-8 py-5 text-[11px] font-black text-slate-400 uppercase tracking-widest text-center whitespace-nowrap">
@@ -379,8 +386,9 @@ const RentCollection: React.FC = () => {
                         </th>
                      ))}
 
-                     <th className="px-8 py-5 text-[11px] font-black text-slate-400 uppercase tracking-widest text-center">Settlement Status</th>
-                     <th className="px-8 py-5 text-[11px] font-black text-slate-400 uppercase tracking-widest text-center">Escrow Asset</th>
+                     <th className="px-8 py-5 text-[11px] font-black text-slate-400 uppercase tracking-widest text-center">Rent Status</th>
+                     <th className="px-8 py-5 text-[11px] font-black text-slate-400 uppercase tracking-widest text-center">Electricity</th>
+                     <th className="px-8 py-5 text-[11px] font-black text-slate-400 uppercase tracking-widest text-center">Security</th>
                      <th className="px-8 py-5 text-[11px] font-black text-slate-400 uppercase tracking-widest text-right">Ops</th>
                   </tr>
                </thead>
@@ -428,6 +436,26 @@ const RentCollection: React.FC = () => {
                                <>
                                  {record.statusBadge === 'OVERDUE' ? <AlertCircle className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
                                  {record.isVacant ? 'N/A' : 'Collect'}
+                               </>
+                             )}
+                          </button>
+                       </td>
+
+                       <td className="px-8 py-6 text-center">
+                          <button 
+                            disabled={record.isVacant}
+                            onClick={() => record.isElectricityPaid ? handleOpenRevert(record, 'ELECTRICITY') : handleOpenPayment(record, 'ELECTRICITY')}
+                            className={`min-w-[140px] px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest border transition-all flex items-center justify-center gap-2.5 mx-auto ${record.isElectricityPaid ? 'bg-amber-50 text-amber-700 border-amber-100 hover:bg-rose-50 hover:text-rose-700 group/rev-elec' : 'bg-slate-50 text-slate-400 border-slate-100'}`}
+                          >
+                             {record.isElectricityPaid ? (
+                               <>
+                                 <span className="group-hover/rev-elec:hidden flex items-center gap-2"><Zap className="w-4 h-4" /> ${record.electricityPaidAmount}</span>
+                                 <span className="hidden group-hover/rev-elec:flex items-center gap-2"><RotateCcw className="w-4 h-4" /> Reverse</span>
+                               </>
+                             ) : (
+                               <>
+                                 <Zap className="w-4 h-4" />
+                                 {record.isVacant ? 'N/A' : 'Bill'}
                                </>
                              )}
                           </button>
@@ -513,10 +541,10 @@ const RentCollection: React.FC = () => {
       {paymentModal.isOpen && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
            <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
-              <div className={`p-10 text-white flex justify-between items-center ${paymentModal.type === 'RENT' ? 'bg-indigo-600' : 'bg-emerald-600'}`}>
+              <div className={`p-10 text-white flex justify-between items-center ${paymentModal.type === 'RENT' ? 'bg-indigo-600' : paymentModal.type === 'ELECTRICITY' ? 'bg-amber-500' : 'bg-emerald-600'}`}>
                  <div className="flex items-center gap-5">
                     <div className="p-4 bg-white/20 rounded-2xl backdrop-blur-md border border-white/10 shadow-lg">
-                       {paymentModal.type === 'RENT' ? <Wallet className="w-7 h-7" /> : <ShieldCheck className="w-7 h-7" />}
+                       {paymentModal.type === 'RENT' ? <Wallet className="w-7 h-7" /> : paymentModal.type === 'ELECTRICITY' ? <Zap className="w-7 h-7" /> : <ShieldCheck className="w-7 h-7" />}
                     </div>
                     <div>
                        <h3 className="text-2xl font-black uppercase leading-none tracking-tight">Settle {paymentModal.type}</h3>
@@ -535,6 +563,7 @@ const RentCollection: React.FC = () => {
                          type="number" 
                          className="w-full bg-slate-50 border border-slate-200 rounded-[2rem] pl-16 pr-6 py-6 text-3xl font-black outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-400 transition-all shadow-inner" 
                          value={paymentModal.amount}
+                         placeholder="0"
                          onChange={e => setPaymentModal({...paymentModal, amount: parseFloat(e.target.value) || 0})}
                        />
                     </div>
@@ -565,7 +594,7 @@ const RentCollection: React.FC = () => {
                     />
                  </div>
 
-                 <button onClick={handleCollect} className={`w-full py-6 text-white rounded-[2rem] font-black uppercase text-[11px] tracking-widest shadow-xl transition-all active:scale-95 ${paymentModal.type === 'RENT' ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-100' : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-100'}`}>
+                 <button onClick={handleCollect} className={`w-full py-6 text-white rounded-[2rem] font-black uppercase text-[11px] tracking-widest shadow-xl transition-all active:scale-95 ${paymentModal.type === 'RENT' ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-100' : paymentModal.type === 'ELECTRICITY' ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-100' : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-100'}`}>
                     Authorize Transaction
                  </button>
               </div>
@@ -596,13 +625,13 @@ const RentCollection: React.FC = () => {
                     unitTimeline.map((item: any, idx) => (
                        <div key={idx} className="relative pl-10">
                           {idx !== unitTimeline.length - 1 && <div className="absolute left-[13px] top-8 bottom-[-32px] w-0.5 bg-slate-200"></div>}
-                          <div className={`absolute left-0 top-1 w-8 h-8 rounded-full border-4 border-white shadow-md flex items-center justify-center z-10 ${item.eventType === 'TENANT_CHANGE' ? 'bg-indigo-600' : item.type === 'RENT' ? 'bg-emerald-500' : 'bg-amber-500'}`}>
+                          <div className={`absolute left-0 top-1 w-8 h-8 rounded-full border-4 border-white shadow-md flex items-center justify-center z-10 ${item.eventType === 'TENANT_CHANGE' ? 'bg-indigo-600' : item.type === 'RENT' ? 'bg-emerald-500' : item.type === 'ELECTRICITY' ? 'bg-amber-500' : 'bg-amber-500'}`}>
                              {item.eventType === 'TENANT_CHANGE' ? <User className="w-4 h-4 text-white" /> : <DollarSign className="w-4 h-4 text-white" />}
                           </div>
 
                           <div className="bg-white border border-slate-100 rounded-[2rem] p-7 shadow-sm hover:shadow-md transition-all">
                              <div className="flex items-center justify-between mb-4">
-                                <span className={`text-[9px] font-black uppercase tracking-wider px-4 py-1.5 rounded-full text-white ${item.eventType === 'TENANT_CHANGE' ? 'bg-slate-900' : item.type === 'RENT' ? 'bg-emerald-600' : 'bg-amber-600'}`}>
+                                <span className={`text-[9px] font-black uppercase tracking-wider px-4 py-1.5 rounded-full text-white ${item.eventType === 'TENANT_CHANGE' ? 'bg-slate-900' : item.type === 'RENT' ? 'bg-emerald-600' : item.type === 'ELECTRICITY' ? 'bg-amber-600' : 'bg-amber-600'}`}>
                                    {item.eventType === 'TENANT_CHANGE' ? 'Migration Event' : `${item.type} Settle`}
                                 </span>
                                 <span className="text-xs font-black text-slate-400 uppercase">{new Date(item.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>

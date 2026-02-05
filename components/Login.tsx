@@ -17,7 +17,8 @@ import {
   LogIn,
   Settings,
   Sparkles,
-  ShieldAlert
+  ShieldAlert,
+  Shield
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { UserRole } from '../types';
@@ -85,12 +86,14 @@ const Login: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const userInfo = await store.authenticate(clientId.trim());
-      if (userInfo) {
-        setGoogleInfo({ name: userInfo.name, email: userInfo.email });
+      const result: any = await store.authenticate(clientId.trim());
+      if (result?.error === 'UNAUTHORIZED_EMAIL') {
+        setError("This email is not authorized for this workspace. Contact the owner.");
+      } else if (result && !result.error) {
+        setGoogleInfo({ name: result.name, email: result.email });
         setView('SETUP_PASSWORD');
       } else {
-        setError("Account not found in Google Console. Contact Admin.");
+        setError("Cloud connection failed. Verify Client ID.");
       }
     } catch (err) {
       setError("Cloud connection failed. Verify Client ID.");
@@ -128,8 +131,11 @@ const Login: React.FC = () => {
   const renderChoice = () => (
     <div className="space-y-12 animate-in fade-in zoom-in-95 duration-700">
       <div className="text-center space-y-4">
-        <h2 className="text-5xl font-black text-white uppercase tracking-tighter leading-none">Welcome to <br/> RentMaster</h2>
-        <p className="text-slate-400 text-sm font-medium uppercase tracking-widest">Select your entry protocol</p>
+        <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-indigo-500/10 text-indigo-400 rounded-full border border-indigo-500/20 text-[9px] font-black uppercase tracking-widest mb-2">
+           <Shield className="w-3.5 h-3.5" /> Restricted Production Environment
+        </div>
+        <h2 className="text-5xl font-black text-white uppercase tracking-tighter leading-none">Access Control <br/> Required</h2>
+        <p className="text-slate-400 text-sm font-medium uppercase tracking-widest">Login via Authorized Protocol only</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -145,10 +151,10 @@ const Login: React.FC = () => {
             <div className="w-14 h-14 bg-indigo-500 text-white rounded-2xl flex items-center justify-center mb-6 shadow-xl shadow-indigo-500/20 group-hover:scale-110 transition-transform">
               <Cloud className="w-7 h-7" />
             </div>
-            <h3 className="text-2xl font-black text-white uppercase tracking-tight mb-2">Cloud Setup</h3>
-            <p className="text-slate-400 text-xs font-medium leading-relaxed uppercase tracking-wide">Link Google Sheets for Super Admin access and persistence.</p>
+            <h3 className="text-2xl font-black text-white uppercase tracking-tight mb-2">Workspace Link</h3>
+            <p className="text-slate-400 text-xs font-medium leading-relaxed uppercase tracking-wide">Sync with organization database via Google Cloud.</p>
             <div className="mt-8 flex items-center gap-2 text-[10px] font-black text-indigo-400 uppercase tracking-widest">
-              Initialize System <ArrowRight className="w-4 h-4" />
+              Establish Sync <ArrowRight className="w-4 h-4" />
             </div>
           </div>
         </button>
@@ -156,7 +162,7 @@ const Login: React.FC = () => {
         {/* OPTION 2: LOGIN */}
         <button 
           onClick={() => {
-            if (!hasUsers) setError("No local users found. Please use Cloud Setup first.");
+            if (!hasUsers) setError("System not initialized. Use Workspace Link first.");
             else setView('LOGIN');
           }}
           className="group relative bg-white/5 border border-white/10 p-10 rounded-[3rem] text-left hover:bg-emerald-600/10 hover:border-emerald-500/50 transition-all duration-500 overflow-hidden"
@@ -168,10 +174,10 @@ const Login: React.FC = () => {
             <div className="w-14 h-14 bg-emerald-500 text-white rounded-2xl flex items-center justify-center mb-6 shadow-xl shadow-emerald-500/20 group-hover:scale-110 transition-transform">
               <LogIn className="w-7 h-7" />
             </div>
-            <h3 className="text-2xl font-black text-white uppercase tracking-tight mb-2">Member Login</h3>
-            <p className="text-slate-400 text-xs font-medium leading-relaxed uppercase tracking-wide">Enter using existing team credentials or Manager accounts.</p>
+            <h3 className="text-2xl font-black text-white uppercase tracking-tight mb-2">Team Identity</h3>
+            <p className="text-slate-400 text-xs font-medium leading-relaxed uppercase tracking-wide">Authorized Manager and Admin login gateway.</p>
             <div className="mt-8 flex items-center gap-2 text-[10px] font-black text-emerald-400 uppercase tracking-widest">
-              Standard Access <ArrowRight className="w-4 h-4" />
+              Secure Entry <ArrowRight className="w-4 h-4" />
             </div>
           </div>
         </button>
@@ -191,12 +197,12 @@ const Login: React.FC = () => {
         <button onClick={() => setView('CHOICE')} className="text-[10px] font-black text-slate-500 uppercase tracking-widest hover:text-white flex items-center gap-2">
            <ArrowRight className="w-4 h-4 rotate-180" /> Back to choices
         </button>
-        <span className="text-[9px] font-black text-indigo-400 bg-indigo-400/10 px-3 py-1 rounded-full uppercase">Team Entry</span>
+        <span className="text-[9px] font-black text-indigo-400 bg-indigo-400/10 px-3 py-1 rounded-full uppercase">Encrypted Entry</span>
       </div>
 
       <div className="space-y-2">
-        <h2 className="text-4xl font-black text-white tracking-tighter uppercase leading-none">Identity Check</h2>
-        <p className="text-slate-500 font-bold uppercase text-[10px] tracking-[0.2em]">Authorized session required</p>
+        <h2 className="text-4xl font-black text-white tracking-tighter uppercase leading-none">Vault Login</h2>
+        <p className="text-slate-500 font-bold uppercase text-[10px] tracking-[0.2em]">Authorized identity required</p>
       </div>
 
       <form onSubmit={handleLogin} className="space-y-6">
@@ -208,13 +214,13 @@ const Login: React.FC = () => {
         )}
 
         <div className="space-y-2">
-          <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Username / Email</label>
+          <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Team ID / Email</label>
           <div className="relative group">
             <Fingerprint className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-indigo-500 transition-colors" />
             <input 
               type="text" required
               className="w-full bg-white/5 border border-white/10 rounded-2xl pl-14 pr-4 py-5 text-white outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all font-bold"
-              placeholder="Enter username"
+              placeholder="Username"
               value={username}
               onChange={e => setUsername(e.target.value)}
             />
@@ -222,7 +228,7 @@ const Login: React.FC = () => {
         </div>
 
         <div className="space-y-2">
-          <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Vault Key</label>
+          <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Access Token</label>
           <div className="relative group">
             <Lock className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-indigo-500 transition-colors" />
             <input 
@@ -239,7 +245,7 @@ const Login: React.FC = () => {
           type="submit" disabled={isLoading}
           className="w-full bg-white text-slate-950 font-black uppercase tracking-widest py-6 rounded-2xl shadow-xl transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-3 group"
         >
-          {isLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : <>Unlock Dashboard <ArrowRightCircle className="w-5 h-5 group-hover:translate-x-1 transition-transform" /></>}
+          {isLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : <>Access Dashboard <ArrowRightCircle className="w-5 h-5 group-hover:translate-x-1 transition-transform" /></>}
         </button>
       </form>
     </div>
@@ -251,11 +257,11 @@ const Login: React.FC = () => {
          <ArrowRight className="w-4 h-4 rotate-180" /> Back to choices
       </button>
       <div className="space-y-2">
-         <h3 className="text-3xl font-black text-white uppercase tracking-tight leading-none">Engine Config</h3>
-         <p className="text-slate-500 text-xs font-medium uppercase tracking-widest">Provide Google OAuth Client ID</p>
+         <h3 className="text-3xl font-black text-white uppercase tracking-tight leading-none">Security Config</h3>
+         <p className="text-slate-500 text-xs font-medium uppercase tracking-widest">Connect to your Organization's GCP Console</p>
       </div>
       <div className="space-y-1.5">
-         <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Google Client ID</label>
+         <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">OAuth Client ID</label>
          <div className="relative group">
             <Key className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-indigo-500 transition-colors" />
             <input 
@@ -274,7 +280,7 @@ const Login: React.FC = () => {
         }} 
         className="w-full bg-indigo-600 text-white font-black uppercase tracking-widest py-5 rounded-2xl shadow-xl hover:bg-indigo-500 transition-all"
       >
-        Save & Verify Connection
+        Verify Authorization
       </button>
     </div>
   );
@@ -285,18 +291,18 @@ const Login: React.FC = () => {
          <ArrowRight className="w-4 h-4 rotate-180" /> Back
       </button>
       <div className="bg-emerald-500/10 p-8 rounded-[3.5rem] border border-emerald-500/20 inline-block">
-        <Sparkles className="w-16 h-16 text-emerald-500" />
+        <ShieldCheck className="w-16 h-16 text-emerald-500" />
       </div>
       <div className="space-y-2">
-        <h3 className="text-3xl font-black text-white uppercase tracking-tight">Authorize Admin</h3>
-        <p className="text-slate-400 text-xs font-medium uppercase tracking-widest">Log in to establish the cloud database</p>
+        <h3 className="text-3xl font-black text-white uppercase tracking-tight">Identity Verification</h3>
+        <p className="text-slate-400 text-xs font-medium uppercase tracking-widest">Only authorized emails will be granted access</p>
       </div>
       <button 
         onClick={handleCloudConnect}
         disabled={isLoading}
         className="w-full bg-white text-slate-950 font-black uppercase tracking-widest py-6 rounded-2xl shadow-xl flex items-center justify-center gap-3 active:scale-95 disabled:opacity-50"
       >
-        {isLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : <><Cloud className="w-6 h-6" /> Connect Google Account</>}
+        {isLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : <><Cloud className="w-6 h-6" /> Sign-in with Organization Account</>}
       </button>
       {error && <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-400 text-[10px] font-black uppercase tracking-widest">{error}</div>}
     </div>
@@ -310,18 +316,18 @@ const Login: React.FC = () => {
          </div>
          <div>
             <h3 className="text-2xl font-black text-white uppercase tracking-tight leading-none mb-1">{googleInfo?.name}</h3>
-            <p className="text-indigo-400 text-[10px] font-black uppercase tracking-widest">Authorized Identity Found</p>
+            <p className="text-indigo-400 text-[10px] font-black uppercase tracking-widest">Authenticated & Authorized</p>
          </div>
       </div>
       <div className="space-y-6">
          <div className="space-y-1.5">
-            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Set Master Super-Admin Password</label>
+            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">System Admin Key</label>
             <div className="relative group">
                <Lock className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-indigo-500 transition-colors" />
                <input 
                  type="password"
                  className="w-full bg-white/5 border border-white/10 rounded-2xl pl-14 pr-4 py-5 text-white outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all font-bold"
-                 placeholder="6+ characters required"
+                 placeholder="Security code (6+ characters)"
                  value={password}
                  onChange={e => setPassword(e.target.value)}
                />
@@ -332,7 +338,7 @@ const Login: React.FC = () => {
            disabled={isLoading}
            className="w-full bg-indigo-600 text-white font-black uppercase tracking-widest py-6 rounded-2xl shadow-xl flex items-center justify-center gap-3 active:scale-95 transition-all"
          >
-           {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Finalize Admin Setup"}
+           {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Authorize System Deployment"}
          </button>
          {error && <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-400 text-[10px] font-black uppercase tracking-widest text-center">{error}</div>}
       </div>
@@ -346,8 +352,8 @@ const Login: React.FC = () => {
           <Database className="w-24 h-24 text-indigo-500 animate-bounce relative" />
        </div>
        <div className="space-y-3">
-          <h3 className="text-3xl font-black text-white uppercase tracking-tighter">Establishing Cloud</h3>
-          <p className="text-slate-500 text-[11px] font-black uppercase tracking-[0.3em] animate-pulse">Building Google Sheets Engine...</p>
+          <h3 className="text-3xl font-black text-white uppercase tracking-tighter">Securing Cloud Assets</h3>
+          <p className="text-slate-500 text-[11px] font-black uppercase tracking-[0.3em] animate-pulse">Initializing Organization Vault...</p>
        </div>
     </div>
   );
@@ -370,26 +376,26 @@ const Login: React.FC = () => {
             </div>
             
             <h1 className="text-6xl font-black leading-[0.9] mb-8 tracking-tighter uppercase">
-              Digital <br/> Rental <br/> Empire
+              Secure <br/> Cloud <br/> Ledger
             </h1>
             
             <p className="text-indigo-100/60 text-lg font-medium max-w-xs leading-relaxed">
-              Global oversight with zero-latency cloud persistence and deep analytics.
+              Enterprise-grade rental management with strictly authorized access protocols.
             </p>
           </div>
 
           <div className="relative z-10 grid grid-cols-2 gap-8 border-t border-white/10 pt-8">
              <div className="space-y-1">
                 <div className="flex items-center gap-3 text-xs font-black uppercase tracking-widest text-indigo-100">
-                   <Zap className="w-4 h-4 text-amber-300" /> Active
+                   <Zap className="w-4 h-4 text-amber-300" /> Hardened
                 </div>
-                <p className="text-[10px] text-indigo-300/60 uppercase font-black tracking-widest">Real-Time Sheets Sync</p>
+                <p className="text-[10px] text-indigo-300/60 uppercase font-black tracking-widest">Whitelisted Access Only</p>
              </div>
              <div className="space-y-1">
                 <div className="flex items-center gap-3 text-xs font-black uppercase tracking-widest text-indigo-100">
-                   <ShieldCheck className="w-4 h-4 text-emerald-300" /> Secure
+                   <ShieldCheck className="w-4 h-4 text-emerald-300" /> Audited
                 </div>
-                <p className="text-[10px] text-indigo-300/60 uppercase font-black tracking-widest">Vaulted Encryption</p>
+                <p className="text-[10px] text-indigo-300/60 uppercase font-black tracking-widest">GCP Protocol Identity</p>
              </div>
           </div>
         </div>

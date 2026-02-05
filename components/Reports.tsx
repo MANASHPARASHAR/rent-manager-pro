@@ -15,7 +15,7 @@ import { useRentalStore } from '../store/useRentalStore';
 import { PaymentStatus, Payment, UserRole } from '../types';
 
 type FilterType = 'monthly' | 'annual' | 'custom';
-type Modality = 'RENT' | 'DEPOSIT';
+type Modality = 'RENT' | 'DEPOSIT' | 'ELECTRICITY';
 
 const Reports: React.FC = () => {
   const store = useRentalStore();
@@ -48,12 +48,12 @@ const Reports: React.FC = () => {
 
     if (filterType === 'monthly') {
       filteredPayments = filteredPayments.filter(p => {
-        if (p.type === 'RENT') return p.month === selectedMonth;
+        if (p.type === 'RENT' || p.type === 'ELECTRICITY') return p.month === selectedMonth;
         return p.paidAt?.startsWith(selectedMonth);
       });
     } else if (filterType === 'annual') {
       filteredPayments = filteredPayments.filter(p => {
-        if (p.type === 'RENT') return p.month.startsWith(selectedYear);
+        if (p.type === 'RENT' || p.type === 'ELECTRICITY') return p.month.startsWith(selectedYear);
         return p.paidAt?.startsWith(selectedYear);
       });
     } else if (filterType === 'custom') {
@@ -74,6 +74,7 @@ const Reports: React.FC = () => {
 
     let totalRent = 0;
     let totalDeposits = 0;
+    let totalElectricity = 0;
     let totalRefunds = 0;
 
     filteredPayments.forEach((p: Payment) => {
@@ -82,12 +83,23 @@ const Reports: React.FC = () => {
       const recipient = p.paidTo || 'Unassigned';
       const mode = p.paymentMode || 'Cash';
       
-      if (!byDate[date]) byDate[date] = { date, rent: 0, deposit: 0, refund: 0 };
+      if (!byDate[date]) byDate[date] = { date, rent: 0, deposit: 0, electricity: 0, refund: 0 };
       
       if (p.type === 'RENT') {
         totalRent += p.amount;
         byDate[date].rent += p.amount;
         if (activeModality === 'RENT') {
+          byProperty[prop] = (byProperty[prop] || 0) + p.amount;
+          byMode[mode] = (byMode[mode] || 0) + p.amount;
+          byRecipient[recipient] = (byRecipient[recipient] || 0) + p.amount;
+          
+          if (!attributionMatrix[recipient]) attributionMatrix[recipient] = {};
+          attributionMatrix[recipient][mode] = (attributionMatrix[recipient][mode] || 0) + p.amount;
+        }
+      } else if (p.type === 'ELECTRICITY') {
+        totalElectricity += p.amount;
+        byDate[date].electricity += p.amount;
+        if (activeModality === 'ELECTRICITY') {
           byProperty[prop] = (byProperty[prop] || 0) + p.amount;
           byMode[mode] = (byMode[mode] || 0) + p.amount;
           byRecipient[recipient] = (byRecipient[recipient] || 0) + p.amount;
@@ -124,7 +136,7 @@ const Reports: React.FC = () => {
     const recipientData = Object.entries(byRecipient).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
 
     return {
-      totalRent, totalDeposits, totalRefunds, netFlow: totalRent + totalDeposits - totalRefunds,
+      totalRent, totalDeposits, totalElectricity, totalRefunds, netFlow: totalRent + totalDeposits + totalElectricity - totalRefunds,
       timeSeries, propertyData, modeData, recipientData, attributionMatrix
     };
   }, [store, filterType, selectedMonth, selectedYear, startDate, endDate, activeModality]);
@@ -169,7 +181,7 @@ const Reports: React.FC = () => {
 
         <div className="flex flex-col lg:flex-row items-center gap-4">
           <div className="bg-slate-100 p-1.5 rounded-2xl flex items-center shadow-inner">
-             {(['RENT', 'DEPOSIT'] as Modality[]).map((m) => (
+             {(['RENT', 'ELECTRICITY', 'DEPOSIT'] as Modality[]).map((m) => (
                <button 
                 key={m}
                 onClick={() => setActiveModality(m)}
@@ -272,10 +284,10 @@ const Reports: React.FC = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {[
-          { label: 'Total Settled', val: activeModality === 'RENT' ? analyticsData.totalRent : (analyticsData.totalDeposits - analyticsData.totalRefunds), sub: 'Confirmed transactions', icon: Wallet, color: 'text-indigo-600', bg: 'bg-indigo-50' },
+          { label: 'Total Settled', val: activeModality === 'RENT' ? analyticsData.totalRent : activeModality === 'ELECTRICITY' ? analyticsData.totalElectricity : (analyticsData.totalDeposits - analyticsData.totalRefunds), sub: 'Confirmed transactions', icon: Wallet, color: 'text-indigo-600', bg: 'bg-indigo-50' },
+          { label: 'Electricity Revenue', val: analyticsData.totalElectricity, sub: 'Power bill collection', icon: Zap, color: 'text-amber-600', bg: 'bg-amber-50' },
           { label: 'Rent Contribution', val: analyticsData.totalRent, sub: 'Lease liquidity', icon: DollarSign, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-          { label: 'Deposit Assets', val: analyticsData.totalDeposits, sub: 'Held security funds', icon: ShieldCheck, color: 'text-amber-600', bg: 'bg-amber-50' },
-          { label: 'Refund/Loss', val: analyticsData.totalRefunds, sub: 'Outflow from audit', icon: TrendingDown, color: 'text-rose-600', bg: 'bg-rose-50' },
+          { label: 'Security Escrow', val: analyticsData.totalDeposits, sub: 'Held assets', icon: ShieldCheck, color: 'text-indigo-600', bg: 'bg-indigo-50' },
         ].map((item, i) => (
           <div key={i} className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm hover:shadow-md transition-all">
             <div className="flex justify-between items-start mb-6">
@@ -314,7 +326,7 @@ const Reports: React.FC = () => {
                 <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 900, fill: '#94a3b8'}} />
                 <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 900, fill: '#94a3b8'}} tickFormatter={v => `$${v}`} />
                 <Tooltip contentStyle={{backgroundColor: '#0f172a', border: 'none', borderRadius: '1rem', color: '#fff'}} />
-                <Area type="monotone" dataKey={activeModality === 'RENT' ? 'rent' : 'deposit'} stroke="#6366f1" strokeWidth={4} fillOpacity={1} fill="url(#colorMain)" />
+                <Area type="monotone" dataKey={activeModality === 'RENT' ? 'rent' : activeModality === 'ELECTRICITY' ? 'electricity' : 'deposit'} stroke="#6366f1" strokeWidth={4} fillOpacity={1} fill="url(#colorMain)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -465,7 +477,7 @@ const Reports: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-slate-50">
                  {analyticsData.propertyData.length > 0 ? analyticsData.propertyData.map((item, i) => {
-                    const totalVal = activeModality === 'RENT' ? analyticsData.totalRent : (analyticsData.totalDeposits - analyticsData.totalRefunds);
+                    const totalVal = activeModality === 'RENT' ? analyticsData.totalRent : activeModality === 'ELECTRICITY' ? analyticsData.totalElectricity : (analyticsData.totalDeposits - analyticsData.totalRefunds);
                     const pct = totalVal > 0 ? (item.value / totalVal) * 100 : 0;
                     return (
                        <tr key={i} className="group hover:bg-slate-50/50 transition-colors">

@@ -173,7 +173,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               
               tokenClientRef.current = google.accounts.oauth2.initTokenClient({
                 client_id: authClientId.trim(),
-                scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/userinfo.profile',
+                scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
                 callback: (response: any) => {
                   if (response.access_token) {
                     setAuthSession(response);
@@ -314,15 +314,26 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
           callback: async (response: any) => {
             if (response.access_token) {
-              setAuthSession(response);
-              localStorage.setItem(CLOUD_TOKEN_KEY, JSON.stringify(response));
-              setSyncStatus('synced');
-              
-              // Get Google User Info for pre-filling setup
               const userInfo = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
                 headers: { Authorization: `Bearer ${response.access_token}` }
               }).then(res => res.json());
 
+              // PRODUCTION SECURITY: Only allow if system is blank OR if email exists in authorized users
+              const systemUsers = stateRef.current.users;
+              const isFirstSetup = systemUsers.length === 0;
+              const isAuthorized = systemUsers.some(u => u.username.toLowerCase() === userInfo.email.toLowerCase());
+
+              if (!isFirstSetup && !isAuthorized) {
+                // Not authorized - force signout
+                google.accounts.oauth2.revoke(response.access_token);
+                resolve({ error: 'UNAUTHORIZED_EMAIL' });
+                return;
+              }
+
+              setAuthSession(response);
+              localStorage.setItem(CLOUD_TOKEN_KEY, JSON.stringify(response));
+              setSyncStatus('synced');
+              
               await bootstrapDatabase();
               resolve(userInfo);
             } else {
@@ -385,6 +396,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       tenant: 'col_demo_name',
       phone: 'col_demo_phone',
       rent: 'col_demo_rent',
+      electricity: 'col_demo_elec',
       deposit: 'col_demo_dep',
       date: 'col_demo_date',
       status: 'col_demo_status'
@@ -397,9 +409,10 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         { id: colIds.tenant, name: 'Tenant Name', type: ColumnType.TEXT, required: true, isRentCalculatable: false, isDefaultInLedger: true, order: 0 },
         { id: colIds.phone, name: 'Phone Number', type: ColumnType.NUMBER, required: true, isRentCalculatable: false, isDefaultInLedger: true, order: 1 },
         { id: colIds.rent, name: 'Monthly Rent', type: ColumnType.CURRENCY, required: true, isRentCalculatable: true, isDefaultInLedger: true, order: 2 },
-        { id: colIds.deposit, name: 'Security Deposit', type: ColumnType.SECURITY_DEPOSIT, required: true, isRentCalculatable: false, order: 3 },
-        { id: colIds.date, name: 'Join Date', type: ColumnType.DATE, required: true, isRentCalculatable: false, order: 4 },
-        { id: colIds.status, name: 'Occupancy', type: ColumnType.OCCUPANCY_STATUS, required: true, isRentCalculatable: false, isDefaultInLedger: true, options: ['Active', 'Vacant'], order: 5 },
+        { id: colIds.electricity, name: 'Elec. Reading (Base)', type: ColumnType.NUMBER, required: false, isRentCalculatable: false, isDefaultInLedger: true, order: 3 },
+        { id: colIds.deposit, name: 'Security Deposit', type: ColumnType.SECURITY_DEPOSIT, required: true, isRentCalculatable: false, order: 4 },
+        { id: colIds.date, name: 'Join Date', type: ColumnType.DATE, required: true, isRentCalculatable: false, order: 5 },
+        { id: colIds.status, name: 'Occupancy', type: ColumnType.OCCUPANCY_STATUS, required: true, isRentCalculatable: false, isDefaultInLedger: true, options: ['Active', 'Vacant'], order: 6 },
       ],
       defaultDueDateDay: 5
     };
@@ -415,9 +428,9 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     };
 
     const dummyUnits = [
-      { id: '101', tenant: 'Alice Smith', phone: '5550001001', rent: '2500', dep: '2500', status: 'Active', date: '2024-01-10' },
-      { id: '102', tenant: 'Bob Johnson', phone: '5550001002', rent: '2200', dep: '2200', status: 'Active', date: '2024-03-15' },
-      { id: '103', tenant: '', phone: '', rent: '2400', dep: '2400', status: 'Vacant', date: '2024-01-01' }
+      { id: '101', tenant: 'Alice Smith', phone: '5550001001', rent: '2500', elec: '100', dep: '2500', status: 'Active', date: '2024-01-10' },
+      { id: '102', tenant: 'Bob Johnson', phone: '5550001002', rent: '2200', elec: '150', dep: '2200', status: 'Active', date: '2024-03-15' },
+      { id: '103', tenant: '', phone: '', rent: '2400', elec: '0', dep: '2400', status: 'Vacant', date: '2024-01-01' }
     ];
 
     const newRecords: PropertyRecord[] = [];
@@ -436,6 +449,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         [colIds.tenant]: u.tenant,
         [colIds.phone]: u.phone,
         [colIds.rent]: u.rent,
+        [colIds.electricity]: u.elec,
         [colIds.deposit]: u.dep,
         [colIds.date]: u.date,
         [colIds.status]: u.status

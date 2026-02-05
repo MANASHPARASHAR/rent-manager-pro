@@ -1,3 +1,4 @@
+
 export enum UserRole {
   ADMIN = 'ADMIN',
   MANAGER = 'MANAGER',
@@ -22,7 +23,7 @@ export enum PaymentStatus {
   VACANT = 'VACANT'
 }
 
-export type PaymentType = 'RENT' | 'DEPOSIT';
+export type PaymentType = 'RENT' | 'DEPOSIT' | 'ELECTRICITY';
 
 export interface User {
   id: string;
