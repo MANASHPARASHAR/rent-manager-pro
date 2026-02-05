@@ -17,11 +17,6 @@ import {
 
 const RentalContext = createContext<any>(null);
 
-/**
- * 🔒 PRODUCTION SECURITY CONFIG
- */
-const OWNER_EMAIL = ""; 
-
 const DATABASE_FILENAME = "RentMaster_Pro_Database";
 const SHEET_TABS = ["Users", "PropertyTypes", "Properties", "Records", "RecordValues", "Payments", "Config", "UnitHistory"];
 const CLOUD_TOKEN_KEY = 'rentmaster_cloud_token_persistent_v1';
@@ -59,7 +54,8 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [config, setConfig] = useState<AppConfig>(() => initialData.current?.config || {
     paidToOptions: ['Company Account', 'Bank Account', 'Petty Cash', 'Owner Direct'],
     paymentModeOptions: ['Bank Transfer', 'Cash', 'Check', 'UPI/QR', 'Credit Card'],
-    cities: ['New York', 'Los Angeles', 'Chicago', 'Houston']
+    cities: ['New York', 'Los Angeles', 'Chicago', 'Houston'],
+    googleClientId: ''
   });
 
   const [tombstones, setTombstones] = useState<Set<string>>(() => {
@@ -77,21 +73,9 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const isSyncInProgress = useRef(false);
   const hasLoadedInitialData = useRef(false);
   const syncTimeoutRef = useRef<any>(null);
-  const refreshTimerRef = useRef<any>(null);
 
   const stateRef = useRef({ 
-    users: initialData.current?.users || [], 
-    propertyTypes: initialData.current?.propertyTypes || [], 
-    properties: initialData.current?.properties || [], 
-    records: initialData.current?.records || [], 
-    recordValues: initialData.current?.recordValues || [], 
-    unitHistory: initialData.current?.unitHistory || [],
-    payments: initialData.current?.payments || [], 
-    config: initialData.current?.config || {
-      paidToOptions: ['Company Account', 'Bank Account', 'Petty Cash', 'Owner Direct'],
-      paymentModeOptions: ['Bank Transfer', 'Cash', 'Check', 'UPI/QR', 'Credit Card'],
-      cities: ['New York', 'Los Angeles', 'Chicago', 'Houston']
-    }
+    users, propertyTypes, properties, records, recordValues, unitHistory, payments, config 
   });
 
   const syncAll = useCallback(async () => {
@@ -115,7 +99,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         { tab: "Records", rows: [["ID", "PropID", "Created", "Updated"], ...s.records.map((r: any) => [r.id, r.propertyId, r.createdAt, r.updatedAt])] },
         { tab: "RecordValues", rows: [["ID", "RecordID", "ColID", "Value"], ...s.recordValues.map((v: any) => [v.id, v.recordId, v.columnId, v.value])] },
         { tab: "Payments", rows: [["ID", "RecID", "Month", "Amount", "Status", "Type", "Due", "PaidAt", "PaidTo", "Mode", "Refunded"], ...s.payments.map((p: any) => [p.id, p.recordId, p.month, p.amount, p.status, p.type, p.dueDate, p.paidAt, p.paidTo, p.paymentMode, String(p.isRefunded === true)])] },
-        { tab: "Config", rows: [["PaidToJSON", "ModesJSON", "CitiesJSON"], [JSON.stringify(s.config.paidToOptions), JSON.stringify(s.config.paymentModeOptions), JSON.stringify(s.config.cities)]] },
+        { tab: "Config", rows: [["PaidToJSON", "ModesJSON", "CitiesJSON", "ClientID"], [JSON.stringify(s.config.paidToOptions), JSON.stringify(s.config.paymentModeOptions), JSON.stringify(s.config.cities), s.config.googleClientId || '']] },
         { tab: "UnitHistory", rows: [["ID", "RecordID", "ValuesJSON", "From", "To"], ...s.unitHistory.map((h: any) => [h.id, h.recordId, JSON.stringify(h.values), h.effectiveFrom, h.effectiveTo || 'null'])] }
       ];
 
@@ -141,7 +125,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     } catch (e: any) {
       if (e.status === 401) {
         setSyncStatus('reauth');
-        if (tokenClientRef.current) tokenClientRef.current.requestAccessToken({ prompt: '' });
       } else {
         setSyncStatus('error');
       }
@@ -152,17 +135,12 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [spreadsheetId, authSession]);
 
   useEffect(() => {
-    const currentState = { users, propertyTypes, properties, records, recordValues, unitHistory, payments, config };
-    stateRef.current = currentState;
-
+    stateRef.current = { users, propertyTypes, properties, records, recordValues, unitHistory, payments, config };
     if (hasLoadedInitialData.current) {
-        localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(currentState));
+        localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(stateRef.current));
         localStorage.setItem(TOMBSTONES_KEY, JSON.stringify(Array.from(tombstones)));
-        
         if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
-        syncTimeoutRef.current = setTimeout(() => {
-          syncAll();
-        }, 2500); 
+        syncTimeoutRef.current = setTimeout(() => syncAll(), 2500); 
     }
   }, [users, propertyTypes, properties, records, recordValues, unitHistory, payments, config, tombstones, syncAll]);
 
@@ -195,10 +173,10 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const parse = (index: number) => data[index]?.values?.slice(1) || [];
       const currentTombstones = new Set<string>(JSON.parse(localStorage.getItem(TOMBSTONES_KEY) || '[]'));
 
-      const parsedUsers: User[] = parse(0).map((r: any) => ({ id: r[0], username: r[1], name: r[2], role: r[3] as UserRole, passwordHash: r[4], createdAt: r[5] })).filter(u => u.id && !currentTombstones.has(u.id));
-      const parsedTypes: PropertyType[] = parse(1).map((r: any) => ({ id: r[0], name: r[1], columns: JSON.parse(r[2] || '[]'), defaultDueDateDay: parseInt(r[3] || '5') })).filter(t => t.id && !currentTombstones.has(t.id));
-      const parsedProps: Property[] = parse(2).map((r: any) => ({ id: r[0], name: r[1], propertyTypeId: r[2], address: r[3], createdAt: r[4], isVisibleToManager: r[5] !== 'false', city: r[6] || '', allowedUserIds: JSON.parse(r[7] || '[]'), totalInvestment: parseFloat(r[8] || '0') })).filter(p => p.id && !currentTombstones.has(p.id));
-      const pRecords: PropertyRecord[] = parse(3).map((r: any) => ({ id: r[0], propertyId: r[1], createdAt: r[2], updatedAt: r[3] })).filter(r => r.id && !currentTombstones.has(r.id));
+      const pUsers: User[] = parse(0).map((r: any) => ({ id: r[0], username: r[1], name: r[2], role: r[3] as UserRole, passwordHash: r[4], createdAt: r[5] })).filter(u => u.id && !currentTombstones.has(u.id));
+      const pTypes: PropertyType[] = parse(1).map((r: any) => ({ id: r[0], name: r[1], columns: JSON.parse(r[2] || '[]'), defaultDueDateDay: parseInt(r[3] || '5') })).filter(t => t.id && !currentTombstones.has(t.id));
+      const pProps: Property[] = parse(2).map((r: any) => ({ id: r[0], name: r[1], propertyTypeId: r[2], address: r[3], createdAt: r[4], isVisibleToManager: r[5] !== 'false', city: r[6] || '', allowedUserIds: JSON.parse(r[7] || '[]'), totalInvestment: parseFloat(r[8] || '0') })).filter(p => p.id && !currentTombstones.has(p.id));
+      const pRecs: PropertyRecord[] = parse(3).map((r: any) => ({ id: r[0], propertyId: r[1], createdAt: r[2], updatedAt: r[3] })).filter(r => r.id && !currentTombstones.has(r.id));
       const pVals: RecordValue[] = parse(4).map((r: any) => ({ id: r[0], recordId: r[1], columnId: r[2], value: r[3] })).filter(v => v.id && !currentTombstones.has(v.recordId));
       const pPays: Payment[] = parse(5).map((r: any) => ({ id: r[0], recordId: r[1], month: r[2], amount: parseFloat(r[3] || '0'), status: r[4] as PaymentStatus, type: r[5], dueDate: r[6], paidAt: r[7], paidTo: r[8], paymentMode: r[9], isRefunded: r[10] === 'true' })).filter(p => p.id && !currentTombstones.has(p.recordId));
       
@@ -206,23 +184,30 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const parsedConfig: AppConfig = pConf ? { 
         paidToOptions: JSON.parse(pConf[0] || '[]'), 
         paymentModeOptions: JSON.parse(pConf[1] || '[]'), 
-        cities: JSON.parse(pConf[2] || '[]') 
-      } : stateRef.current.config;
+        cities: JSON.parse(pConf[2] || '[]'),
+        googleClientId: pConf[3] || ''
+      } : config;
       
       const pHist: UnitHistory[] = parse(7).map((r: any) => ({ id: r[0], recordId: r[1], values: JSON.parse(r[2] || '{}'), effectiveFrom: r[3], effectiveTo: r[4] === 'null' ? null : r[4] })).filter(h => h.id && !currentTombstones.has(h.recordId));
 
-      setUsers(parsedUsers);
-      setPropertyTypes(parsedTypes);
-      setProperties(parsedProps);
-      setRecords(pRecords);
+      setUsers(pUsers);
+      setPropertyTypes(pTypes);
+      setProperties(pProps);
+      setRecords(pRecs);
       setRecordValues(pVals);
       setUnitHistory(pHist);
       setPayments(pPays);
       setConfig(parsedConfig);
       
-      lastSyncHash.current = JSON.stringify({ users: parsedUsers, propertyTypes: parsedTypes, properties: parsedProps, records: pRecords, recordValues: pVals, unitHistory: pHist, payments: pPays, config: parsedConfig });
+      // AUTO-UPDATE CLIENT ID IF FOUND IN CLOUD
+      if (parsedConfig.googleClientId && parsedConfig.googleClientId !== authClientId) {
+        setAuthClientId(parsedConfig.googleClientId);
+        localStorage.setItem('rentmaster_google_client_id', parsedConfig.googleClientId);
+      }
+
+      lastSyncHash.current = JSON.stringify({ users: pUsers, propertyTypes: pTypes, properties: pProps, records: pRecs, recordValues: pVals, unitHistory: pHist, payments: pPays, config: parsedConfig });
       setSyncStatus('synced');
-      return { users: parsedUsers };
+      return { users: pUsers };
     } catch (e: any) {
       if (e.status === 401) setSyncStatus('reauth');
       return null;
@@ -230,7 +215,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setIsBooting(false);
       hasLoadedInitialData.current = true;
     }
-  }, [authSession]);
+  }, [authSession, authClientId, config]);
 
   const initGoogleClient = useCallback(async () => {
     return new Promise((resolve) => {
@@ -246,26 +231,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                   "https://sheets.googleapis.com/$discovery/rest?version=v4"
                 ],
               });
-              
-              tokenClientRef.current = google.accounts.oauth2.initTokenClient({
-                client_id: authClientId.trim(),
-                scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
-                callback: (response: any) => {
-                  if (response.access_token) {
-                    setAuthSession(response);
-                    localStorage.setItem(CLOUD_TOKEN_KEY, JSON.stringify(response));
-                    gapi.client.setToken({ access_token: response.access_token });
-                    setSyncStatus('synced');
-                    if (spreadsheetId) loadAllData(spreadsheetId);
-                  } else {
-                    setSyncStatus('reauth');
-                  }
-                },
-              });
-
-              if (authSession?.access_token) {
-                gapi.client.setToken({ access_token: authSession.access_token });
-              }
               resolve(true);
             } catch (e) { resolve(false); }
           });
@@ -273,7 +238,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       };
       checkGapi();
     });
-  }, [authSession, authClientId, spreadsheetId, loadAllData]);
+  }, []);
 
   const bootstrapDatabase = useCallback(async () => {
     if (!authSession) {
@@ -290,15 +255,12 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         fields: 'files(id, name)',
       });
 
-      let dbId: string;
       if (searchResponse.result.files && searchResponse.result.files.length > 0) {
-        dbId = searchResponse.result.files[0].id;
+        const dbId = searchResponse.result.files[0].id;
         setSpreadsheetId(dbId);
         localStorage.setItem('rentmaster_active_sheet_id', dbId);
-        const cloudData = await loadAllData(dbId);
-        return { spreadsheetId: dbId, ...cloudData };
+        return await loadAllData(dbId);
       } else {
-        // DON'T AUTO CREATE. Alert the logic that no DB was found to prevent duplicate creation.
         return { spreadsheetId: null, isNew: true };
       }
     } catch (error: any) {
@@ -331,12 +293,11 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               
               const bootstrapResult = await bootstrapDatabase();
               const cloudUsers: User[] = (bootstrapResult as any)?.users || [];
-              const isDatabaseExisting = !!bootstrapResult?.spreadsheetId;
+              const isDatabaseExisting = !!spreadsheetId || (bootstrapResult as any)?.users;
               
-              if (isDatabaseExisting) {
-                // If cloud has users, check if this email is one of them (Whitelist security)
-                const isAuthorizedInCloud = cloudUsers.some((u: User) => String(u.username || '').toLowerCase() === String(userInfo.email || '').toLowerCase());
-                if (!isAuthorizedInCloud) {
+              if (isDatabaseExisting && cloudUsers.length > 0) {
+                const isAuthorized = cloudUsers.some((u: User) => String(u.username || '').toLowerCase() === String(userInfo.email || '').toLowerCase());
+                if (!isAuthorized) {
                   google.accounts.oauth2.revoke(response.access_token);
                   setAuthSession(null);
                   localStorage.removeItem(CLOUD_TOKEN_KEY);
@@ -346,7 +307,6 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               }
 
               if (!isDatabaseExisting) {
-                // IMPORTANT: Only create if user confirms it's a fresh install
                 const createResponse = await gapi.client.sheets.spreadsheets.create({
                   resource: {
                     properties: { title: DATABASE_FILENAME },
@@ -356,6 +316,8 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                 const newId = createResponse.result.spreadsheetId;
                 setSpreadsheetId(newId);
                 localStorage.setItem('rentmaster_active_sheet_id', newId);
+                // SAVE CLIENT ID TO CONFIG IMMEDIATELY
+                setConfig(prev => ({ ...prev, googleClientId: rawId.trim() }));
               }
 
               localStorage.setItem(CLOUD_TOKEN_KEY, JSON.stringify(response));
@@ -370,25 +332,24 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         (client as any).requestAccessToken({ prompt: forceRefresh ? 'consent' : '' });
       } else { resolve(null); }
     });
-  }, [authClientId, bootstrapDatabase]);
+  }, [authClientId, bootstrapDatabase, spreadsheetId]);
 
   useEffect(() => { 
     initGoogleClient().then(() => {
       if (authSession) bootstrapDatabase();
       else setIsBooting(false);
     });
-  }, [initGoogleClient, authSession]);
+  }, [initGoogleClient, authSession, bootstrapDatabase]);
 
   const value = {
     isBooting, user, users, propertyTypes, properties, records, recordValues, unitHistory, payments, config,
     isCloudSyncing, syncStatus, spreadsheetName, googleUser: authSession, spreadsheetId, googleClientId: authClientId, 
-    updateClientId: (id: string) => { setAuthClientId(id); localStorage.setItem('rentmaster_google_client_id', id); },
-    authenticate, syncAll,
-    manualLinkSpreadsheet: async (id: string) => {
-      setSpreadsheetId(id);
-      localStorage.setItem('rentmaster_active_sheet_id', id);
-      return loadAllData(id);
+    updateClientId: (id: string) => { 
+      setAuthClientId(id); 
+      localStorage.setItem('rentmaster_google_client_id', id);
+      setConfig(prev => ({ ...prev, googleClientId: id }));
     },
+    authenticate, syncAll,
     login: async (username: string, password: string) => {
       const found = (users as User[]).find((u: User) => String(u.username || '').toLowerCase() === String(username || '').toLowerCase() && u.passwordHash === password && !tombstones.has(u.id));
       if (found) { setUser(found); return true; }

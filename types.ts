@@ -105,4 +105,5 @@ export interface AppConfig {
   paidToOptions: string[];
   paymentModeOptions: string[];
   cities: string[];
+  googleClientId?: string;
 }

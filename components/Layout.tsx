@@ -21,7 +21,9 @@ import {
   AlertTriangle,
   BarChart3,
   RefreshCw,
-  Zap
+  Zap,
+  WifiOff,
+  DatabaseZap
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { UserRole } from '../types';
@@ -75,25 +77,36 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const isReauthNeeded = store.syncStatus === 'reauth';
   const isSyncError = store.syncStatus === 'error';
   const isCloudActive = !!store.spreadsheetId && !!store.googleUser && store.syncStatus === 'synced';
+  const isOfflineMode = !isCloudActive;
   const needsInitialCloudSetup = isAdmin && !store.spreadsheetId;
 
   return (
     <div className="min-h-screen bg-slate-50 flex font-sans antialiased text-slate-900 overflow-x-hidden">
-      {/* 🔒 PROTECTED CLOUD RE-AUTH BAR - Only visible inside after login */}
-      {(isReauthNeeded || isSyncError || needsInitialCloudSetup) && isAdmin && (
-        <div className={`fixed top-0 inset-x-0 z-[200] ${isSyncError ? 'bg-rose-600' : 'bg-indigo-600'} text-white p-3 flex items-center justify-center gap-4 animate-in slide-in-from-top duration-500 shadow-2xl`}>
-           {isSyncError ? <AlertTriangle className="w-5 h-5 animate-pulse" /> : <Zap className="w-5 h-5 text-amber-300 animate-pulse" />}
-           <p className="text-[10px] font-black uppercase tracking-widest">
-             {isSyncError ? "Cloud Disconnected: Verify Sync Status" : isReauthNeeded ? "Google Session Expired: Re-Auth Required" : "Initial Cloud Setup Required"}
-           </p>
-           <button 
-             onClick={handleConnect}
-             className="bg-white text-indigo-600 px-4 py-1.5 rounded-lg text-[9px] font-black uppercase hover:bg-indigo-50 transition-all active:scale-95 shadow-sm flex items-center gap-2"
-           >
-             <RefreshCw className="w-3.5 h-3.5" /> Reconnect Cloud
-           </button>
-        </div>
-      )}
+      {/* 🔒 CLOUD RE-AUTH & OFFLINE SAFETY BAR */}
+      <div className="fixed top-0 inset-x-0 z-[200] pointer-events-none flex flex-col items-center">
+        {(isReauthNeeded || isSyncError || needsInitialCloudSetup) && isAdmin && (
+          <div className={`w-full pointer-events-auto ${isSyncError ? 'bg-rose-600' : 'bg-indigo-600'} text-white p-3 flex items-center justify-center gap-4 animate-in slide-in-from-top duration-500 shadow-2xl`}>
+             {isSyncError ? <AlertTriangle className="w-5 h-5 animate-pulse" /> : <Zap className="w-5 h-5 text-amber-300 animate-pulse" />}
+             <p className="text-[10px] font-black uppercase tracking-widest">
+               {isSyncError ? "Cloud Disconnected: Verify Connection" : isReauthNeeded ? "Google Session Expired: Re-Auth Required" : "Initial Cloud Setup Required"}
+             </p>
+             <button 
+               onClick={handleConnect}
+               className="bg-white text-indigo-600 px-4 py-1.5 rounded-lg text-[9px] font-black uppercase hover:bg-indigo-50 transition-all active:scale-95 shadow-sm flex items-center gap-2"
+             >
+               <RefreshCw className="w-3.5 h-3.5" /> Reconnect Cloud
+             </button>
+          </div>
+        )}
+        
+        {/* OFFLINE DATA PROTECTION WARNING */}
+        {isOfflineMode && (
+          <div className="mt-2 pointer-events-auto bg-amber-500 text-white px-6 py-2 rounded-full shadow-xl flex items-center gap-3 border-2 border-white/20 animate-bounce duration-[2000ms]">
+             <WifiOff className="w-4 h-4" />
+             <span className="text-[9px] font-black uppercase tracking-widest">Offline Mode: Data saved to device. Do not clear browser cache!</span>
+          </div>
+        )}
+      </div>
 
       {isSidebarOpen && (
         <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm z-[45] lg:hidden" onClick={() => setIsSidebarOpen(false)} />
@@ -115,7 +128,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                  <div className="p-6 bg-indigo-50 rounded-3xl flex items-start gap-4 border border-indigo-100">
                     <Info className="w-6 h-6 text-indigo-600 shrink-0" />
                     <p className="text-[11px] text-slate-500 font-bold uppercase leading-relaxed tracking-wider">
-                      Updating the Client ID will trigger a full system re-handshake. Ensure the new ID has correct redirect URIs.
+                      Note: Once published in Google Console, sessions will last longer. Always ensure your Client ID is correct.
                     </p>
                  </div>
 
@@ -172,21 +185,28 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           </nav>
 
           {isSidebarOpen && (
-             <div className="mx-2 mt-10 p-4 bg-slate-950/40 rounded-3xl border border-white/5 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                   {store.isCloudSyncing ? (
-                      <div className="relative">
-                         <div className="w-2.5 h-2.5 bg-indigo-500 rounded-full animate-ping absolute inset-0"></div>
-                         <div className="w-2.5 h-2.5 bg-indigo-600 rounded-full relative"></div>
-                      </div>
-                   ) : (
-                      <div className={`w-2.5 h-2.5 rounded-full ${isCloudActive ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-slate-700'}`}></div>
-                   )}
-                   <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">
-                      {store.isCloudSyncing ? "Syncing..." : isCloudActive ? "Cloud Live" : "Local Cache"}
-                   </span>
+             <div className="mx-2 mt-10 p-5 bg-slate-950/60 rounded-3xl border border-white/5 space-y-4">
+                <div className="flex items-center justify-between">
+                   <div className="flex items-center gap-3">
+                      {store.isCloudSyncing ? (
+                         <div className="relative">
+                            <div className="w-2.5 h-2.5 bg-indigo-500 rounded-full animate-ping absolute inset-0"></div>
+                            <div className="w-2.5 h-2.5 bg-indigo-600 rounded-full relative"></div>
+                         </div>
+                      ) : (
+                         <div className={`w-2.5 h-2.5 rounded-full ${isCloudActive ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-amber-500 animate-pulse'}`}></div>
+                      )}
+                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                         {store.isCloudSyncing ? "Syncing..." : isCloudActive ? "Cloud Live" : "Offline Cache"}
+                      </span>
+                   </div>
+                   {isCloudActive ? <CheckCircle className="w-3.5 h-3.5 text-emerald-500" /> : <DatabaseZap className="w-3.5 h-3.5 text-amber-500" />}
                 </div>
-                {isCloudActive && <CheckCircle className="w-3 h-3 text-emerald-500/50" />}
+                {!isCloudActive && (
+                  <p className="text-[8px] font-bold text-slate-500 uppercase leading-relaxed border-t border-white/5 pt-3">
+                    Your local changes are protected and will sync when cloud is re-linked.
+                  </p>
+                )}
              </div>
           )}
         </div>
