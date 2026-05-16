@@ -37,17 +37,19 @@ const Login: React.FC = () => {
       console.error("Login attempt resulted in error:", err);
       let message = "Authentication failed. Please verify your credentials or contact your administrator.";
       
-      // Prioritize explicit error messages from our store
-      if (err.message && !err.code) {
+      // If our store threw a custom error (with or without code), we should prefer its message
+      // especially if it's one of our semantic ledger-related messages.
+      if (err.message && (err.message.includes('managed') || err.message.includes('sign in') || err.message.includes('password') || err.message.includes('Account not found'))) {
         message = err.message;
-      } 
+      }
       // Handle Firebase-specific error codes
       else if (err.code) {
         switch (err.code) {
           case 'auth/invalid-credential':
           case 'auth/wrong-password':
           case 'auth/user-not-found':
-            message = "Invalid email or password. Please ensure your account has been correctly authorized and check your password spelling.";
+          case 'auth/invalid-email':
+            message = "Invalid email or password. Please verify your credentials or use Google 'Quick Sign In' if you previously used that method.";
             break;
           case 'auth/too-many-requests':
             message = "Security Lockdown: Too many failed attempts. Please wait 5-10 minutes or use Google Sign-In for instant access.";
@@ -58,6 +60,8 @@ const Login: React.FC = () => {
           default:
             message = err.message || message;
         }
+      } else {
+        message = err.message || message;
       }
       
       setError(message);

@@ -488,8 +488,19 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (code === 'auth/too-many-requests') {
            throw new Error("Security Lockdown: Too many failed login attempts. Please wait 5-10 minutes or use Google 'Quick Sign In' for instant access.");
         }
+        
+        // If we found a user in the ledger but Auth failed and Ledger password didn't match
+        if (userData) {
+           const hasManagedPassword = Boolean(userData.passwordHash && userData.passwordHash.length > 0);
+           if (!hasManagedPassword) {
+             throw new Error("This account is authorized but has no direct password configured. Please use the Google 'Quick Sign In' button to access the console.");
+           } else {
+             throw new Error("Invalid password. If you recently updated your password in the Team tab, ensure you are using the NEW one.");
+           }
+        }
+
         if (['auth/invalid-credential', 'auth/wrong-password', 'auth/user-not-found', 'auth/invalid-email'].includes(code)) {
-          throw new Error("Invalid email or password. If you recently updated your password in the Team tab, ensure you are using the NEW one.");
+          throw new Error("Invalid email or password. Please verify your credentials or use Google 'Quick Sign In' if you previously used that method.");
         }
         throw authErrorToPreserve;
       }
