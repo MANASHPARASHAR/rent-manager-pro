@@ -311,6 +311,71 @@ const Dashboard: React.FC = () => {
               </button>
             </div>
           </div>
+
+          {effectiveIsAdmin && (
+            <div className="bg-slate-900 p-10 lg:p-14 rounded-[3.5rem] text-white shadow-2xl relative overflow-hidden group">
+               <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl -mr-20 -mt-20 group-hover:bg-indigo-500/20 transition-all duration-700"></div>
+               <div className="absolute bottom-0 left-0 w-64 h-64 bg-emerald-500/5 rounded-full blur-3xl -ml-20 -mb-20"></div>
+               
+               <div className="relative flex flex-col lg:flex-row lg:items-center justify-between gap-12">
+                  <div className="max-w-xl">
+                    <div className="flex items-center gap-3 text-indigo-400 mb-4 font-black text-[10px] uppercase tracking-widest">
+                       <Fingerprint className="w-4 h-4" /> AUTH COMMAND CENTER
+                    </div>
+                    <h2 className="text-3xl lg:text-4xl font-black text-white tracking-tighter uppercase leading-tight mb-6">
+                      ENABLE GOOGLE AUTH <br /> FOR PRODUCTION
+                    </h2>
+                    <p className="text-slate-400 font-medium text-lg leading-relaxed mb-8">
+                       To allow users to sign in with Google in the live app, you must whitelist the authorized redirect URI in your Google Cloud Console.
+                    </p>
+                    
+                    <a 
+                      href="https://console.cloud.google.com/apis/credentials?project=gen-lang-client-0770522890" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-3 bg-white text-slate-900 px-8 py-4 rounded-2xl font-black uppercase text-[11px] tracking-widest hover:bg-slate-100 transition-all active:scale-95"
+                    >
+                       Open Google Console <ArrowUpRight className="w-4 h-4" />
+                    </a>
+                  </div>
+
+                  <div className="flex-1 w-full lg:max-w-md">
+                     <div className="bg-slate-800/50 backdrop-blur-xl p-8 rounded-3xl border border-white/5 space-y-6">
+                        <div>
+                           <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 block">Authorized Redirect URI</label>
+                           <div className="p-4 bg-slate-950 rounded-2xl border border-white/5 flex items-center justify-between group/code relative">
+                              <code className="text-[11px] font-mono text-emerald-400 break-all select-all pr-12">
+                                 https://gen-lang-client-0770522890.firebaseapp.com/__/auth/handler
+                              </code>
+                              <button 
+                                onClick={() => {
+                                  navigator.clipboard.writeText('https://gen-lang-client-0770522890.firebaseapp.com/__/auth/handler');
+                                  const btn = document.getElementById('copy-feedback');
+                                  if (btn) {
+                                    btn.classList.remove('opacity-0');
+                                    setTimeout(() => btn.classList.add('opacity-0'), 2000);
+                                  }
+                                }}
+                                className="p-2 text-slate-400 hover:text-white transition-colors flex-shrink-0"
+                                title="Copy to clipboard"
+                              >
+                                 <Plus className="w-4 h-4 rotate-45" />
+                              </button>
+                              <div id="copy-feedback" className="absolute top-[-30px] right-0 opacity-0 transition-opacity bg-emerald-500 text-white text-[9px] font-black px-2 py-1 rounded">COPIED!</div>
+                           </div>
+                        </div>
+
+                        <div className="p-4 bg-indigo-500/10 rounded-2xl border border-indigo-500/20 flex items-start gap-3">
+                           <ShieldCheck className="w-4 h-4 text-indigo-400 flex-shrink-0 mt-0.5" />
+                           <p className="text-[10px] font-bold text-slate-300 leading-normal">
+                             Add the URI above to the "Authorized redirect URIs" section of your OAuth 2.0 Client ID in the Google Cloud Console.
+                           </p>
+                        </div>
+                     </div>
+                  </div>
+               </div>
+            </div>
+          )}
         </>
       )}
     </div>
