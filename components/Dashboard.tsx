@@ -147,7 +147,7 @@ const Dashboard: React.FC = () => {
   }, [store, currentMonthKey, visiblePropertyIds]);
 
   const propertyChartData = useMemo(() => {
-    return visibleProperties.slice(0, 6).map(p => {
+    return visibleProperties.map(p => {
       const propRecords = store.records.filter((r: any) => r.propertyId === p.id);
       const propertyType = store.propertyTypes.find((pt: any) => pt.id === p.propertyTypeId);
       if (!propertyType) return { name: p.name, target: 0, collected: 0 };
@@ -168,7 +168,7 @@ const Dashboard: React.FC = () => {
         .reduce((sum: number, pay: any) => sum + (Number(pay.amount) || 0), 0);
 
       return {
-        name: p.name.length > 10 ? p.name.substring(0, 8) + '..' : p.name,
+        name: p.name.length > 15 ? p.name.substring(0, 12) + '..' : p.name,
         target, collected
       };
     });
@@ -266,17 +266,25 @@ const Dashboard: React.FC = () => {
                    <div className="flex items-center gap-2 text-[10px] font-black uppercase"><div className="w-2.5 h-2.5 rounded-full bg-indigo-500"></div> {t('actual')}</div>
                 </div>
               </div>
-              <div className="flex-1 h-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={propertyChartData} barGap={10}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 900, fill: '#94a3b8' }} dy={10} />
-                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 900, fill: '#94a3b8' }} tickFormatter={v => `₹${v/1000}k`} />
-                    <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '1rem', color: '#fff' }} />
-                    <Bar dataKey="target" fill="#f1f5f9" radius={[8, 8, 0, 0]} barSize={25} />
-                    <Bar dataKey="collected" fill="#6366f1" radius={[8, 8, 0, 0]} barSize={25} />
-                  </BarChart>
-                </ResponsiveContainer>
+              <div className="flex-1 h-full overflow-x-auto pb-4 custom-scrollbar">
+                <div style={{ minWidth: propertyChartData.length > 6 ? `${propertyChartData.length * 100}px` : '100%' }} className="h-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={propertyChartData} barGap={10} margin={{ top: 0, right: 20, left: 0, bottom: 20 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis 
+                        dataKey="name" 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tick={{ fontSize: 9, fontWeight: 900, fill: '#94a3b8' }} 
+                        dy={10}
+                      />
+                      <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 900, fill: '#94a3b8' }} tickFormatter={v => `₹${v/1000}k`} />
+                      <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '1rem', color: '#fff' }} />
+                      <Bar dataKey="target" fill="#f1f5f9" radius={[8, 8, 0, 0]} barSize={25} />
+                      <Bar dataKey="collected" fill="#6366f1" radius={[8, 8, 0, 0]} barSize={25} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
             </div>
 
