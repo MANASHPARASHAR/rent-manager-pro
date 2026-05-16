@@ -56,12 +56,17 @@ const PropertyDetails: React.FC = () => {
     actionLabel: 'Confirm'
   });
 
-  const isAdmin = store.user?.role === UserRole.ADMIN;
+  const SUPERADMIN_EMAIL = 'manashparashar9926@gmail.com';
+  const isAdmin = store.user?.role === UserRole.ADMIN || 
+                   store.user?.username?.toLowerCase().trim() === SUPERADMIN_EMAIL;
   const isManager = store.user?.role === UserRole.MANAGER;
   const isViewer = store.user?.role === UserRole.VIEWER;
-  const isRestricted = isManager || isViewer;
-  const canEdit = isAdmin || isManager;
-
+  
+  const effectiveUser = store.effectiveUser;
+  const effectiveIsAdmin = effectiveUser?.role === UserRole.ADMIN || 
+                           effectiveUser?.username?.toLowerCase().trim() === SUPERADMIN_EMAIL;
+  const effectiveIsManager = effectiveUser?.role === UserRole.MANAGER;
+  
   // INITIAL LOAD GUARD
   if (store.isBooting) {
     return (
@@ -75,9 +80,20 @@ const PropertyDetails: React.FC = () => {
   const property = useMemo(() => {
     const p = (store.properties || []).find((prop: any) => prop.id === id);
     if (!p) return null;
-    if (isRestricted && p.isVisibleToManager === false) return null;
+    
+    // Check if effective user is authorized for this specific property
+    const lowerUsername = effectiveUser?.username?.toLowerCase().trim() || '';
+    const lowerUserId = effectiveUser?.id?.toLowerCase() || '';
+    const isAuthorized = effectiveIsAdmin || 
+                         (effectiveUser?.assignedPropertyIds || []).includes(p.id) ||
+                         (p.allowedUserIds || []).some(id => id.toLowerCase() === lowerUserId) ||
+                         (p.allowedUserIds || []).some(id => id.toLowerCase() === lowerUsername);
+                         
+    if (!isAuthorized) return null;
     return p;
-  }, [store.properties, id, isRestricted]);
+  }, [store.properties, id, effectiveUser, effectiveIsAdmin]);
+
+  const canEdit = isAdmin || effectiveIsAdmin || effectiveIsManager;
 
   const propertyType = useMemo(() => {
     if (!property) return null;
@@ -111,7 +127,18 @@ const PropertyDetails: React.FC = () => {
   }
 
   const handleInputChange = (colId: string, value: string) => {
-    setFormData(prev => ({ ...prev, [colId]: value }));
+    const col = columns.find(c => c.id === colId);
+    let finalValue = value;
+
+    const isPhoneCol = col?.type === ColumnType.PHONE || 
+      /phone|mobile|contact|number/i.test(col?.name || '') && col?.name.toLowerCase().includes('tenant');
+
+    if (isPhoneCol) {
+      // Strip everything except digits
+      finalValue = value.replace(/\D/g, '').slice(0, 10);
+    }
+
+    setFormData(prev => ({ ...prev, [colId]: finalValue }));
     if (formErrors[colId]) {
       setFormErrors(prev => {
         const next = { ...prev };
@@ -125,9 +152,26 @@ const PropertyDetails: React.FC = () => {
     if (!canEdit) return;
     const errors: Record<string, string> = {};
     columns.forEach(col => {
-      const val = formData[col.id]?.trim() || "";
+      const rawVal = formData[col.id];
+      let val = (rawVal?.toString() || "").trim();
+      
+      const isPhoneCol = col.type === ColumnType.PHONE || 
+        (/phone|mobile|contact|number/i.test(col.name) && col.name.toLowerCase().includes('tenant'));
+      
+      if (isPhoneCol) {
+        val = val.replace(/\D/g, ''); // Ensure only digits for length check
+      }
+
       if (col.required && val === "") {
         errors[col.id] = `${col.name} is required`;
+      } else if (isPhoneCol && val !== "") {
+        if (val.length !== 10) {
+          errors[col.id] = "Must be exactly 10 digits";
+        }
+      } else if ((col.type === ColumnType.CURRENCY || col.type === ColumnType.SECURITY_DEPOSIT || col.type === ColumnType.NUMBER) && val !== "") {
+        if (parseFloat(val) < 0) {
+          errors[col.id] = "Value cannot be negative";
+        }
       }
     });
 
@@ -143,13 +187,22 @@ const PropertyDetails: React.FC = () => {
       actionLabel: "Confirm",
       icon: <ShieldCheck className="w-10 h-10" />,
       onConfirm: () => {
+        const sanitizedData = { ...formData };
+        columns.forEach(col => {
+          const isPhoneCol = col.type === ColumnType.PHONE || 
+            (/phone|mobile|contact|number/i.test(col.name) && col.name.toLowerCase().includes('tenant'));
+          if (isPhoneCol && sanitizedData[col.id]) {
+            sanitizedData[col.id] = sanitizedData[col.id].toString().replace(/\D/g, '');
+          }
+        });
+
         if (editingRecordId) {
-          const updatedValues = Object.entries(formData).map(([colId, value]) => ({ id: 'v_' + Math.random().toString(36).substr(2, 9), recordId: editingRecordId, columnId: colId, value }));
+          const updatedValues = Object.entries(sanitizedData).map(([colId, value]) => ({ id: 'v_' + Math.random().toString(36).substr(2, 9), recordId: editingRecordId, columnId: colId, value }));
           store.updateRecord(editingRecordId, updatedValues);
           setEditingRecordId(null);
         } else {
           const recordId = 'r' + Date.now();
-          const newValues = Object.entries(formData).map(([colId, value]) => ({ id: 'v_' + Math.random().toString(36).substr(2, 9), recordId, columnId: colId, value }));
+          const newValues = Object.entries(sanitizedData).map(([colId, value]) => ({ id: 'v_' + Math.random().toString(36).substr(2, 9), recordId, columnId: colId, value }));
           store.addRecord({ id: recordId, propertyId: property.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, newValues);
           setIsAdding(false);
         }
@@ -177,7 +230,14 @@ const PropertyDetails: React.FC = () => {
 
   const renderCellContent = (value: string, col: ColumnDefinition) => {
     if (col.type === ColumnType.CURRENCY || col.type === ColumnType.SECURITY_DEPOSIT) {
-      return <span className="text-indigo-600 font-black">${parseFloat(value || '0').toLocaleString()}</span>;
+      return <span className="text-indigo-600 font-black">₹{parseFloat(value || '0').toLocaleString()}</span>;
+    }
+    if (col.type === ColumnType.PHONE || (/phone|mobile|contact|number/i.test(col.name) && col.name.toLowerCase().includes('tenant'))) {
+      const cleaned = value.replace(/\D/g, '');
+      const formatted = cleaned.slice(0, 10);
+      return <span className="font-mono text-slate-600 tracking-wider">
+        {formatted.length === 10 ? `+91 ${formatted}` : formatted}
+      </span>;
     }
     if (col.type === ColumnType.DROPDOWN || col.type === ColumnType.OCCUPANCY_STATUS) {
       const lowerVal = (value || '').toLowerCase();
@@ -191,7 +251,7 @@ const PropertyDetails: React.FC = () => {
     <div className="space-y-8 animate-in fade-in duration-500 pb-20">
       {confirmConfig.isOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md animate-in fade-in">
-          <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl border border-white/20 overflow-hidden animate-in zoom-in-95">
+          <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl border border-white/20 overflow-hidden animate-in zoom-in-95 max-h-[90vh] overflow-y-auto custom-scrollbar">
             <div className={`p-10 text-center ${confirmConfig.isDanger ? 'bg-red-50/50' : 'bg-indigo-50/50'}`}>
               <div className={`w-20 h-20 rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-xl ${confirmConfig.isDanger ? 'bg-red-500 text-white shadow-red-500/20' : 'bg-indigo-600 text-white shadow-indigo-500/20'}`}>{confirmConfig.icon}</div>
               <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tight mb-4">{confirmConfig.title}</h3>
@@ -224,11 +284,34 @@ const PropertyDetails: React.FC = () => {
         </div>
         <div className="overflow-x-auto max-h-[600px] overflow-y-auto custom-scrollbar">
           <table className="w-full text-left">
-            <thead className="sticky top-0 z-10 bg-white"><tr className="bg-gray-50 border-b border-gray-100">{columns.map(col => <th key={col.id} className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest whitespace-nowrap min-w-[200px]">{col.name}</th>)}{canEdit && <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Actions</th>}</tr></thead>
+            <thead className="sticky top-0 z-10 bg-white">
+              <tr className="bg-gray-50 border-b border-gray-100">
+                {columns.map(col => <th key={col.id} className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest whitespace-nowrap min-w-[200px]">{col.name}</th>)}
+                {canEdit && <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right sticky right-0 z-20 bg-gray-50 border-l border-gray-100 shadow-[-4px_0_12px_rgba(0,0,0,0.02)]">Actions</th>}
+              </tr>
+            </thead>
             <tbody className="divide-y divide-gray-50">
               {isAdding && (
                 <tr className="bg-indigo-50/20 animate-in slide-in-from-top-4">
-                  {columns.map(col => (<td key={col.id} className="px-8 py-8 align-top">{(col.type === ColumnType.DROPDOWN || col.type === ColumnType.OCCUPANCY_STATUS) ? (<select className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500' : 'border-gray-200'} rounded-2xl px-5 py-4 text-sm font-bold outline-none cursor-pointer`} value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)}><option value="">Select...</option>{col.options?.map(o => <option key={o} value={o}>{o}</option>)}</select>) : (<input className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500' : 'border-gray-200'} rounded-2xl px-5 py-4 text-sm font-bold outline-none`} type={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.SECURITY_DEPOSIT ? 'number' : col.type === ColumnType.DATE ? 'date' : 'text'} value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)} placeholder={`Enter ${col.name}`} />)}{formErrors[col.id] && <p className="text-[9px] text-red-500 font-black uppercase mt-2 ml-1">{formErrors[col.id]}</p>}</td>))}<td className="px-8 py-8 text-right align-top"><div className="flex justify-end gap-3"><button onClick={handleSave} className="p-4 bg-indigo-600 text-white rounded-2xl"><Save className="w-6 h-6" /></button><button onClick={() => { setIsAdding(false); setFormData({}); }} className="p-4 bg-white border border-gray-200 rounded-2xl text-gray-400"><X className="w-6 h-6" /></button></div></td></tr>
+                  {columns.map(col => (<td key={col.id} className="px-8 py-8 align-top">
+                    {(col.type === ColumnType.DROPDOWN || col.type === ColumnType.OCCUPANCY_STATUS) ? (
+                      <select className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500' : 'border-gray-200'} rounded-2xl px-5 py-4 text-sm font-bold outline-none cursor-pointer`} value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)}>
+                        <option value="">Select...</option>
+                        {col.options?.map(o => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    ) : (
+                      <input 
+                        className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500' : 'border-gray-200'} rounded-2xl px-5 py-4 text-sm font-bold outline-none`} 
+                        type={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.SECURITY_DEPOSIT ? 'number' : col.type === ColumnType.DATE ? 'date' : 'text'} 
+                        min={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.SECURITY_DEPOSIT ? "0" : undefined}
+                        maxLength={col.type === ColumnType.PHONE ? 10 : undefined}
+                        value={formData[col.id] || ''} 
+                        onChange={e => handleInputChange(col.id, e.target.value)} 
+                        placeholder={col.type === ColumnType.PHONE ? "10 Digit Mobile" : `Enter ${col.name}`} 
+                      />
+                    )}
+                    {formErrors[col.id] && <p className="text-[9px] text-red-500 font-black uppercase mt-2 ml-1">{formErrors[col.id]}</p>}
+                  </td>))}<td className="px-8 py-8 text-right align-top"><div className="flex justify-end gap-3"><button onClick={handleSave} className="p-4 bg-indigo-600 text-white rounded-2xl"><Save className="w-6 h-6" /></button><button onClick={() => { setIsAdding(false); setFormData({}); }} className="p-4 bg-white border border-gray-200 rounded-2xl text-gray-400"><X className="w-6 h-6" /></button></div></td></tr>
               )}
               {records.filter((r: any) => {
                 const rValues = values.filter((v: any) => v.recordId === r.id);
@@ -241,9 +324,51 @@ const PropertyDetails: React.FC = () => {
                   <tr key={record.id} className={`${isEditing ? 'bg-indigo-50/20' : 'hover:bg-indigo-50/10'} group transition-all duration-300`}>
                     {columns.map(col => {
                       const val = recordValues.find((v: any) => v.columnId === col.id)?.value || '';
-                      return (<td key={col.id} className="px-8 py-7 text-sm font-bold text-gray-700 align-top">{isEditing ? (<><input className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500' : 'border-indigo-200'} rounded-2xl px-5 py-4 text-sm font-bold`} type={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER ? 'number' : col.type === ColumnType.DATE ? 'date' : 'text'} value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)} />{formErrors[col.id] && <p className="text-[9px] text-red-500 font-black uppercase mt-2 ml-1">{formErrors[col.id]}</p>}</>) : renderCellContent(val, col)}</td>);
+                      return (<td key={col.id} className="px-8 py-7 text-sm font-bold text-gray-700 align-top">
+                        {isEditing ? (
+                          <>
+                            <input 
+                              className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500' : 'border-indigo-200'} rounded-2xl px-5 py-4 text-sm font-bold`} 
+                              type={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.SECURITY_DEPOSIT ? 'number' : col.type === ColumnType.DATE ? 'date' : 'text'} 
+                              min={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.SECURITY_DEPOSIT ? "0" : undefined}
+                              maxLength={col.type === ColumnType.PHONE ? 10 : undefined}
+                              value={formData[col.id] || ''} 
+                              onChange={e => handleInputChange(col.id, e.target.value)} 
+                              placeholder={col.type === ColumnType.PHONE ? "10 Digit Mobile" : ""}
+                            />
+                            {formErrors[col.id] && <p className="text-[9px] text-red-500 font-black uppercase mt-2 ml-1">{formErrors[col.id]}</p>}
+                          </>
+                        ) : renderCellContent(val, col)}
+                      </td>);
                     })}
-                    {canEdit && (<td className="px-8 py-7 text-right align-top">{isEditing ? (<div className="flex justify-end gap-3"><button onClick={handleSave} className="p-4 bg-indigo-600 text-white rounded-2xl"><Save className="w-6 h-6" /></button><button onClick={() => { setEditingRecordId(null); setFormData({}); }} className="p-4 bg-white border border-gray-200 rounded-2xl"><X className="w-6 h-6" /></button></div>) : (<div className="flex justify-end gap-3 opacity-0 group-hover:opacity-100 transition-all"><button onClick={() => { const initial = recordValues.reduce((acc: any, v: any) => ({...acc, [v.columnId]: v.value}), {}); setFormData(initial); setEditingRecordId(record.id); }} className="p-3 text-gray-400 hover:text-indigo-600"><Edit2 className="w-5 h-5" /></button><button onClick={() => handleDeleteRecord(record.id)} className="p-3 text-gray-400 hover:text-red-600"><Trash2 className="w-5 h-5" /></button></div>)}</td>)}
+                    {canEdit && (
+                      <td className={`px-8 py-7 text-right align-top sticky right-0 z-10 ${isEditing ? 'bg-indigo-50 border-l border-indigo-100' : 'bg-white group-hover:bg-indigo-50/10 border-l border-gray-100'} shadow-[-4px_0_12px_rgba(0,0,0,0.02)] transition-all`}>
+                        {isEditing ? (
+                          <div className="flex justify-end gap-3">
+                            <button onClick={handleSave} className="p-4 bg-indigo-600 text-white rounded-2xl">
+                              <Save className="w-6 h-6" />
+                            </button>
+                            <button onClick={() => { setEditingRecordId(null); setFormData({}); }} className="p-4 bg-white border border-gray-200 rounded-2xl">
+                              <X className="w-6 h-6" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex justify-end gap-3 transition-all">
+                            <button onClick={() => { 
+                              const initial = recordValues.reduce((acc: any, v: any) => ({...acc, [v.columnId]: v.value}), {}); 
+                              setFormData(initial); 
+                              setEditingRecordId(record.id); 
+                            }} 
+                            className="p-3 text-gray-400 hover:text-indigo-600">
+                              <Edit2 className="w-5 h-5" />
+                            </button>
+                            <button onClick={() => handleDeleteRecord(record.id)} className="p-3 text-gray-400 hover:text-red-600">
+                              <Trash2 className="w-5 h-5" />
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 );
               })}

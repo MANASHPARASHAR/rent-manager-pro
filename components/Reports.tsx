@@ -5,13 +5,14 @@ import {
   AreaChart, Area, PieChart, Pie, Cell, Legend
 } from 'recharts';
 import { 
-  TrendingUp, TrendingDown, DollarSign, PieChart as PieIcon, 
+  TrendingUp, TrendingDown, IndianRupee, PieChart as PieIcon, 
   Calendar, Download, ArrowUpRight, Wallet, 
   ChevronLeft, ChevronRight, Zap, History, User,
   CalendarDays, ChevronDown, Landmark, CreditCard, ShieldCheck,
-  Building2, Layers, Filter, Users
+  Building2, Layers, Filter, Users, Receipt
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
+import { useLanguageStore } from '../lib/i18n';
 import { PaymentStatus, Payment, UserRole, Property, User as UserType } from '../types';
 
 type FilterType = 'monthly' | 'annual' | 'custom';
@@ -19,11 +20,13 @@ type Modality = 'RENT' | 'DEPOSIT' | 'ELECTRICITY';
 
 const Reports: React.FC = () => {
   const store = useRentalStore();
+  const { t } = useLanguageStore();
   const isAdmin = store.user?.role === UserRole.ADMIN;
+  const effectiveUser = store.effectiveUser;
+  const effectiveIsAdmin = effectiveUser?.role === UserRole.ADMIN;
   
   const [activeModality, setActiveModality] = useState<Modality>('RENT');
   const [filterType, setFilterType] = useState<FilterType>('monthly');
-  const [managerFilter, setManagerFilter] = useState<string>('all');
   
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const d = new Date();
@@ -44,15 +47,12 @@ const Reports: React.FC = () => {
   }, [store.users]);
 
   const analyticsData = useMemo(() => {
-    const userId = store.user?.id || '';
-
-    // STRICTOR VISIBILITY: Filter properties based on assigned access or Manager Perspective (for Admins)
+    // STRICTOR VISIBILITY: Filter properties based on assigned access
     const visibleProps = (store.properties || []).filter((p: Property) => {
-      if (isAdmin) {
-        if (managerFilter === 'all') return true;
-        return (p.allowedUserIds || []).includes(managerFilter);
-      }
-      return (p.allowedUserIds || []).includes(userId);
+      if (effectiveIsAdmin) return true;
+      return (effectiveUser?.assignedPropertyIds || []).includes(p.id) ||
+             (p.allowedUserIds || []).includes(effectiveUser?.id || '') ||
+             (p.allowedUserIds || []).includes(effectiveUser?.username || '');
     });
 
     const visibleIds = visibleProps.map((p: any) => p.id);
@@ -87,64 +87,134 @@ const Reports: React.FC = () => {
     const byMode: Record<string, number> = {};
     const byRecipient: Record<string, number> = {};
     const byProperty: Record<string, number> = {};
-    const attributionMatrix: Record<string, Record<string, number>> = {};
+    const attributionMatrix: Record<string, Record<string, { total: number, breakdown: Record<string, { property: string, tenant: string, amount: number }> }>> = {};
 
     let totalRent = 0;
     let totalDeposits = 0;
     let totalElectricity = 0;
     let totalRefunds = 0;
+    let totalExpenses = 0;
 
+    // Filter and aggregate regular collections
     filteredPayments.forEach((p: Payment) => {
       const date = p.paidAt ? p.paidAt.split('T')[0] : 'Unknown';
-      const prop = visibleProps.find(pr => pr.id === store.records.find(r => r.id === p.recordId)?.propertyId)?.name || 'Unknown';
+      const record = store.records.find(r => r.id === p.recordId);
+      const property = visibleProps.find(pr => pr.id === record?.propertyId);
+      const prop = property?.name || 'Unknown';
       const recipient = p.paidTo || 'Unassigned';
       const mode = p.paymentMode || 'Cash';
+      
+      // Get Tenant Name
+      const recordValues = store.recordValues.filter(v => v.recordId === p.recordId);
+      const propertyType = store.propertyTypes.find(pt => pt.id === property?.propertyTypeId);
+      const nameCol = propertyType?.columns.find(c => 
+        c.name.toLowerCase().includes('name') || 
+        c.name.toLowerCase().includes('tenant') ||
+        c.name.toLowerCase().includes('holder')
+      );
+      const tenantName = nameCol 
+        ? recordValues.find(v => v.columnId === nameCol.id)?.value?.toString() || 'Unnamed' 
+        : (record?.id ? 'Unit ' + record.id.substring(0, 4) : 'Unknown Unit');
       
       if (!byDate[date]) byDate[date] = { date, rent: 0, deposit: 0, electricity: 0, refund: 0 };
       
       if (p.type === 'RENT') {
-        totalRent += p.amount;
-        byDate[date].rent += p.amount;
+        const amt = Number(p.amount) || 0;
+        totalRent += amt;
+        byDate[date].rent += amt;
         if (activeModality === 'RENT') {
-          byProperty[prop] = (byProperty[prop] || 0) + p.amount;
-          byMode[mode] = (byMode[mode] || 0) + p.amount;
-          byRecipient[recipient] = (byRecipient[recipient] || 0) + p.amount;
+          byProperty[prop] = (Number(byProperty[prop]) || 0) + amt;
+          byMode[mode] = (Number(byMode[mode]) || 0) + amt;
+          byRecipient[recipient] = (Number(byRecipient[recipient]) || 0) + amt;
           
           if (!attributionMatrix[recipient]) attributionMatrix[recipient] = {};
-          attributionMatrix[recipient][mode] = (attributionMatrix[recipient][mode] || 0) + p.amount;
+          if (!attributionMatrix[recipient][mode]) attributionMatrix[recipient][mode] = { total: 0, breakdown: {} };
+          attributionMatrix[recipient][mode].total += amt;
+          
+          const bKey = `${prop}-${tenantName}`;
+          if (!attributionMatrix[recipient][mode].breakdown[bKey]) {
+            attributionMatrix[recipient][mode].breakdown[bKey] = { property: prop, tenant: tenantName, amount: 0 };
+          }
+          attributionMatrix[recipient][mode].breakdown[bKey].amount += amt;
         }
       } else if (p.type === 'ELECTRICITY') {
-        totalElectricity += p.amount;
-        byDate[date].electricity += p.amount;
+        const amt = Number(p.amount) || 0;
+        totalElectricity += amt;
+        byDate[date].electricity += amt;
         if (activeModality === 'ELECTRICITY') {
-          byProperty[prop] = (byProperty[prop] || 0) + p.amount;
-          byMode[mode] = (byMode[mode] || 0) + p.amount;
-          byRecipient[recipient] = (byRecipient[recipient] || 0) + p.amount;
+          byProperty[prop] = (Number(byProperty[prop]) || 0) + amt;
+          byMode[mode] = (Number(byMode[mode]) || 0) + amt;
+          byRecipient[recipient] = (Number(byRecipient[recipient]) || 0) + amt;
           
           if (!attributionMatrix[recipient]) attributionMatrix[recipient] = {};
-          attributionMatrix[recipient][mode] = (attributionMatrix[recipient][mode] || 0) + p.amount;
+          if (!attributionMatrix[recipient][mode]) attributionMatrix[recipient][mode] = { total: 0, breakdown: {} };
+          attributionMatrix[recipient][mode].total += amt;
+
+          const bKey = `${prop}-${tenantName}`;
+          if (!attributionMatrix[recipient][mode].breakdown[bKey]) {
+            attributionMatrix[recipient][mode].breakdown[bKey] = { property: prop, tenant: tenantName, amount: 0 };
+          }
+          attributionMatrix[recipient][mode].breakdown[bKey].amount += amt;
         }
       } else if (p.type === 'DEPOSIT') {
-        if (p.isRefunded) {
-          totalRefunds += p.amount;
-          byDate[date].refund += p.amount;
+        const amt = Number(p.amount) || 0;
+        if (p.isRefunded || amt < 0) {
+          const absAmt = Math.abs(amt);
+          totalRefunds += absAmt;
+          byDate[date].refund += absAmt;
+          // For net calculations in charts
+          byDate[date].deposit += amt; 
+
           if (activeModality === 'DEPOSIT') {
-            byProperty[prop] = (byProperty[prop] || 0) - p.amount;
-            byRecipient[recipient] = (byRecipient[recipient] || 0) - p.amount;
+            byProperty[prop] = (Number(byProperty[prop]) || 0) + amt;
+            byRecipient[recipient] = (Number(byRecipient[recipient]) || 0) + amt;
+            // Optionally subtract from mode if we had a mode, but refunds often don't have one set
+            if (mode && mode !== 'Cash') {
+               byMode[mode] = (Number(byMode[mode]) || 0) + amt;
+            }
           }
         } else {
-          totalDeposits += p.amount;
-          byDate[date].deposit += p.amount;
+          totalDeposits += amt;
+          byDate[date].deposit += amt;
           if (activeModality === 'DEPOSIT') {
-            byProperty[prop] = (byProperty[prop] || 0) + p.amount;
-            byMode[mode] = (byMode[mode] || 0) + p.amount;
-            byRecipient[recipient] = (byRecipient[recipient] || 0) + p.amount;
+            byProperty[prop] = (Number(byProperty[prop]) || 0) + amt;
+            byMode[mode] = (Number(byMode[mode]) || 0) + amt;
+            byRecipient[recipient] = (Number(byRecipient[recipient]) || 0) + amt;
 
             if (!attributionMatrix[recipient]) attributionMatrix[recipient] = {};
-            attributionMatrix[recipient][mode] = (attributionMatrix[recipient][mode] || 0) + p.amount;
+            if (!attributionMatrix[recipient][mode]) attributionMatrix[recipient][mode] = { total: 0, breakdown: {} };
+            attributionMatrix[recipient][mode].total += amt;
+
+            const bKey = `${prop}-${tenantName}`;
+            if (!attributionMatrix[recipient][mode].breakdown[bKey]) {
+              attributionMatrix[recipient][mode].breakdown[bKey] = { property: prop, tenant: tenantName, amount: 0 };
+            }
+            attributionMatrix[recipient][mode].breakdown[bKey].amount += amt;
           }
         }
       }
+    });
+
+    // Aggregate Expenses
+    let expenseList = store.expenses.filter((e: any) => visibleIds.includes(e.propertyId));
+    if (filterType === 'monthly') {
+      expenseList = expenseList.filter(e => e.month === selectedMonth);
+    } else if (filterType === 'annual') {
+      expenseList = expenseList.filter(e => e.month.startsWith(selectedYear));
+    } else if (filterType === 'custom') {
+      const start = new Date(startDate); start.setHours(0,0,0,0);
+      const end = new Date(endDate); end.setHours(23,59,59,999);
+      expenseList = expenseList.filter(e => {
+        const ed = new Date(e.date);
+        return ed >= start && ed <= end;
+      });
+    }
+
+    expenseList.forEach(e => {
+      totalExpenses += (Number(e.amount) || 0);
+      const date = e.date;
+      if (!byDate[date]) byDate[date] = { date, rent: 0, deposit: 0, electricity: 0, refund: 0, expense: 0 };
+      byDate[date].expense = (byDate[date].expense || 0) + (Number(e.amount) || 0);
     });
 
     const timeSeries = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
@@ -153,10 +223,11 @@ const Reports: React.FC = () => {
     const recipientData = Object.entries(byRecipient).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
 
     return {
-      totalRent, totalDeposits, totalElectricity, totalRefunds, netFlow: totalRent + totalDeposits + totalElectricity - totalRefunds,
+      totalRent, totalDeposits, totalElectricity, totalRefunds, totalExpenses,
+      netFlow: totalRent + totalDeposits + totalElectricity - totalRefunds - totalExpenses,
       timeSeries, propertyData, modeData, recipientData, attributionMatrix
     };
-  }, [store, filterType, selectedMonth, selectedYear, startDate, endDate, activeModality, managerFilter, isAdmin]);
+  }, [store, filterType, selectedMonth, selectedYear, startDate, endDate, activeModality, effectiveIsAdmin, effectiveUser]);
 
   const navigateMonth = (direction: number) => {
     const [year, month] = selectedMonth.split('-').map(Number);
@@ -192,33 +263,15 @@ const Reports: React.FC = () => {
           <div className="space-y-1">
             <div className="flex items-center gap-2 text-indigo-600 font-bold">
               <PieIcon className="w-4 h-4" />
-              <span className="text-[10px] uppercase tracking-widest font-black text-indigo-400">Financial Audit Engine</span>
+              <span className="text-[10px] uppercase tracking-widest font-black text-indigo-400">{t('financial_audit_engine')}</span>
             </div>
-            <h1 className="text-3xl md:text-4xl font-black text-slate-900 tracking-tight uppercase">Capital Analysis</h1>
-            <p className="text-slate-500 font-medium text-sm">Insights into collection efficiency and revenue distribution.</p>
+            <h1 className="text-3xl md:text-4xl font-black text-slate-900 tracking-tight uppercase">{t('capital_analysis')}</h1>
+            <p className="text-slate-500 font-medium text-sm">{t('reports_desc')}</p>
           </div>
           
           <div className="flex flex-wrap items-center gap-4">
-            {isAdmin && (
-              <div className="flex items-center bg-slate-50 border border-slate-100 p-2 rounded-2xl shadow-sm gap-4 px-6 h-14">
-                 <div className="flex items-center gap-2">
-                    <Users className="w-4 h-4 text-indigo-500" />
-                    <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Perspective:</span>
-                 </div>
-                 <select 
-                   className="bg-transparent border-none text-xs font-black uppercase text-indigo-600 outline-none cursor-pointer"
-                   value={managerFilter}
-                   onChange={(e) => setManagerFilter(e.target.value)}
-                 >
-                    <option value="all">Portfolio (All)</option>
-                    {managers.map(m => (
-                       <option key={m.id} value={m.id}>{m.name}</option>
-                    ))}
-                 </select>
-              </div>
-            )}
             <button className="flex items-center gap-2 px-6 py-4 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg self-start">
-              <Download className="w-4 h-4" /> Export Report
+              <Download className="w-4 h-4" /> {t('export_report')}
             </button>
           </div>
         </div>
@@ -317,10 +370,10 @@ const Reports: React.FC = () => {
       {/* STAT CARDS SECTION */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         {[
-          { label: 'Total Settled', val: activeModality === 'RENT' ? analyticsData.totalRent : activeModality === 'ELECTRICITY' ? analyticsData.totalElectricity : (analyticsData.totalDeposits - analyticsData.totalRefunds), sub: 'Confirmed transactions', icon: Wallet, color: 'text-indigo-600', bg: 'bg-indigo-50' },
-          { label: 'Electricity Revenue', val: analyticsData.totalElectricity, sub: 'Power bill collection', icon: Zap, color: 'text-amber-600', bg: 'bg-amber-50' },
-          { label: 'Rent Contribution', val: analyticsData.totalRent, sub: 'Lease liquidity', icon: DollarSign, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-          { label: 'Security Escrow', val: analyticsData.totalDeposits, sub: 'Held assets', icon: ShieldCheck, color: 'text-indigo-600', bg: 'bg-indigo-50' },
+          { label: t('rent_collected'), val: analyticsData.totalRent, sub: 'Base rental income', icon: IndianRupee, color: 'text-indigo-600', bg: 'bg-indigo-50' },
+          { label: t('electricity_billing'), val: analyticsData.totalElectricity, sub: t('utility_collections'), icon: Zap, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+          { label: t('security_held'), val: (analyticsData.totalDeposits - analyticsData.totalRefunds), sub: t('held_refunds'), icon: ShieldCheck, color: 'text-amber-600', bg: 'bg-amber-50' },
+          { label: t('expenses'), val: analyticsData.totalExpenses, sub: t('operational_costs'), icon: Receipt, color: 'text-rose-600', bg: 'bg-rose-50' },
         ].map((item, i) => (
           <div key={i} className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm hover:shadow-md transition-all">
             <div className="flex justify-between items-start mb-6">
@@ -332,7 +385,7 @@ const Reports: React.FC = () => {
               </div>
             </div>
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{item.label}</p>
-            <h3 className="text-3xl font-black text-slate-900 tracking-tight">${item.val.toLocaleString()}</h3>
+            <h3 className="text-3xl font-black text-slate-900 tracking-tight">₹{item.val.toLocaleString()}</h3>
             <p className="text-[11px] text-slate-400 font-bold mt-2">{item.sub}</p>
           </div>
         ))}
@@ -342,8 +395,8 @@ const Reports: React.FC = () => {
         <div className="lg:col-span-12 bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm flex flex-col">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
             <div>
-              <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Settlement Velocity</h2>
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Daily liquidity flow for {activeModality}</p>
+              <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">{t('settlement_velocity')}</h2>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">{t('daily_liquidity_flow')} {activeModality}</p>
             </div>
           </div>
           <div className="h-[350px]">
@@ -357,7 +410,7 @@ const Reports: React.FC = () => {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 900, fill: '#94a3b8'}} />
-                <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 900, fill: '#94a3b8'}} tickFormatter={v => `$${v}`} />
+                <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 900, fill: '#94a3b8'}} tickFormatter={v => `₹${v}`} />
                 <Tooltip contentStyle={{backgroundColor: '#0f172a', border: 'none', borderRadius: '1rem', color: '#fff'}} />
                 <Area type="monotone" dataKey={activeModality === 'RENT' ? 'rent' : activeModality === 'ELECTRICITY' ? 'electricity' : 'deposit'} stroke="#6366f1" strokeWidth={4} fillOpacity={1} fill="url(#colorMain)" />
               </AreaChart>
@@ -369,12 +422,12 @@ const Reports: React.FC = () => {
            <div className="flex items-center gap-3 mb-10">
               <div className="p-3 bg-indigo-600 text-white rounded-2xl shadow-lg"><Layers className="w-6 h-6" /></div>
               <div>
-                 <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Channel Attribution</h2>
-                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Recipient x Payment Mode Distribution</p>
+                 <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">{t('channel_attribution')}</h2>
+                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">{t('recipient_distribution')}</p>
               </div>
            </div>
 
-           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-h-[800px] overflow-y-auto pr-2 custom-scrollbar">
+           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar border-t border-slate-50 pt-8 mt-4">
               {Object.entries(analyticsData.attributionMatrix).map(([recipient, modes], idx) => (
                  <div key={recipient} className="bg-slate-50 border border-slate-100 p-8 rounded-[2.5rem] flex flex-col hover:bg-white hover:shadow-xl transition-all duration-300">
                     <div className="flex items-center justify-between mb-6">
@@ -382,24 +435,44 @@ const Reports: React.FC = () => {
                        <User className="w-4 h-4 text-slate-300" />
                     </div>
                     <div className="space-y-3 flex-1">
-                       {Object.entries(modes).sort((a,b) => b[1] - a[1]).map(([mode, amount], i) => (
-                          <div key={mode} className="flex flex-col gap-1.5 p-3 rounded-2xl bg-white border border-slate-100 shadow-sm">
+                       {Object.entries(modes).sort((a,b) => b[1].total - a[1].total).map(([mode, data], i) => (
+                          <div key={mode} className="group/item relative flex flex-col gap-1.5 p-3 rounded-2xl bg-white border border-slate-100 shadow-sm">
                              <div className="flex items-center justify-between">
                                 <span className="text-[11px] font-bold text-slate-600">{mode}</span>
-                                <span className="text-xs font-black text-slate-900">${amount.toLocaleString()}</span>
+                                 <span className="text-xs font-black text-slate-900">₹{data.total.toLocaleString()}</span>
                              </div>
                              <div className="w-full h-1 bg-slate-50 rounded-full overflow-hidden">
                                 <div 
                                    className="h-full bg-indigo-500 rounded-full" 
-                                   style={{ width: `${(amount / (Object.values(modes).reduce((a,b) => a+b, 0))) * 100}%` }}
+                                   style={{ width: `${(data.total / (Object.values(modes).reduce((a,b) => a+b.total, 0))) * 100}%` }}
                                 ></div>
+                             </div>
+
+                             {/* Tooltip on hover */}
+                             <div className="invisible group-hover/item:visible absolute z-50 left-1/2 -translate-x-1/2 bottom-full mb-3 w-max max-w-[280px] bg-slate-900 text-white p-4 rounded-2xl shadow-2xl animate-in fade-in zoom-in-95 duration-200 pointer-events-none">
+                                <p className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-500 mb-3 border-b border-white/10 pb-2">Collection Detail</p>
+                                <div className="space-y-2 max-h-[200px] overflow-y-auto pr-2 custom-scrollbar">
+                                   {Object.values(data.breakdown).sort((a,b) => b.amount - a.amount).map((item, bIdx) => (
+                                      <div key={bIdx} className="flex flex-col gap-0.5 border-b border-white/5 last:border-0 pb-2 last:pb-0">
+                                         <div className="flex items-center justify-between gap-6">
+                                            <span className="text-[10px] font-black text-white truncate max-w-[140px]">{item.tenant}</span>
+                                            <span className="text-[10px] font-black text-indigo-400 shrink-0">₹{item.amount.toLocaleString()}</span>
+                                         </div>
+                                         <div className="flex items-center gap-1.5 opacity-50">
+                                            <Building2 className="w-2.5 h-2.5" />
+                                            <span className="text-[8px] font-bold uppercase tracking-tight truncate max-w-[120px]">{item.property}</span>
+                                         </div>
+                                      </div>
+                                   ))}
+                                </div>
+                                <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-900"></div>
                              </div>
                           </div>
                        ))}
                     </div>
                     <div className="mt-8 pt-4 border-t border-slate-200 flex justify-between items-center">
                        <span className="text-[9px] font-black text-slate-400 uppercase">Subtotal</span>
-                       <span className="text-lg font-black text-indigo-600">${Object.values(modes).reduce((a,b) => a+b, 0).toLocaleString()}</span>
+                       <span className="text-lg font-black text-indigo-600">₹{Object.values(modes).reduce((a,b) => a+b.total, 0).toLocaleString()}</span>
                     </div>
                  </div>
               ))}
@@ -417,8 +490,8 @@ const Reports: React.FC = () => {
             <div className="flex items-center gap-3">
                <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl"><User className="w-6 h-6" /></div>
                <div>
-                  <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">Collected By</h2>
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Recipients distribution</p>
+                  <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">{t('collected_by')}</h2>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">{t('recipients_distribution')}</p>
                </div>
             </div>
           </div>
@@ -446,8 +519,8 @@ const Reports: React.FC = () => {
                <div className="flex items-center gap-3">
                   <div className="p-3 bg-white/10 text-indigo-400 rounded-2xl"><Landmark className="w-6 h-6" /></div>
                   <div>
-                     <h2 className="text-xl font-black uppercase tracking-tight">Channel Audit</h2>
-                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Payment mode efficiency</p>
+                     <h2 className="text-xl font-black uppercase tracking-tight">{t('channel_audit')}</h2>
+                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">{t('payment_mode_efficiency')}</p>
                   </div>
                </div>
             </div>
@@ -479,7 +552,7 @@ const Reports: React.FC = () => {
                         <div className="w-2 h-2 rounded-full" style={{backgroundColor: COLORS[i % COLORS.length]}}></div>
                         <span className="text-[10px] font-black uppercase tracking-widest text-slate-300">{item.name}</span>
                       </div>
-                      <span className="text-xs font-black">${item.value.toLocaleString()}</span>
+                      <span className="text-xs font-black">₹{item.value.toLocaleString()}</span>
                     </div>
                   ))}
                </div>
@@ -491,11 +564,11 @@ const Reports: React.FC = () => {
       <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden">
         <div className="flex items-center justify-between mb-10">
           <div>
-            <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Revenue Vectors</h2>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Property Performance for {activeModality}</p>
+            <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">{t('revenue_vectors')}</h2>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">{t('property_performance')} {activeModality}</p>
           </div>
           <button className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg">
-            <Download className="w-4 h-4" /> Export Report
+            <Download className="w-4 h-4" /> {t('export_report')}
           </button>
         </div>
 
@@ -503,9 +576,9 @@ const Reports: React.FC = () => {
            <table className="w-full text-left">
               <thead className="sticky top-0 bg-white z-10 shadow-sm">
                  <tr className="border-b border-slate-50">
-                    <th className="pb-6 pt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Asset Name</th>
-                    <th className="pb-6 pt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Settled Amount</th>
-                    <th className="pb-6 pt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Contribution</th>
+                    <th className="pb-6 pt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest"> {t('asset_name')}</th>
+                    <th className="pb-6 pt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right"> {t('settled_amount')}</th>
+                    <th className="pb-6 pt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right"> {t('contribution')}</th>
                  </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
@@ -523,7 +596,7 @@ const Reports: React.FC = () => {
                              </div>
                           </td>
                           <td className="py-6 text-right">
-                             <span className="text-sm font-black text-slate-900">${item.value.toLocaleString()}</span>
+                             <span className="text-sm font-black text-slate-900">₹{item.value.toLocaleString()}</span>
                           </td>
                           <td className="py-6 text-right">
                              <div className="flex flex-col items-end gap-1.5">

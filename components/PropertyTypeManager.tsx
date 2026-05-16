@@ -6,7 +6,9 @@ import {
   Settings2, 
   Layout, 
   Check, 
-  X, 
+  X,
+  ChevronUp,
+  ChevronDown,
   AlertCircle,
   List,
   ShieldAlert,
@@ -38,6 +40,8 @@ const PropertyTypeManager: React.FC = () => {
   const [isAdding, setIsAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [editingOption, setEditingOption] = useState<{ colId: string, index: number, value: string } | null>(null);
+  const [newOptionInputs, setNewOptionInputs] = useState<Record<string, string>>({});
 
   const [confirmConfig, setConfirmConfig] = useState<{
     isOpen: boolean;
@@ -55,8 +59,10 @@ const PropertyTypeManager: React.FC = () => {
   });
 
   const isAdmin = store.user?.role === UserRole.ADMIN;
+  const isManager = store.user?.role === UserRole.MANAGER;
+  const canModify = isAdmin;
   const [tempColumns, setTempColumns] = useState<ColumnDefinition[]>([]);
-
+  
   useEffect(() => {
     if (error) {
       const timer = setTimeout(() => setError(null), 8000);
@@ -64,7 +70,7 @@ const PropertyTypeManager: React.FC = () => {
     }
   }, [error]);
 
-  if (!isAdmin) {
+  if (!canModify) {
     return (
       <div className="min-h-[70vh] flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-700">
         <div className="relative mb-8">
@@ -91,9 +97,9 @@ const PropertyTypeManager: React.FC = () => {
     setDefaultDueDateDay(5);
     setTempColumns([
       { id: generateId('col_'), name: 'Tenant Name', type: ColumnType.TEXT, required: true, isRentCalculatable: false, isDefaultInLedger: true, order: 0 },
-      { id: generateId('col_'), name: 'Tenant Number', type: ColumnType.NUMBER, required: true, isRentCalculatable: false, isDefaultInLedger: true, order: 1 },
+      { id: generateId('col_'), name: 'Tenant Number', type: ColumnType.PHONE, required: true, isRentCalculatable: false, isDefaultInLedger: true, order: 1 },
       { id: generateId('col_'), name: 'Monthly Rent', type: ColumnType.CURRENCY, required: true, isRentCalculatable: true, isDefaultInLedger: true, order: 2 },
-      { id: generateId('col_'), name: 'Security Deposit', type: ColumnType.SECURITY_DEPOSIT, required: true, isRentCalculatable: false, isDefaultInLedger: false, order: 3 },
+      { id: generateId('col_'), name: 'Security Deposit', type: ColumnType.SECURITY_DEPOSIT, required: true, isRentCalculatable: false, isDefaultInLedger: true, order: 3 },
       { id: generateId('col_'), name: 'Rent Date', type: ColumnType.DATE, required: true, isRentCalculatable: false, isDefaultInLedger: true, order: 4 },
       { id: generateId('col_'), name: 'Occupancy Status', type: ColumnType.OCCUPANCY_STATUS, required: true, isRentCalculatable: false, isDefaultInLedger: true, options: ['Active', 'Vacant'], order: 5 },
     ]);
@@ -137,7 +143,9 @@ const PropertyTypeManager: React.FC = () => {
           nameLower === 'monthly rent' || 
           nameLower === 'rent date';
 
-        if (systemTypes.includes(updated.type) || isMandatoryDefault) {
+        const isPhoneKeyword = /phone|mobile|contact/i.test(nameLower) && nameLower.includes('tenant');
+
+        if (systemTypes.includes(updated.type) || isMandatoryDefault || isPhoneKeyword) {
           updated.required = true;
           if (nameLower !== 'monthly rent') {
             updated.isRentCalculatable = false;
@@ -145,9 +153,9 @@ const PropertyTypeManager: React.FC = () => {
             updated.isRentCalculatable = true;
             updated.type = ColumnType.CURRENCY;
           }
-          // Special handling for tenant number to remain numeric
-          if (nameLower === 'tenant number') {
-            updated.type = ColumnType.NUMBER;
+          // Special handling for tenant phone/number to use PHONE type
+          if (nameLower === 'tenant number' || isPhoneKeyword) {
+            updated.type = ColumnType.PHONE;
           }
         }
 
@@ -251,22 +259,58 @@ const PropertyTypeManager: React.FC = () => {
     e.dataTransfer.effectAllowed = 'move';
   };
 
-  const handleDragOver = (e: React.DragEvent, index: number) => {
-    e.preventDefault();
-    if (draggedIndex === null || draggedIndex === index) return;
-    const newCols = [...tempColumns];
-    const draggedItem = newCols[draggedIndex];
-    newCols.splice(draggedIndex, 1);
-    newCols.splice(index, 0, draggedItem);
-    setTempColumns(newCols.map((col, idx) => ({ ...col, order: idx })));
-    setDraggedIndex(index);
+  const handleMoveOption = (colId: string, index: number, direction: 'up' | 'down') => {
+    setTempColumns(tempColumns.map(c => {
+      if (c.id === colId && c.options) {
+        const newOptions = [...c.options];
+        const targetIndex = direction === 'up' ? index - 1 : index + 1;
+        if (targetIndex < 0 || targetIndex >= newOptions.length) return c;
+        [newOptions[index], newOptions[targetIndex]] = [newOptions[targetIndex], newOptions[index]];
+        return { ...c, options: newOptions };
+      }
+      return c;
+    }));
+  };
+
+  const handleAddOption = (colId: string) => {
+    const input = newOptionInputs[colId] || '';
+    if (!input.trim()) return;
+    setTempColumns(tempColumns.map(c => {
+      if (c.id === colId) {
+        return { ...c, options: [...(c.options || []), input.trim()] };
+      }
+      return c;
+    }));
+    setNewOptionInputs({ ...newOptionInputs, [colId]: '' });
+  };
+
+  const handleRemoveOption = (colId: string, index: number) => {
+    setTempColumns(tempColumns.map(c => {
+      if (c.id === colId && c.options) {
+        return { ...c, options: c.options.filter((_, i) => i !== index) };
+      }
+      return c;
+    }));
+  };
+
+  const handleSaveOptionEdit = () => {
+    if (!editingOption || !editingOption.value.trim()) return;
+    setTempColumns(tempColumns.map(c => {
+      if (c.id === editingOption.colId && c.options) {
+        const newOptions = [...c.options];
+        newOptions[editingOption.index] = editingOption.value.trim();
+        return { ...c, options: newOptions };
+      }
+      return c;
+    }));
+    setEditingOption(null);
   };
 
   return (
     <div className="space-y-8 max-w-6xl mx-auto pb-20">
       {confirmConfig.isOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md animate-in fade-in duration-300">
-          <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl border border-white/20 overflow-hidden animate-in zoom-in-95 duration-200">
+          <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl border border-white/20 overflow-hidden animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto custom-scrollbar">
             <div className={`p-10 text-center ${confirmConfig.isDanger ? 'bg-red-50/50' : 'bg-indigo-50/50'}`}>
               <div className={`w-20 h-20 rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-xl ${confirmConfig.isDanger ? 'bg-red-500 text-white' : 'bg-indigo-600 text-white'}`}>
                 {confirmConfig.isDanger ? <AlertTriangle className="w-10 h-10" /> : <ShieldCheck className="w-10 h-10" />}
@@ -301,7 +345,7 @@ const PropertyTypeManager: React.FC = () => {
       )}
 
       {(isAdding || editingId) && (
-        <div className="bg-white border-2 border-indigo-100 p-8 rounded-[2.5rem] shadow-2xl space-y-8 animate-in zoom-in-95 duration-300">
+        <div className="bg-white border-2 border-indigo-100 p-8 rounded-[2.5rem] shadow-2xl space-y-8 animate-in zoom-in-95 duration-300 max-h-[85vh] overflow-y-auto custom-scrollbar">
           <div className="flex items-center justify-between pb-6 border-b border-gray-100">
             <div><h2 className="text-2xl font-black text-gray-900 uppercase">{isAdding ? 'Create New Type' : 'Edit Schema'}</h2></div>
             <button onClick={() => { setIsAdding(false); setEditingId(null); }} className="p-2 text-gray-400 hover:text-gray-600 transition-colors"><X className="w-6 h-6" /></button>
@@ -379,13 +423,63 @@ const PropertyTypeManager: React.FC = () => {
                      {!isBlocked && <button onClick={() => handleDeleteColumn(col.id, col.name)} className="p-3 text-gray-300 hover:text-red-500 transition-colors"><Trash2 className="w-5 h-5" /></button>}
                    </div>
 
-                   {(col.type === ColumnType.DROPDOWN || col.type === ColumnType.OCCUPANCY_STATUS) && (
-                      <div className="col-span-12 mt-4 ml-11 p-6 bg-indigo-50/50 rounded-2xl border border-indigo-100 animate-in slide-in-from-top-2">
-                         <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-2 block">Selection Options (Comma Separated)</label>
-                         <input className={`w-full bg-white border ${dropdownError ? 'border-red-500 ring-2 ring-red-500/20' : 'border-indigo-200'} p-4 rounded-xl text-xs font-bold outline-none shadow-sm`} placeholder="e.g. Active, Vacant" value={col.options?.join(', ') || ''} onChange={e => handleUpdateColumn(col.id, { options: e.target.value.split(',').map(s => s.trim()) })} />
-                         {dropdownError && <p className="mt-3 text-[10px] text-red-700 font-black uppercase">{dropdownError}</p>}
-                      </div>
-                   )}
+                    {(col.type === ColumnType.DROPDOWN || col.type === ColumnType.OCCUPANCY_STATUS) && (
+                       <div className="col-span-12 mt-4 ml-11 p-6 bg-indigo-50/50 rounded-2xl border border-indigo-100 animate-in slide-in-from-top-2">
+                          <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-4 block">Selection Options</label>
+                          
+                          <div className="flex gap-2 mb-4">
+                            <input 
+                              className="flex-1 bg-white border border-indigo-200 p-3 rounded-xl text-xs font-bold outline-none shadow-sm focus:ring-2 focus:ring-indigo-500"
+                              placeholder="Add new option..."
+                              value={newOptionInputs[col.id] || ''}
+                              onChange={e => setNewOptionInputs({ ...newOptionInputs, [col.id]: e.target.value })}
+                              onKeyDown={e => e.key === 'Enter' && handleAddOption(col.id)}
+                            />
+                            <button onClick={() => handleAddOption(col.id)} className="p-3 bg-indigo-600 text-white rounded-xl active:scale-95 transition-all">
+                              <Plus className="w-5 h-5" />
+                            </button>
+                          </div>
+
+                          <div className="space-y-2">
+                            {(col.options || []).map((opt, idx) => (
+                              <div key={idx} className="flex items-center justify-between bg-white p-3 rounded-xl border border-indigo-100 group/opt gap-2">
+                                {editingOption?.colId === col.id && editingOption.index === idx ? (
+                                  <div className="flex-1 flex gap-1">
+                                    <input 
+                                      autoFocus
+                                      className="flex-1 bg-indigo-50 border border-indigo-300 rounded-lg px-3 py-1 text-[10px] font-bold outline-none"
+                                      value={editingOption.value}
+                                      onChange={e => setEditingOption({ ...editingOption, value: e.target.value })}
+                                      onKeyDown={e => e.key === 'Enter' && handleSaveOptionEdit()}
+                                    />
+                                    <button onClick={handleSaveOptionEdit} className="p-1 bg-emerald-500 text-white rounded-md"><Check className="w-3 h-3" /></button>
+                                    <button onClick={() => setEditingOption(null)} className="p-1 bg-slate-200 text-slate-500 rounded-md"><X className="w-3 h-3" /></button>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <span className="text-[11px] font-bold text-slate-700">{opt}</span>
+                                    <div className="flex items-center gap-1 opacity-0 group-hover/opt:opacity-100 transition-opacity">
+                                      <button disabled={idx === 0} onClick={() => handleMoveOption(col.id, idx, 'up')} className="p-1 text-indigo-400 hover:text-indigo-600 disabled:opacity-30">
+                                        <ChevronUp className="w-4 h-4" />
+                                      </button>
+                                      <button disabled={idx === (col.options?.length || 0) - 1} onClick={() => handleMoveOption(col.id, idx, 'down')} className="p-1 text-indigo-400 hover:text-indigo-600 disabled:opacity-30">
+                                        <ChevronDown className="w-4 h-4" />
+                                      </button>
+                                      <button onClick={() => setEditingOption({ colId: col.id, index: idx, value: opt })} className="p-1 text-indigo-400 hover:text-indigo-600">
+                                        <Settings2 className="w-3 h-3" />
+                                      </button>
+                                      <button onClick={() => handleRemoveOption(col.id, idx)} className="p-1 text-pink-400 hover:text-pink-600">
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                          {dropdownError && <p className="mt-3 text-[10px] text-red-700 font-black uppercase">{dropdownError}</p>}
+                       </div>
+                    )}
                  </div>
                );
              })}

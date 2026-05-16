@@ -1,6 +1,6 @@
 {
   "name": "RentMaster Pro",
-  "description": "A high-performance rental management system powered by Google Sheets and Vercel Hosting.",
+  "description": "A high-performance rental management system with secure Firebase authentication and Firestore database.",
   "requestFramePermissions": [],
   "deployment": {
     "platform": "vercel",
@@ -8,5 +8,8 @@
       "hosting"
     ],
     "githubAction": true
-  }
+  },
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

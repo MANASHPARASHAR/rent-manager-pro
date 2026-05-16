@@ -7,14 +7,13 @@ import {
   UserCheck, 
   User, 
   Trash2, 
-  ShieldAlert,
   Edit2,
   X,
   Lock,
   ArrowLeft,
-  AlertTriangle,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  ShieldAlert
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { UserRole } from '../types';
@@ -22,8 +21,15 @@ import { UserRole } from '../types';
 const UserManagement: React.FC = () => {
   const store = useRentalStore();
   const [isAdding, setIsAdding] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingUser, setEditingUser] = useState<any>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [newUser, setNewUser] = useState({ name: '', username: '', password: '', role: UserRole.MANAGER });
+  const [newUser, setNewUser] = useState({ 
+    name: '', 
+    username: '', 
+    password: '', 
+    role: UserRole.MANAGER
+  });
   const [error, setError] = useState<string | null>(null);
   
   const [confirmConfig, setConfirmConfig] = useState<{
@@ -42,41 +48,121 @@ const UserManagement: React.FC = () => {
     actionLabel: 'Confirm'
   });
 
-  if (store.user?.role !== UserRole.ADMIN) {
+  const SUPERADMIN_EMAIL = 'manashparashar9926@gmail.com';
+  const isAdmin = store.user?.role === UserRole.ADMIN || 
+                  store.user?.username?.toLowerCase().trim() === SUPERADMIN_EMAIL;
+
+  if (!isAdmin) {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center text-center">
          <ShieldAlert className="w-20 h-20 text-rose-500 mb-6" />
-         <h2 className="text-3xl font-black uppercase">Restricted Area</h2>
-         <p className="text-slate-500 font-medium">Only Super-Admins can manage the team.</p>
+         <h2 className="text-3xl font-black uppercase tracking-tighter">Access Restricted</h2>
+         <p className="text-slate-500 font-medium max-w-sm mt-3">Only Administrators can manage the team. Please contact the system owner for authorization changes.</p>
       </div>
     );
   }
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isEditing) return handleUpdate(e);
     setError(null);
 
-    // BUG-B FIX: Team member name validation
-    if (!/^[A-Za-z\s]+$/.test(newUser.name)) {
-      setError("Team member name must contain only alphabets and spaces");
+    const trimmedEmail = newUser.username.toLowerCase().trim();
+    const trimmedName = newUser.name.trim();
+
+    if (store.users.some((u: any) => u.username.toLowerCase() === trimmedEmail)) {
+      setError("A user with this email already exists in the system. Use the 'Edit' button to modify their access or password.");
       return;
     }
 
-    if (!newUser.username || !newUser.password) return;
+    if (!/^[A-Za-z\s]+$/.test(trimmedName)) {
+      setError("Name must contain only alphabets and spaces");
+      return;
+    }
 
-    await store.addUser({
-      id: 'u-' + Math.random().toString(36).substr(2, 9),
-      username: newUser.username.toLowerCase(),
-      name: newUser.name,
-      role: newUser.role,
-      passwordHash: newUser.password,
-      createdAt: new Date().toISOString()
-    });
-    setIsAdding(false);
-    setNewUser({ name: '', username: '', password: '', role: UserRole.MANAGER });
+    if (!trimmedEmail.includes('@')) {
+      setError("Please enter a valid Google Email address.");
+      return;
+    }
+
+    if (newUser.password && newUser.password.length < 6) {
+      setError("Password must be at least 6 characters long.");
+      return;
+    }
+
+    try {
+      await store.addUser({
+        id: trimmedEmail,
+        username: trimmedEmail,
+        name: trimmedName,
+        role: newUser.role,
+        passwordHash: newUser.password, // Store as plain password for managed login
+        createdAt: new Date().toISOString()
+      });
+      setIsAdding(false);
+      setNewUser({ name: '', username: '', password: '', role: UserRole.MANAGER });
+    } catch (err: any) {
+      console.error("User creation failed", err);
+      let message = "Failed to authorize user.";
+      try {
+        const detail = JSON.parse(err.message);
+        if (detail.error && typeof detail.error === 'string' && detail.error.includes('auth/operation-not-allowed')) {
+          message = "Email/Password accounts are disabled in Firebase Console. Please enable them first.";
+        } else if (detail.error) {
+          message = detail.error;
+        }
+      } catch {
+        if (err.code === 'auth/operation-not-allowed') {
+          message = "Email/Password accounts are disabled in your Firebase configuration.";
+        }
+      }
+      setError(message);
+    }
   };
 
-  const handleDeleteRequest = (id: string, name: string) => {
+  const handleUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    if (!/^[A-Za-z\s]+$/.test(newUser.name)) {
+      setError("Name must contain only alphabets and spaces");
+      return;
+    }
+
+    if (newUser.password && newUser.password.length < 6) {
+      setError("Password must be at least 6 characters long.");
+      return;
+    }
+
+    try {
+      await store.updateUser(editingUser.username, {
+        name: newUser.name,
+        role: newUser.role,
+        // Only update password if provided
+        ...(newUser.password ? { passwordHash: newUser.password } : {})
+      });
+      setIsEditing(false);
+      setEditingUser(null);
+      setNewUser({ name: '', username: '', password: '', role: UserRole.MANAGER });
+    } catch (err: any) {
+      console.error("User update failed", err);
+      setError("Failed to update user details.");
+    }
+  };
+
+  const handleEditRequest = (user: any) => {
+    setEditingUser(user);
+    setNewUser({
+      name: user.name,
+      username: user.username,
+      password: '', // Don't show existing password hash
+      role: user.role as UserRole
+    });
+    setIsEditing(true);
+    setError(null);
+  };
+
+  const handleDeleteRequest = (username: string, name: string) => {
     setConfirmConfig({
       isOpen: true,
       isDanger: true,
@@ -86,9 +172,9 @@ const UserManagement: React.FC = () => {
       icon: <Trash2 className="w-10 h-10" />,
       onConfirm: async () => {
         setConfirmConfig(prev => ({ ...prev, isOpen: false }));
-        setDeletingId(id);
+        setDeletingId(username);
         try {
-          await store.deleteUser(id);
+          await store.deleteUser(username);
         } finally {
           setDeletingId(null);
         }
@@ -106,7 +192,7 @@ const UserManagement: React.FC = () => {
     <div className="space-y-10 pb-20 max-w-5xl mx-auto animate-in fade-in duration-700">
       {confirmConfig.isOpen && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md animate-in fade-in duration-300">
-          <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl border border-white/20 overflow-hidden animate-in zoom-in-95 duration-200">
+          <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl border border-white/20 overflow-hidden animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto custom-scrollbar">
             <div className={`p-10 text-center ${confirmConfig.isDanger ? 'bg-red-50/50' : 'bg-indigo-50/50'}`}>
               <div className={`w-20 h-20 rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-xl ${confirmConfig.isDanger ? 'bg-red-500 text-white shadow-red-500/20' : 'bg-indigo-600 text-white shadow-indigo-500/20'}`}>
                 {confirmConfig.icon}
@@ -135,10 +221,10 @@ const UserManagement: React.FC = () => {
       <header className="flex justify-between items-end">
         <div>
           <h1 className="text-4xl font-black text-slate-950 tracking-tighter uppercase leading-none">Team Control</h1>
-          <p className="text-slate-500 mt-2 font-medium">Manage access privileges for your rental portfolio.</p>
+          <p className="text-slate-500 mt-2 font-medium">Manage access privileges for your rental portfolio. Administrators can add and remove team members.</p>
         </div>
         <button 
-          onClick={() => { setIsAdding(true); setError(null); }}
+          onClick={() => { setIsAdding(true); setIsEditing(false); setEditingUser(null); setError(null); setNewUser({ name: '', username: '', password: '', role: UserRole.MANAGER, assignedPropertyIds: [] }); }}
           disabled={!!deletingId}
           className="bg-indigo-600 text-white px-8 py-4 rounded-2xl flex items-center gap-3 hover:bg-indigo-700 transition-all font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-100 active:scale-95 disabled:opacity-50"
         >
@@ -146,42 +232,60 @@ const UserManagement: React.FC = () => {
         </button>
       </header>
 
-      {isAdding && (
+      {(isAdding || isEditing) && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xl animate-in fade-in">
            <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
               <div className="p-10 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                 <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">New Member</h3>
-                 <button onClick={() => setIsAdding(false)} className="p-3 hover:bg-white rounded-full transition-colors"><X className="w-7 h-7 text-slate-400" /></button>
+                 <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">
+                   {isEditing ? 'Edit Member' : 'New Member'}
+                 </h3>
+                 <button onClick={() => { setIsAdding(false); setIsEditing(false); }} className="p-3 hover:bg-white rounded-full transition-colors"><X className="w-7 h-7 text-slate-400" /></button>
               </div>
-              <form onSubmit={handleCreate} className="p-10 space-y-6">
+              <form onSubmit={handleCreate} className="p-10 space-y-6 overflow-y-auto max-h-[70vh] custom-scrollbar">
                  {error && (
                    <div className="bg-red-50 border border-red-200 p-4 rounded-xl flex items-center gap-3 text-red-700 animate-in shake">
                      <AlertCircle className="w-5 h-5 shrink-0" /><p className="text-xs font-bold">{error}</p>
                    </div>
                  )}
-                 <div className="space-y-1.5">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Full Display Name</label>
-                    <input required className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all" value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} />
+
+                 <div className="bg-amber-50 border border-amber-200 p-5 rounded-2xl flex items-start gap-4 text-amber-700 text-left leading-relaxed shadow-sm">
+                   <AlertCircle className="w-5 h-5 shrink-0 mt-0.5 text-amber-500" />
+                   <p className="text-[10px] font-bold uppercase tracking-wider">
+                     <span className="font-black text-amber-800">Critical Sync Required:</span> You MUST update this user's password in the <span className="underline font-black">Firebase Console (Auth tab)</span> manually if you change it here.
+                   </p>
                  </div>
                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Username (Login)</label>
-                    <input required className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all" value={newUser.username} onChange={e => setNewUser({...newUser, username: e.target.value})} />
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Team Member Name</label>
+                    <input required className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all" value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} placeholder="Full name" />
                  </div>
                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Access Password</label>
-                    <input required type="password" className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} />
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Google Email Address</label>
+                    <input required disabled={isEditing} className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all disabled:opacity-50" value={newUser.username} onChange={e => setNewUser({...newUser, username: e.target.value})} placeholder="example@gmail.com" />
+                 </div>
+                 <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Account Password {isEditing && '(Leave blank to keep same)'}</label>
+                    <input required={!isEditing} type="password" className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} placeholder={isEditing ? 'New password (optional)' : 'Set login password'} />
                  </div>
                  <div className="space-y-1.5">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Role Permission</label>
                     <select className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-5 py-4 text-sm font-bold outline-none cursor-pointer" value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value as UserRole})}>
-                       <option value={UserRole.ADMIN}>Super Administrator</option>
+                       <option value={UserRole.ADMIN}>Administrator</option>
                        <option value={UserRole.MANAGER}>Portfolio Manager</option>
                        <option value={UserRole.VIEWER}>Read-Only Viewer</option>
                     </select>
                  </div>
+
+                 <div className="pt-6 flex gap-4 text-center">
+                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest bg-slate-50 p-4 rounded-2xl border border-slate-100 flex-1">
+                      Personnel property access is managed directly from the <span className="text-indigo-600 font-black">Properties Tab</span>.
+                    </p>
+                 </div>
+
                  <div className="pt-6 flex gap-4">
-                    <button type="button" onClick={() => setIsAdding(false)} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest">Cancel</button>
-                    <button type="submit" className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-100">Create Account</button>
+                    <button type="button" onClick={() => { setIsAdding(false); setIsEditing(false); }} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest">Cancel</button>
+                    <button type="submit" className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-100">
+                      {isEditing ? 'Update Details' : 'Create Account'}
+                    </button>
                  </div>
               </form>
            </div>
@@ -191,11 +295,11 @@ const UserManagement: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
         {store.users.map((u: any) => {
           const config = roleLabels[u.role as UserRole];
-          const isOwnAccount = u.id === store.user?.id;
-          const isDeleting = deletingId === u.id;
+          const isOwnAccount = u.username === store.user?.username;
+          const isDeleting = deletingId === u.username;
           
           return (
-            <div key={u.id} className={`bg-white p-10 rounded-[3.5rem] border border-slate-100 shadow-sm flex flex-col relative group transition-all duration-300 ${isDeleting ? 'opacity-50 scale-95 grayscale' : 'hover:shadow-2xl hover:border-indigo-100'}`}>
+            <div key={u.username} className={`bg-white p-10 rounded-[3.5rem] border border-slate-100 shadow-sm flex flex-col relative group transition-all duration-300 ${isDeleting ? 'opacity-50 scale-95 grayscale' : 'hover:shadow-2xl hover:border-indigo-100'}`}>
                {isDeleting && (
                  <div className="absolute inset-0 z-10 bg-white/60 rounded-[3.5rem] flex flex-col items-center justify-center gap-3 backdrop-blur-[2px]">
                     <Loader2 className="w-8 h-8 text-rose-500 animate-spin" />
@@ -204,14 +308,23 @@ const UserManagement: React.FC = () => {
                )}
 
                <div className="flex justify-between items-start mb-10">
-                  <div className={`${config.bg} ${config.color} p-5 rounded-[1.5rem] shadow-xl`}>
-                     <config.icon className="w-8 h-8" />
+                  <div className="flex flex-col gap-4">
+                    <div className={`${config.bg} ${config.color} p-5 rounded-[1.5rem] shadow-xl w-fit`}>
+                       <config.icon className="w-8 h-8" />
+                    </div>
                   </div>
-                  {!isOwnAccount && !isDeleting && (
-                    <button onClick={() => handleDeleteRequest(u.id, u.name)} className="p-3 text-slate-300 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100">
-                       <Trash2 className="w-6 h-6" />
-                    </button>
-                  )}
+                  <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {!isDeleting && (
+                      <button onClick={() => handleEditRequest(u)} className="p-3 text-slate-300 hover:text-indigo-600 transition-colors">
+                         <Edit2 className="w-6 h-6" />
+                      </button>
+                    )}
+                    {!isOwnAccount && !isDeleting && (
+                      <button onClick={() => handleDeleteRequest(u.username, u.name)} className="p-3 text-slate-300 hover:text-rose-500 transition-colors">
+                         <Trash2 className="w-6 h-6" />
+                      </button>
+                    )}
+                  </div>
                </div>
                
                <div className="flex-1">

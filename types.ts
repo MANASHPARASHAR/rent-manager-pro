@@ -8,6 +8,7 @@ export enum UserRole {
 export enum ColumnType {
   TEXT = 'text',
   NUMBER = 'number',
+  PHONE = 'phone',
   DATE = 'date',
   DROPDOWN = 'dropdown',
   CURRENCY = 'currency',
@@ -25,6 +26,20 @@ export enum PaymentStatus {
 
 export type PaymentType = 'RENT' | 'DEPOSIT' | 'ELECTRICITY';
 
+export interface Expense {
+  id: string;
+  propertyId: string;
+  category: string;
+  amount: number;
+  date: string;
+  description: string;
+  month: string; // for easier grouping
+  createdBy: string;
+  createdByRole: UserRole;
+  createdAt: string;
+  propertyManagerId?: string;
+}
+
 export interface User {
   id: string;
   username: string;
@@ -32,6 +47,7 @@ export interface User {
   role: UserRole;
   passwordHash: string;
   createdAt: string;
+  assignedPropertyIds?: string[];
 }
 
 export interface ColumnDefinition {
@@ -70,11 +86,13 @@ export interface PropertyRecord {
   propertyId: string;
   createdAt: string;
   updatedAt: string;
+  notes?: string;
 }
 
 export interface RecordValue {
   id: string;
   recordId: string;
+  propertyId: string;
   columnId: string;
   value: string;
 }
@@ -82,6 +100,7 @@ export interface RecordValue {
 export interface UnitHistory {
   id: string;
   recordId: string;
+  propertyId: string;
   values: Record<string, string>;
   effectiveFrom: string;
   effectiveTo: string | null;
@@ -90,6 +109,8 @@ export interface UnitHistory {
 export interface Payment {
   id: string;
   recordId: string;
+  propertyId: string;
+  historyId?: string;
   month: string;
   amount: number;
   status: PaymentStatus;
@@ -99,6 +120,10 @@ export interface Payment {
   paidTo?: string;
   paymentMode?: string;
   isRefunded?: boolean;
+  notes?: string;
+  startReading?: number;
+  endReading?: number;
+  perUnitCost?: number;
 }
 
 export interface AppConfig {
@@ -106,4 +131,26 @@ export interface AppConfig {
   paymentModeOptions: string[];
   cities: string[];
   googleClientId?: string;
+}
+
+export type NotificationType = 'RENT_OVERDUE' | 'SYSTEM' | 'EXPENSE';
+
+export interface AppNotification {
+  id: string;
+  userId: string;
+  title: string;
+  message: string;
+  type: NotificationType;
+  propertyId?: string;
+  recordId?: string;
+  month?: string;
+  createdAt: string;
+  isRead: boolean;
+}
+
+export interface PushSubscriptionData {
+  id: string;
+  userId: string;
+  subscription: string;
+  createdAt: string;
 }

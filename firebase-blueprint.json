@@ -1,0 +1,211 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Application user with roles and permissions.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "username": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["ADMIN", "MANAGER", "VIEWER"] },
+        "passwordHash": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "username", "name", "role", "createdAt"]
+    },
+    "PropertyType": {
+      "title": "Property Type",
+      "description": "Defines the schema for a type of property unit.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "columns": { "type": "array" },
+        "defaultDueDateDay": { "type": "number" }
+      },
+      "required": ["id", "name", "columns"]
+    },
+    "Property": {
+      "title": "Property",
+      "description": "A building or group of units.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "propertyTypeId": { "type": "string" },
+        "address": { "type": "string" },
+        "city": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "isVisibleToManager": { "type": "boolean" },
+        "allowedUserIds": { "type": "array" },
+        "totalInvestment": { "type": "number" }
+      },
+      "required": ["id", "name", "propertyTypeId", "address", "createdAt"]
+    },
+    "PropertyRecord": {
+      "title": "Property Record",
+      "description": "Represents a specific unit or rental agreement.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "propertyId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "propertyId", "createdAt", "updatedAt"]
+    },
+    "RecordValue": {
+      "title": "Record Value",
+      "description": "Individual field value for a property record.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "recordId": { "type": "string" },
+        "propertyId": { "type": "string" },
+        "columnId": { "type": "string" },
+        "value": { "type": "string" }
+      },
+      "required": ["id", "recordId", "propertyId", "columnId", "value"]
+    },
+    "UnitHistory": {
+      "title": "Unit History",
+      "description": "Historical snapshot of unit values.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "recordId": { "type": "string" },
+        "propertyId": { "type": "string" },
+        "values": { "type": "object" },
+        "effectiveFrom": { "type": "string", "format": "date-time" },
+        "effectiveTo": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "recordId", "propertyId", "values", "effectiveFrom"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Financial transaction record.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "recordId": { "type": "string" },
+        "propertyId": { "type": "string" },
+        "month": { "type": "string" },
+        "amount": { "type": "number" },
+        "status": { "type": "string" },
+        "type": { "type": "string" },
+        "dueDate": { "type": "string" },
+        "paidAt": { "type": "string", "format": "date-time" },
+        "paidTo": { "type": "string" },
+        "paymentMode": { "type": "string" },
+        "isRefunded": { "type": "boolean" },
+        "historyId": { "type": "string" }
+      },
+      "required": ["id", "recordId", "propertyId", "month", "amount", "status", "type", "dueDate"]
+    },
+    "AppConfig": {
+      "title": "App Config",
+      "description": "Global application settings.",
+      "type": "object",
+      "properties": {
+        "paidToOptions": { "type": "array" },
+        "paymentModeOptions": { "type": "array" },
+        "cities": { "type": "array" }
+      }
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "Property related expenses.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "propertyId": { "type": "string" },
+        "category": { "type": "string" },
+        "amount": { "type": "number" },
+        "date": { "type": "string", "format": "date" },
+        "description": { "type": "string" },
+        "month": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdByRole": { "type": "string", "enum": ["ADMIN", "MANAGER", "VIEWER"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "propertyId", "category", "amount", "date", "createdBy", "createdAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "In-app and push alert for users.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["RENT_OVERDUE", "SYSTEM", "EXPENSE"] },
+        "recordId": { "type": "string" },
+        "propertyId": { "type": "string" },
+        "month": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "isRead": { "type": "boolean" }
+      },
+      "required": ["id", "userId", "title", "message", "type", "createdAt", "isRead"]
+    },
+    "PushSubscription": {
+      "title": "Push Subscription",
+      "description": "Browser push notification subscription details.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "subscription": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "subscription", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles and permissions."
+    },
+    "/propertyTypes/{typeId}": {
+      "schema": "PropertyType",
+      "description": "Definitions of property schemas."
+    },
+    "/properties/{propertyId}": {
+      "schema": "Property",
+      "description": "Real estate properties."
+    },
+    "/records/{recordId}": {
+      "schema": "PropertyRecord",
+      "description": "Units or rental records."
+    },
+    "/recordValues/{valueId}": {
+      "schema": "RecordValue",
+      "description": "Field-level data for records."
+    },
+    "/unitHistory/{historyId}": {
+      "schema": "UnitHistory",
+      "description": "Chronological history of unit changes."
+    },
+    "/payments/{paymentId}": {
+      "schema": "Payment",
+      "description": "Rent and deposit payments."
+    },
+    "/expenses/{expenseId}": {
+      "schema": "Expense",
+      "description": "Property operational expenses."
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "User alerts."
+    },
+    "/pushSubscriptions/{subscriptionId}": {
+      "schema": "PushSubscription",
+      "description": "Browser push registrations."
+    },
+    "/config/global": {
+      "schema": "AppConfig",
+      "description": "Global settings."
+    }
+  }
+}

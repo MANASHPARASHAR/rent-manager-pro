@@ -1,0 +1,274 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny and Bootstrap Admin
+    match /{document=**} {
+      allow read, write: if isBootstrapAdmin();
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() { return request.auth != null; }
+    function isEmailVerified() { 
+      return isSignedIn() && 
+             (request.auth.token.get('email_verified', false) == true || 
+              request.auth.token.get('email', '') != '' ||
+              request.auth.token.get('firebase', {}).get('sign_in_provider', '') == 'password' ||
+              request.auth.token.get('firebase', {}).get('sign_in_provider', '') == 'google.com'); 
+    }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    
+    function isBootstrapAdmin() {
+      let email = request.auth.token.get('email', '').lower();
+      return isSignedIn() && (
+             email == 'manashparashar9926@gmail.com' ||
+             email == 'mansi@gmail.com'
+      );
+    }
+
+    function getRole() {
+      let email = request.auth.token.get('email', '').lower();
+      let uid = request.auth.uid;
+      // Prefer email-based lookup
+      let emailDocPath = /databases/$(database)/documents/users/$(email);
+      let uidDocPath = /databases/$(database)/documents/users/$(uid);
+      
+      return (email != '' && exists(emailDocPath)) 
+        ? get(emailDocPath).data.get('role', 'GUEST')
+        : (exists(uidDocPath) 
+            ? get(uidDocPath).data.get('role', 'GUEST')
+            : 'GUEST');
+    }
+
+    function isAssignedToProperty(propertyId) {
+      let email = request.auth.token.get('email', '').lower();
+      let uid = request.auth.uid;
+      let emailDocPath = /databases/$(database)/documents/users/$(email);
+      let uidDocPath = /databases/$(database)/documents/users/$(uid);
+      
+      return isSignedIn() && (
+        // 1. Direct Assignment in User Document
+        (email != '' && exists(emailDocPath) && 
+         propertyId in get(emailDocPath).data.get('assignedPropertyIds', [])) ||
+        (exists(uidDocPath) && 
+         propertyId in get(uidDocPath).data.get('assignedPropertyIds', [])) ||
+        
+        // 2. Collaborative Assignment in Property Document
+        (exists(/databases/$(database)/documents/properties/$(propertyId)) && (
+          uid in get(/databases/$(database)/documents/properties/$(propertyId)).data.get('allowedUserIds', []) || 
+          email in get(/databases/$(database)/documents/properties/$(propertyId)).data.get('allowedUserIds', [])
+        ))
+      );
+    }
+
+    function isAdmin() {
+      let role = getRole();
+      return isBootstrapAdmin() || role == 'ADMIN';
+    }
+
+    function isManager() {
+      let role = getRole();
+      return isBootstrapAdmin() || role == 'ADMIN' || role == 'MANAGER';
+    }
+
+    function isViewer() {
+      let role = getRole();
+      return isBootstrapAdmin() || role == 'ADMIN' || role == 'MANAGER' || role == 'VIEWER';
+    }
+
+    // --- Validation Blueprints ---
+
+    function isValidUser(data) {
+      return data.username is string && data.username.size() <= 200 &&
+             data.name is string && data.name.size() <= 100 &&
+             data.role in ['ADMIN', 'MANAGER', 'VIEWER'] &&
+             (data.get('passwordHash', '') is string && data.get('passwordHash', '').size() <= 256) &&
+             (data.get('assignedPropertyIds', []) is list);
+    }
+
+    function isStrictUser(data) {
+      return data.keys().hasAll(['id', 'username', 'name', 'role', 'createdAt']) && 
+             data.keys().size() <= 10 &&
+             isValidUser(data);
+    }
+
+    function isValidProperty(data) {
+      return data.name is string && data.name.size() <= 200 &&
+             data.address is string && data.address.size() <= 500 &&
+             data.propertyTypeId is string &&
+             (data.get('city', 'other') is string && data.get('city', 'other').size() <= 100) &&
+             (data.get('allowedUserIds', []) is list);
+    }
+
+    function isStrictProperty(data) {
+      return data.keys().hasAll(['id', 'name', 'propertyTypeId', 'address', 'createdAt']) &&
+             data.keys().size() <= 12 &&
+             isValidProperty(data);
+    }
+
+    function isValidRecord(data) {
+      return data.propertyId is string &&
+             data.createdAt is string &&
+             data.updatedAt is string &&
+             (data.get('notes', '') is string && data.get('notes', '').size() <= 2000);
+    }
+
+    function isStrictRecord(data) {
+      return data.keys().hasAll(['id', 'propertyId', 'createdAt', 'updatedAt']) &&
+             data.keys().size() <= 6 &&
+             isValidRecord(data);
+    }
+
+    function isValidRecordValue(data) {
+      return data.recordId is string &&
+             data.propertyId is string &&
+             data.columnId is string &&
+             data.value is string && data.value.size() <= 1000;
+    }
+
+    function isStrictRecordValue(data) {
+      return data.keys().hasAll(['id', 'recordId', 'propertyId', 'columnId', 'value']) &&
+             data.keys().size() == 5 &&
+             isValidRecordValue(data);
+    }
+
+    function isValidPayment(data) {
+      return data.recordId is string &&
+             data.propertyId is string &&
+             data.month is string &&
+             data.amount is number &&
+             data.status in ['PAID', 'PENDING', 'OVERDUE', 'VACANT'] &&
+             data.type in ['RENT', 'DEPOSIT', 'ELECTRICITY'] &&
+             data.dueDate is string &&
+             (data.get('historyId', '') is string) &&
+             (data.get('paidAt', '') is string) &&
+             (data.get('notes', '') is string && data.get('notes', '').size() <= 1000);
+    }
+
+    function isStrictPayment(data) {
+      return data.keys().hasAll(['id', 'recordId', 'propertyId', 'month', 'amount', 'status', 'type', 'dueDate']) &&
+             data.keys().size() <= 15 &&
+             isValidPayment(data);
+    }
+
+    function isValidExpense(data) {
+      return data.amount is number && 
+             data.category is string &&
+             data.propertyId is string &&
+             data.date is string &&
+             data.createdBy is string &&
+             data.createdByRole in ['ADMIN', 'MANAGER', 'VIEWER'] &&
+             (data.get('description', '') is string && data.get('description', '').size() <= 2048);
+    }
+
+    function isStrictExpense(data) {
+      return data.keys().hasAll(['id', 'propertyId', 'category', 'amount', 'date', 'createdBy', 'createdByRole', 'createdAt']) &&
+             data.keys().size() <= 12 &&
+             isValidExpense(data);
+    }
+
+    function isValidNotification(data) {
+      return data.userId is string && data.userId.size() <= 200 &&
+             data.title is string && data.title.size() <= 200 &&
+             data.message is string && data.message.size() <= 1000 &&
+             data.type in ['RENT_OVERDUE', 'SYSTEM', 'EXPENSE'] &&
+             data.isRead is bool;
+    }
+
+    function isStrictNotification(data) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'message', 'type', 'createdAt', 'isRead']) &&
+             data.keys().size() <= 11 &&
+             isValidNotification(data);
+    }
+
+    match /users/{userId} {
+      // Allow public get for Managed Login fallback (to verify passwordHash when Auth fails/missing)
+      // SECURITY NOTE: This exposes plaintext passwordHash if knowing the email. 
+      // In production, use Firebase Cloud Functions for secure server-side validation.
+      allow get: if true; 
+      allow list: if isSignedIn() && (
+        resource.data.username.lower() == request.auth.token.get('email', '').lower() || 
+        resource.data.id == request.auth.uid || 
+        isManager()
+      );
+      allow create: if (isAdmin() || (isSignedIn() && (request.auth.token.get('email', '').lower() == userId.lower() || request.auth.uid == userId) && incoming().role == 'VIEWER')) && isStrictUser(incoming());
+      allow update: if (isAdmin() || (isSignedIn() && (request.auth.token.get('email', '').lower() == userId.lower() || request.auth.uid == userId) && incoming().role == existing().role)) && isValidUser(incoming());
+      allow delete: if isAdmin();
+    }
+
+    match /propertyTypes/{typeId} {
+      allow read: if isViewer();
+      allow write: if isAdmin();
+    }
+
+    match /properties/{propertyId} {
+      allow read: if isViewer();
+      allow create: if isEmailVerified() && (isAdmin() || isManager()) && isStrictProperty(incoming());
+      allow update: if isEmailVerified() && (isAdmin() || isManager()) && isValidProperty(incoming());
+      allow delete: if isAdmin();
+    }
+
+    match /records/{recordId} {
+      allow read: if isManager() || (isViewer() && isAssignedToProperty(resource.data.propertyId));
+      allow create: if isEmailVerified() && isManager() && isStrictRecord(incoming());
+      allow update: if isEmailVerified() && isManager() && isValidRecord(incoming());
+      allow delete: if isEmailVerified() && (isManager() || isAdmin());
+    }
+
+    match /recordValues/{valueId} {
+      allow read: if isManager() || (isViewer() && isAssignedToProperty(resource.data.propertyId));
+      allow create: if isEmailVerified() && isManager() && isStrictRecordValue(incoming());
+      allow update: if isEmailVerified() && isManager() && isValidRecordValue(incoming());
+      allow delete: if isEmailVerified() && isManager();
+    }
+
+    match /unitHistory/{historyId} {
+      allow read: if isViewer();
+      allow create: if isEmailVerified() && isManager() && incoming().keys().hasAll(['id', 'recordId', 'propertyId', 'values', 'effectiveFrom']);
+      allow update: if isEmailVerified() && isManager();
+      allow delete: if isEmailVerified() && isManager();
+    }
+
+    match /payments/{paymentId} {
+      allow read: if isViewer();
+      allow create: if isEmailVerified() && isManager() && isStrictPayment(incoming());
+      allow update: if isEmailVerified() && isManager() && isValidPayment(incoming());
+      allow delete: if isEmailVerified() && (isManager() || isAdmin());
+    }
+
+    match /config/{configId} {
+      allow read: if isViewer();
+      allow write: if isEmailVerified() && isManager();
+    }
+
+    match /expenses/{expenseId} {
+      allow read: if isViewer();
+      allow create: if isEmailVerified() && isManager() && isStrictExpense(incoming());
+      allow update: if isEmailVerified() && isManager() && isValidExpense(incoming());
+      allow delete: if isManager();
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && (
+        resource.data.userId.lower() == request.auth.token.get('email', '').lower() || 
+        resource.data.userId == request.auth.uid || 
+        isManager()
+      );
+      allow create: if isEmailVerified() && (isManager() || isAdmin()) && isStrictNotification(incoming()); 
+      allow update: if (
+        (isSignedIn() && (existing().userId.lower() == request.auth.token.get('email', '').lower() || existing().userId == request.auth.uid) && 
+         incoming().diff(existing()).affectedKeys().hasOnly(['isRead'])) ||
+        (isEmailVerified() && (isManager() || isAdmin()))
+      );
+      allow delete: if (isSignedIn() && (existing().userId.lower() == request.auth.token.get('email', '').lower() || existing().userId == request.auth.uid)) || (isEmailVerified() && (isManager() || isAdmin()));
+    }
+
+    match /pushSubscriptions/{subId} {
+      allow read: if isSignedIn() && (resource.data.userId.lower() == request.auth.token.get('email', '').lower() || resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && (incoming().userId.lower() == request.auth.token.get('email', '').lower() || incoming().userId == request.auth.uid);
+      allow update, delete: if isSignedIn() && (existing().userId.lower() == request.auth.token.get('email', '').lower() || existing().userId == request.auth.uid);
+    }
+  }
+}

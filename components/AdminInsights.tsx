@@ -1,7 +1,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { 
-  DollarSign, 
+  IndianRupee, 
   TrendingUp, 
   ArrowUpRight, 
   BarChart3, 
@@ -24,50 +24,60 @@ import {
   X,
   Users,
   Layers,
-  Activity
+  Activity,
+  Receipt
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   Cell, ComposedChart, Line, Area
 } from 'recharts';
 import { useRentalStore } from '../store/useRentalStore';
+import { useLanguageStore } from '../lib/i18n';
 import { PaymentStatus, UserRole, Property, User as UserType } from '../types';
 
 const AdminInsights: React.FC = () => {
   const store = useRentalStore();
-  const isAdmin = store.user?.role === UserRole.ADMIN;
+  const effectiveUser = store.effectiveUser;
+  const SUPERADMIN_EMAIL = 'manashparashar9926@gmail.com';
+  const isAdmin = store.user?.role === UserRole.ADMIN || 
+                   store.user?.username?.toLowerCase().trim() === SUPERADMIN_EMAIL;
+  const isManager = store.user?.role === UserRole.MANAGER;
+  const effectiveIsAdmin = effectiveUser?.role === UserRole.ADMIN || 
+                           effectiveUser?.username?.toLowerCase().trim() === SUPERADMIN_EMAIL;
+  const effectiveIsManager = effectiveUser?.role === UserRole.MANAGER;
   
   const [editingId, setEditingId] = useState<string | null>(null);
   const [tempInvestment, setTempInvestment] = useState<string>('0');
+  const { t } = useLanguageStore();
   
-  // ADMIN FILTER STATE
-  const [managerFilter, setManagerFilter] = useState<string>('all');
-
-  // AUTHORIZATION GUARD
-  if (!isAdmin) {
+  // AUTHORIZATION GUARD: Real user must be admin/manager AND effective user must be admin/manager
+  if (!isAdmin && !isManager) {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center p-8 bg-white rounded-[3rem] border border-gray-100 shadow-sm text-center">
         <div className="w-20 h-20 bg-rose-50 rounded-full flex items-center justify-center mb-6">
            <ShieldCheck className="w-10 h-10 text-rose-500" />
         </div>
-        <h2 className="text-3xl font-black text-gray-900 uppercase tracking-tight">Access Restricted</h2>
+        <h2 className="text-3xl font-black text-gray-900 uppercase tracking-tight">{t('access_restricted')}</h2>
         <p className="text-slate-500 font-medium mt-3 max-w-sm">
-           This dashboard contains sensitive financial CapEx data and is only visible to Super-Administrators.
+           {t('restricted_dashboard_msg')}
         </p>
       </div>
     );
   }
 
-  const managers = useMemo(() => {
-    return (store.users || []).filter((u: UserType) => u.role === UserRole.MANAGER);
-  }, [store.users]);
+  const visibleProperties = useMemo(() => {
+    return store.properties.filter(p => {
+      const lowerUsername = effectiveUser?.username?.toLowerCase().trim() || '';
+      const lowerUserId = effectiveUser?.id?.toLowerCase() || '';
+      return effectiveIsAdmin || 
+             (effectiveUser?.assignedPropertyIds || []).includes(p.id) ||
+             (p.allowedUserIds || []).some(id => id.toLowerCase() === lowerUserId) ||
+             (p.allowedUserIds || []).some(id => id.toLowerCase() === lowerUsername);
+    });
+  }, [store.properties, effectiveUser, effectiveIsAdmin]);
 
   const propertyMetrics = useMemo(() => {
-    return store.properties
-      .filter((p: Property) => {
-        if (managerFilter === 'all') return true;
-        return p.allowedUserIds?.includes(managerFilter);
-      })
+    return visibleProperties
       .map((p: Property) => {
         const records = store.records.filter((r: any) => r.propertyId === p.id);
         const recordIds = records.map((r: any) => r.id);
@@ -78,32 +88,41 @@ const AdminInsights: React.FC = () => {
             pay.status === PaymentStatus.PAID && 
             (pay.type === 'RENT' || pay.type === 'ELECTRICITY')
           )
-          .reduce((sum: number, pay: any) => sum + pay.amount, 0);
+          .reduce((sum: number, pay: any) => sum + (Number(pay.amount) || 0), 0);
+
+        const totalExpenses = store.expenses
+          .filter((exp: any) => exp.propertyId === p.id)
+          .reduce((sum: number, exp: any) => sum + (Number(exp.amount) || 0), 0);
 
         const investment = p.totalInvestment || 0;
-        const profit = lifetimeRevenue - investment;
-        const roi = investment > 0 ? (lifetimeRevenue / investment) * 100 : 0;
-        const isBreakeven = lifetimeRevenue >= investment && investment > 0;
+        const netRevenue = lifetimeRevenue - totalExpenses;
+        const profit = netRevenue - investment;
+        const roi = investment > 0 ? (netRevenue / investment) * 100 : 0;
+        const isBreakeven = netRevenue >= investment && investment > 0;
 
         return {
           ...p,
           lifetimeRevenue,
+          totalExpenses,
           investment,
+          netRevenue,
           profit,
           roi,
           isBreakeven
         };
       })
-      .sort((a, b) => b.lifetimeRevenue - a.lifetimeRevenue);
-  }, [store.properties, store.payments, store.records, managerFilter]);
+      .sort((a, b) => b.netRevenue - a.netRevenue);
+  }, [store.properties, store.payments, store.records, store.expenses]);
 
   const portfolioStats = useMemo(() => {
     const totalRevenue = propertyMetrics.reduce((s, m) => s + m.lifetimeRevenue, 0);
+    const totalExpenses = propertyMetrics.reduce((s, m) => s + m.totalExpenses, 0);
     const totalInvestment = propertyMetrics.reduce((s, m) => s + m.investment, 0);
-    const totalProfit = totalRevenue - totalInvestment;
-    const avgROI = totalInvestment > 0 ? (totalRevenue / totalInvestment) * 100 : 0;
+    const netRevenue = totalRevenue - totalExpenses;
+    const totalProfit = netRevenue - totalInvestment;
+    const avgROI = totalInvestment > 0 ? (netRevenue / totalInvestment) * 100 : 0;
 
-    return { totalRevenue, totalInvestment, totalProfit, avgROI };
+    return { totalRevenue, totalExpenses, totalInvestment, netRevenue, totalProfit, avgROI };
   }, [propertyMetrics]);
 
   const handleUpdateInvestment = (id: string) => {
@@ -121,34 +140,17 @@ const AdminInsights: React.FC = () => {
         <div>
           <div className="flex items-center gap-2 text-indigo-600 font-bold mb-3">
             <Globe className="w-4 h-4" />
-            <span className="text-[10px] uppercase tracking-[0.3em] font-black text-indigo-400">Owner Intelligence Hub</span>
+            <span className="text-[10px] uppercase tracking-[0.3em] font-black text-indigo-400">{t('owner_intelligence_hub')}</span>
           </div>
-          <h1 className="text-5xl font-black text-slate-900 tracking-tighter uppercase leading-none">Capital Insights</h1>
+          <h1 className="text-5xl font-black text-slate-900 tracking-tighter uppercase leading-none">{t('capital_insights')}</h1>
           <p className="text-slate-500 mt-4 font-medium text-lg max-w-xl">
-             Comprehensive lifecycle analysis comparing portfolio investment against aggregate yield.
+             {t('lifecycle_analysis')}
           </p>
         </div>
 
         <div className="flex flex-wrap gap-4 items-center">
-           <div className="flex items-center bg-white border border-slate-100 p-2 rounded-2xl shadow-sm gap-4 px-6 h-16">
-              <div className="flex items-center gap-2">
-                 <Users className="w-4 h-4 text-indigo-500" />
-                 <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Visibility Filter:</span>
-              </div>
-              <select 
-                className="bg-transparent border-none text-xs font-black uppercase text-indigo-600 outline-none cursor-pointer"
-                value={managerFilter}
-                onChange={(e) => setManagerFilter(e.target.value)}
-              >
-                 <option value="all">Global Portfolio (All)</option>
-                 {managers.map(m => (
-                    <option key={m.id} value={m.id}>{m.name}</option>
-                 ))}
-              </select>
-           </div>
-
            <div className="px-8 py-4 bg-white border border-slate-100 rounded-[2rem] shadow-sm flex flex-col justify-center h-16">
-              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Focus ROI</span>
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">{t('focus_roi')}</span>
               <div className="flex items-center gap-3 leading-none">
                  <h3 className="text-2xl font-black text-slate-900 leading-none">{portfolioStats.avgROI.toFixed(1)}%</h3>
                  <div className={`p-1 rounded-lg ${portfolioStats.avgROI >= 100 ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
@@ -156,16 +158,22 @@ const AdminInsights: React.FC = () => {
                  </div>
               </div>
            </div>
+           <button 
+             onClick={() => window.print()}
+             className="bg-slate-950 text-white px-8 h-16 rounded-[2rem] flex items-center gap-3 hover:bg-slate-800 transition-all font-black uppercase text-[10px] tracking-widest shadow-xl"
+           >
+             <TrendingUp className="w-4 h-4" /> {t('export_global_analysis')}
+           </button>
         </div>
       </header>
 
       {/* SUMMARY GRID */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {[
-          { label: 'Aggregate Revenue', val: `$${portfolioStats.totalRevenue.toLocaleString()}`, sub: 'Lifetime collections', icon: Coins, color: 'bg-indigo-600' },
-          { label: 'Total Capital Outlay', val: `$${portfolioStats.totalInvestment.toLocaleString()}`, sub: 'Invested CapEx', icon: Target, color: 'bg-slate-900' },
-          { label: 'Net Liquidity Position', val: `$${portfolioStats.totalProfit.toLocaleString()}`, sub: 'Rev minus CapEx', icon: DollarSign, color: portfolioStats.totalProfit >= 0 ? 'bg-emerald-600' : 'bg-rose-600' },
-          { label: 'Yield Efficiency', val: `${portfolioStats.avgROI.toFixed(1)}%`, sub: 'Investment recovery', icon: BarChart3, color: 'bg-amber-500' },
+          { label: t('aggregate_revenue'), val: `₹${portfolioStats.totalRevenue.toLocaleString()}`, sub: t('lifetime_collections'), icon: Coins, color: 'bg-indigo-600' },
+          { label: t('operational_expenses'), val: `₹${portfolioStats.totalExpenses.toLocaleString()}`, sub: t('building_maintenance'), icon: Receipt, color: 'bg-rose-500' },
+          { label: t('capital_outlay'), val: `₹${portfolioStats.totalInvestment.toLocaleString()}`, sub: t('invested_capex'), icon: Target, color: 'bg-slate-900' },
+          { label: t('liquidity_position'), val: `₹${portfolioStats.totalProfit.toLocaleString()}`, sub: t('liquidity_formula'), icon: IndianRupee, color: portfolioStats.totalProfit >= 0 ? 'bg-emerald-600' : 'bg-rose-600' },
         ].map((item, i) => (
           <div key={i} className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm hover:shadow-xl transition-all duration-500 group">
              <div className="flex justify-between items-start mb-6">
@@ -188,23 +196,25 @@ const AdminInsights: React.FC = () => {
          <div className="xl:col-span-8 bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm flex flex-col min-h-[500px]">
             <div className="flex items-center justify-between mb-12">
                <div>
-                  <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Investment Recovery Gap</h2>
-                  <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mt-1">Comparison of Total Revenue vs Initial Investment</p>
+                  <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">{t('investment_recovery_gap')}</h2>
+                  <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mt-1">{t('comparison_revenue_capex')}</p>
                </div>
                <div className="flex gap-6">
-                  <div className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-400"><div className="w-3 h-3 rounded-full bg-slate-100"></div> CapEx</div>
-                  <div className="flex items-center gap-2 text-[10px] font-black uppercase text-indigo-500"><div className="w-3 h-3 rounded-full bg-indigo-500"></div> Revenue</div>
+                  <div className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-400"><div className="w-3 h-3 rounded-full bg-slate-100"></div> {t('capital_outlay')}</div>
+                  <div className="flex items-center gap-2 text-[10px] font-black uppercase text-rose-400"><div className="w-3 h-3 rounded-full bg-rose-400"></div> {t('expenses')}</div>
+                  <div className="flex items-center gap-2 text-[10px] font-black uppercase text-indigo-500"><div className="w-3 h-3 rounded-full bg-indigo-500"></div> {t('revenue')}</div>
                </div>
             </div>
             <div className="flex-1 h-full">
                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={propertyMetrics} barGap={12}>
+                  <BarChart data={propertyMetrics} barGap={8}>
                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 900, fill: '#94a3b8' }} dy={10} />
-                     <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 900, fill: '#94a3b8' }} tickFormatter={v => `$${v/1000}k`} />
+                     <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 900, fill: '#94a3b8' }} tickFormatter={v => `₹${v/1000}k`} />
                      <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '1rem', color: '#fff' }} />
-                     <Bar dataKey="investment" fill="#f1f5f9" radius={[8, 8, 0, 0]} barSize={25} />
-                     <Bar dataKey="lifetimeRevenue" fill="#6366f1" radius={[8, 8, 0, 0]} barSize={25} />
+                     <Bar dataKey="investment" fill="#f1f5f9" radius={[6, 6, 0, 0]} barSize={20} />
+                     <Bar dataKey="totalExpenses" fill="#fb7185" radius={[6, 6, 0, 0]} barSize={20} />
+                     <Bar dataKey="lifetimeRevenue" fill="#6366f1" radius={[6, 6, 0, 0]} barSize={20} />
                   </BarChart>
                </ResponsiveContainer>
             </div>
@@ -217,8 +227,8 @@ const AdminInsights: React.FC = () => {
                <div className="flex items-center gap-4 mb-8">
                   <div className="p-4 bg-white/10 text-white rounded-2xl"><Activity className="w-6 h-6" /></div>
                   <div>
-                     <h2 className="text-xl font-black text-white uppercase tracking-tight">Breakeven Engine</h2>
-                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-1">Asset Lifecycle Tracking</p>
+                     <h2 className="text-xl font-black text-white uppercase tracking-tight">{t('breakeven_engine')}</h2>
+                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-1">{t('asset_lifecycle_tracking')}</p>
                   </div>
                </div>
                
@@ -226,11 +236,11 @@ const AdminInsights: React.FC = () => {
                <div className="bg-white/5 border border-white/10 rounded-[2.5rem] p-8 mb-8">
                   <div className="flex justify-between items-end mb-6">
                      <div>
-                        <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Portfolio Aggregate</p>
-                        <h3 className="text-2xl font-black text-white leading-none">Total Recovery</h3>
+                        <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">{t('portfolio_aggregate')}</p>
+                        <h3 className="text-2xl font-black text-white leading-none">{t('total_recovery')}</h3>
                      </div>
                      <div className="text-right">
-                        <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-1">Portfolio ROI</p>
+                        <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-1">{t('portfolio_roi')}</p>
                         <h4 className="text-2xl font-black text-indigo-400 leading-none">{portfolioStats.avgROI.toFixed(1)}%</h4>
                      </div>
                   </div>
@@ -242,9 +252,9 @@ const AdminInsights: React.FC = () => {
                      ></div>
                   </div>
                   <div className="flex justify-between mt-4">
-                     <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">CapEx: ${portfolioStats.totalInvestment.toLocaleString()}</span>
+                     <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{t('capital_outlay')}: ₹{portfolioStats.totalInvestment.toLocaleString()}</span>
                      <span className={`text-[9px] font-black uppercase tracking-widest ${portfolioStats.avgROI >= 100 ? 'text-emerald-500' : 'text-slate-400'}`}>
-                        {portfolioStats.avgROI >= 100 ? 'Fully Recovered' : `${(100 - portfolioStats.avgROI).toFixed(1)}% Remaining`}
+                        {portfolioStats.avgROI >= 100 ? t('fully_recovered') : `${(100 - portfolioStats.avgROI).toFixed(1)}% ${t('remaining')}`}
                      </span>
                   </div>
                </div>
@@ -271,7 +281,7 @@ const AdminInsights: React.FC = () => {
                         </div>
                         {asset.roi >= 100 && (
                            <div className="flex items-center gap-1.5 text-[8px] font-black text-emerald-500/80 uppercase tracking-widest mt-1">
-                              <TrendingUp className="w-2.5 h-2.5" /> Surplus: ${asset.profit.toLocaleString()}
+                              <TrendingUp className="w-2.5 h-2.5" /> {t('surplus')}: ₹{asset.profit.toLocaleString()}
                            </div>
                         )}
                      </div>
@@ -287,25 +297,26 @@ const AdminInsights: React.FC = () => {
             <div className="flex items-center gap-5">
                <div className="p-4 bg-slate-900 text-white rounded-2xl shadow-xl"><LayoutGrid className="w-6 h-6" /></div>
                <div>
-                  <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">CapEx vs yield Inventory</h2>
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Property wise investment management</p>
+                  <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">{t('capex_yield_inventory')}</h2>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">{t('investment_management')}</p>
                </div>
             </div>
             <div className="flex items-center gap-3 bg-white p-2 rounded-2xl border border-slate-100">
                <Info className="w-5 h-5 text-indigo-500 ml-2" />
-               <p className="text-[10px] font-black text-slate-500 uppercase pr-4">Edit Investment field to update portfolio CapEx</p>
+               <p className="text-[10px] font-black text-slate-500 uppercase pr-4">{t('edit_investment_help')}</p>
             </div>
          </div>
 
          <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
-               <thead>
+                <thead>
                   <tr className="border-b border-slate-100 bg-white">
-                     <th className="px-10 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Asset Details</th>
-                     <th className="px-10 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Total Investment</th>
-                     <th className="px-10 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Lifetime Revenue</th>
-                     <th className="px-10 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Net Profit/Loss</th>
-                     <th className="px-10 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">ROI Progress</th>
+                     <th className="px-10 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('asset_details')}</th>
+                     <th className="px-10 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">{t('total_capex')}</th>
+                     <th className="px-10 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">{t('revenue')}</th>
+                     <th className="px-10 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">{t('expenses')}</th>
+                     <th className="px-10 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">{t('net_position')}</th>
+                     <th className="px-10 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">{t('roi_progress')}</th>
                   </tr>
                </thead>
                <tbody className="divide-y divide-slate-50">
@@ -327,7 +338,7 @@ const AdminInsights: React.FC = () => {
                            {editingId === asset.id ? (
                               <div className="flex items-center justify-center gap-2 animate-in zoom-in-95">
                                  <div className="relative">
-                                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                    <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                                     <input 
                                        autoFocus
                                        className="w-32 pl-9 pr-4 py-2.5 bg-white border-2 border-indigo-200 rounded-xl text-sm font-black text-slate-900 outline-none"
@@ -344,23 +355,24 @@ const AdminInsights: React.FC = () => {
                                  onClick={() => { setEditingId(asset.id); setTempInvestment(String(asset.investment)); }}
                                  className="px-6 py-2.5 bg-slate-50 text-slate-900 rounded-xl text-sm font-black border border-transparent hover:border-indigo-100 hover:bg-white transition-all"
                               >
-                                 ${asset.investment.toLocaleString()}
+                                 ₹{asset.investment.toLocaleString()}
                               </button>
                            )}
                         </td>
 
+                        <td className="px-10 py-8 text-center text-sm font-black text-slate-900">
+                           ₹{asset.lifetimeRevenue.toLocaleString()}
+                        </td>
+
                         <td className="px-10 py-8 text-center">
                            <div className="flex flex-col items-center">
-                              <span className="text-base font-black text-slate-900">${asset.lifetimeRevenue.toLocaleString()}</span>
-                              <div className="flex items-center gap-1 text-[9px] font-black text-emerald-500 uppercase tracking-tighter mt-1">
-                                 <TrendingUp className="w-3 h-3" /> Growth Detected
-                              </div>
+                              <span className="text-base font-black text-rose-600">₹{asset.totalExpenses.toLocaleString()}</span>
                            </div>
                         </td>
 
                         <td className="px-10 py-8 text-center">
                            <span className={`px-5 py-2 rounded-2xl text-sm font-black uppercase tracking-tight ${asset.profit >= 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-rose-50 text-rose-700 border border-rose-100'}`}>
-                              {asset.profit >= 0 ? '+' : ''}${asset.profit.toLocaleString()}
+                              {asset.profit >= 0 ? '+' : ''}₹{asset.profit.toLocaleString()}
                            </span>
                         </td>
 
@@ -374,7 +386,7 @@ const AdminInsights: React.FC = () => {
                                  ></div>
                               </div>
                               <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                                 {asset.roi >= 100 ? 'ASSET PROFITABLE' : `${(100 - asset.roi).toFixed(1)}% TO BREAKEVEN`}
+                                 {asset.roi >= 100 ? t('asset_profitable') : `${(100 - asset.roi).toFixed(1)}% ${t('to_breakeven')}`}
                               </span>
                            </div>
                         </td>

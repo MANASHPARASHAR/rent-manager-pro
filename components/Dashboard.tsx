@@ -25,25 +25,34 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
 import { useRentalStore } from '../store/useRentalStore';
-import { PaymentStatus, UserRole, Payment, ColumnType, UnitHistory, User as UserType } from '../types';
+import { useLanguageStore } from '../lib/i18n';
+import { PaymentStatus, UserRole, Payment, ColumnType, UnitHistory, User as UserType, Property } from '../types';
 
 const Dashboard: React.FC = () => {
   const store = useRentalStore();
   const navigate = useNavigate();
-  const user = store.user;
-  const isAdmin = user?.role === UserRole.ADMIN;
+  const { t } = useLanguageStore();
+  const effectiveUser = store.effectiveUser;
+  const isAdmin = store.user?.role === UserRole.ADMIN || 
+                  store.user?.username?.toLowerCase().trim() === 'manashparashar9926@gmail.com';
+  const effectiveIsAdmin = effectiveUser?.role === UserRole.ADMIN || 
+                           effectiveUser?.username?.toLowerCase().trim() === 'manashparashar9926@gmail.com';
   
-  // ADMIN FILTER STATE
-  const [adminUserFilter, setAdminUserFilter] = useState<string>('all');
-
   const visibleProperties = useMemo(() => {
-    if (isAdmin) {
-      if (adminUserFilter === 'all') return store.properties;
-      return store.properties.filter((p: any) => p.allowedUserIds?.includes(adminUserFilter));
-    }
-    // Strict visibility for Managers/Viewers: only assigned properties
-    return store.properties.filter((p: any) => p.allowedUserIds?.includes(user?.id));
-  }, [store.properties, isAdmin, adminUserFilter, user?.id]);
+    return (store.properties || []).filter((p: Property) => {
+      const lowerUsername = effectiveUser?.username?.toLowerCase().trim() || '';
+      const userId = effectiveUser?.id || '';
+      const allowed = (p.allowedUserIds || []).map(id => id.toLowerCase());
+      
+      const isActuallyAdmin = effectiveUser?.role === UserRole.ADMIN || 
+                              effectiveUser?.username?.toLowerCase().trim() === 'manashparashar9926@gmail.com';
+
+      return isActuallyAdmin || 
+             (effectiveUser?.assignedPropertyIds || []).includes(p.id) ||
+             allowed.includes(userId.toLowerCase()) ||
+             allowed.includes(lowerUsername);
+    });
+  }, [store.properties, effectiveUser, effectiveIsAdmin]);
 
   const visiblePropertyIds = useMemo(() => visibleProperties.map((p: any) => p.id), [visibleProperties]);
 
@@ -68,6 +77,8 @@ const Dashboard: React.FC = () => {
     const occupancyColIds = types.flatMap(pt => pt.columns.filter(c => c.type === ColumnType.OCCUPANCY_STATUS || (c.type === ColumnType.DROPDOWN && (c.name.toLowerCase().includes('status') || c.name.toLowerCase().includes('occupancy')))).map(c => c.id));
 
     let monthlyRentExpected = 0;
+    let totalPotentialRent = 0;
+    let heldDeposits = 0;
     let activeUnits = 0;
     let vacantUnits = 0;
     const overdueUnitsList: any[] = [];
@@ -82,14 +93,29 @@ const Dashboard: React.FC = () => {
 
       const activeValues = historicalState?.values || store.recordValues.filter(v => v.recordId === record.id).reduce((acc: any, v) => ({...acc, [v.columnId]: v.value}), {});
       
+      const pt = types.find(t => t.id === store.properties.find(p => p.id === record.propertyId)?.propertyTypeId);
+      const depositColId = pt?.columns.find(c => c.type === ColumnType.SECURITY_DEPOSIT)?.id;
+      
       const statusValue = Object.entries(activeValues).find(([cid]) => occupancyColIds.includes(cid))?.[1]?.toString().toLowerCase() || 'active';
       const isActive = statusValue === 'active' || statusValue === 'occupied';
-      const rentValue = Object.entries(activeValues).find(([cid]) => rentColIds.includes(cid))?.[1]?.toString() || '0';
-      const amount = parseFloat(rentValue);
+      
+      // Sum all rent-calculatable columns for this unit
+      let unitRent = 0;
+      Object.entries(activeValues).forEach(([cid, val]) => {
+        if (rentColIds.includes(cid)) {
+          unitRent += parseFloat(val?.toString() || '0') || 0;
+        }
+      });
+
+      totalPotentialRent += unitRent;
+
+      // Calculate Held Deposit for this unit (Sum includes negative refunds)
+      const unitPayments = store.payments.filter(p => String(p.recordId) === String(record.id) && p.type === 'DEPOSIT');
+      heldDeposits += unitPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
       if (isActive) {
         activeUnits++;
-        monthlyRentExpected += amount;
+        monthlyRentExpected += unitRent;
         const isPaid = store.payments.some((p: Payment) => p.recordId === record.id && p.month === currentMonthKey && p.type === 'RENT' && p.status === PaymentStatus.PAID);
         if (!isPaid) {
           const property = store.properties.find((p: any) => p.id === record.propertyId);
@@ -98,20 +124,21 @@ const Dashboard: React.FC = () => {
             return col?.name.toLowerCase().includes('name');
           })?.[1]?.toString() || 'Unknown';
           
-          overdueUnitsList.push({ id: record.id, amount, propertyName: property?.name, tenant: tenantName });
+          overdueUnitsList.push({ id: record.id, amount: unitRent, propertyName: property?.name, tenant: tenantName });
         }
-      } else if (statusValue.includes('vacant')) {
+      } else if (statusValue && statusValue.includes('vacant')) {
         vacantUnits++;
       }
     });
 
     const collectedThisMonth = store.payments
       .filter((p: Payment) => recordIds.includes(p.recordId) && p.month === currentMonthKey && p.status === PaymentStatus.PAID && p.type === 'RENT')
-      .reduce((sum: number, p: Payment) => sum + p.amount, 0);
+      .reduce((sum: number, p: Payment) => sum + (Number(p.amount) || 0), 0);
 
     return {
       totalProperties: visiblePropertyIds.length,
-      activeUnits, vacantUnits, monthlyRentExpected,
+      activeUnits, vacantUnits, monthlyRentExpected, totalPotentialRent,
+      heldDeposits,
       monthlyTotalCollected: collectedThisMonth,
       overdueUnitsList: overdueUnitsList.sort((a,b) => b.amount - a.amount).slice(0, 5),
       collectionRate: monthlyRentExpected > 0 ? (collectedThisMonth / monthlyRentExpected) * 100 : 0,
@@ -138,7 +165,7 @@ const Dashboard: React.FC = () => {
           const record = store.records.find((r: any) => r.id === pay.recordId);
           return record?.propertyId === p.id && pay.month === currentMonthKey && pay.status === PaymentStatus.PAID && pay.type === 'RENT';
         })
-        .reduce((sum: number, pay: any) => sum + pay.amount, 0);
+        .reduce((sum: number, pay: any) => sum + (Number(pay.amount) || 0), 0);
 
       return {
         name: p.name.length > 10 ? p.name.substring(0, 8) + '..' : p.name,
@@ -153,89 +180,53 @@ const Dashboard: React.FC = () => {
     [UserRole.VIEWER]: 'bg-slate-700 text-white',
   };
 
-  const RoleIcon = user?.role === UserRole.ADMIN ? ShieldCheck : user?.role === UserRole.MANAGER ? UserCheck : User;
-
   return (
     <div className="space-y-10 pb-20 max-w-[1400px] mx-auto animate-in fade-in duration-500">
       <header className="flex flex-col xl:flex-row xl:items-end justify-between gap-10">
         <div>
           <div className="flex items-center gap-2 text-indigo-600 font-bold mb-3">
             <Zap className="w-4 h-4" />
-            <span className="text-[10px] uppercase tracking-[0.2em] font-black">Settlement Pulse</span>
+            <span className="text-[10px] uppercase tracking-[0.2em] font-black">{t('settlement_pulse')}</span>
           </div>
           
           <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6">
-             <h1 className="text-4xl md:text-5xl lg:text-6xl font-black text-slate-900 tracking-tighter uppercase leading-none">
-               Portfolio <br className="hidden md:block" /> Intelligence
+             <h1 className="text-3xl md:text-4xl lg:text-5xl font-black text-slate-900 tracking-tighter uppercase leading-none">
+               {t('portfolio_intelligence').split(' ').map((word, i) => i === 1 ? <React.Fragment key={i}><br className="hidden md:block" /> {word}</React.Fragment> : <React.Fragment key={i}>{i > 0 ? ' ' : ''}{word}</React.Fragment>)}
              </h1>
-             
-             {user && (
-               <div className="flex items-center gap-4 p-5 bg-white border border-slate-100 rounded-[2rem] shadow-sm animate-in slide-in-from-left-4 duration-700">
-                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg ${roleColors[user.role]}`}>
-                     <RoleIcon className="w-7 h-7" />
-                  </div>
-                  <div>
-                     <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Welcome, User</p>
-                     <h2 className="text-xl font-black text-slate-900 tracking-tight leading-none mb-1">{user.name}</h2>
-                     <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border border-slate-100 ${user.role === UserRole.ADMIN ? 'text-indigo-600 bg-indigo-50' : 'text-emerald-600 bg-emerald-50'}`}>
-                        <Fingerprint className="w-2.5 h-2.5" />
-                        {user.role} Privilege
-                     </span>
-                  </div>
-               </div>
-             )}
           </div>
           
           <p className="text-slate-500 mt-6 font-medium text-base lg:text-lg max-w-xl">
-             Real-time oversight for <span className="text-slate-900 font-black">{stats.totalProperties} properties</span> {adminUserFilter !== 'all' ? `assigned to manager` : `under your command`}.
+             {t('real_time_oversight')} <span className="text-slate-900 font-black">{stats.totalProperties} {t('properties')}</span> {t('under_your_command')}
           </p>
         </div>
         
         <div className="flex flex-wrap items-center gap-4">
-          {isAdmin && (
-             <div className="flex items-center bg-white border border-slate-200 p-2 rounded-2xl shadow-sm gap-4 px-6">
-                <div className="flex items-center gap-2">
-                   <Users className="w-4 h-4 text-indigo-500" />
-                   <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Manager Perspective:</span>
-                </div>
-                <select 
-                  className="bg-transparent border-none text-xs font-black uppercase text-indigo-600 outline-none cursor-pointer"
-                  value={adminUserFilter}
-                  onChange={(e) => setAdminUserFilter(e.target.value)}
-                >
-                   <option value="all">Complete Portfolio (All)</option>
-                   {managers.map(m => (
-                      <option key={m.id} value={m.id}>{m.name}</option>
-                   ))}
-                </select>
-             </div>
-          )}
           <button 
             onClick={() => navigate('/reports')}
             className="group bg-slate-950 text-white px-8 py-5 rounded-2xl flex items-center gap-3 hover:bg-slate-800 transition-all font-black uppercase text-[10px] tracking-widest shadow-2xl shadow-slate-200"
           >
-            Analytics Engine <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+            {t('analytics_engine')} <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </button>
         </div>
       </header>
 
       {visibleProperties.length === 0 ? (
-        <div className="py-24 text-center bg-white rounded-[3rem] border-2 border-dashed border-slate-100 flex flex-col items-center animate-in zoom-in-95 duration-500">
+        <div className="py-24 text-center bg-white rounded-[3rem] border-2 border-dashed border-slate-100 flex flex-col items-center animate-in zoom-in-95 duration-500" id="empty-state">
            <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mb-8">
               <Home className="w-10 h-10 text-slate-200" />
            </div>
            <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight mb-2">
-             {adminUserFilter !== 'all' ? 'No Assigned Assets' : 'No Assets Detected'}
+             {store.impersonatedUser ? t('no_assigned_assets') : t('no_assets_detected')}
            </h2>
            <p className="text-slate-400 font-medium max-w-sm mx-auto mb-10 leading-relaxed">
-             {adminUserFilter !== 'all' 
-               ? "This manager has no properties assigned to their account." 
-               : "Your portfolio is currently empty. Start adding properties to see data."}
+             {store.impersonatedUser 
+               ? t('no_assets_assigned_desc') 
+               : t('empty_portfolio_desc')}
            </p>
-           {isAdmin && adminUserFilter === 'all' && (
+           {isAdmin && !store.impersonatedUser && (
               <div className="flex flex-wrap justify-center gap-4">
                  <button onClick={() => navigate('/properties')} className="bg-indigo-600 text-white px-8 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-100 flex items-center gap-2 hover:bg-indigo-700 active:scale-95 transition-all">
-                    <Plus className="w-5 h-5" /> Initialize First Property
+                    <Plus className="w-5 h-5" /> {t('initialize_first_property')}
                  </button>
               </div>
            )}
@@ -244,10 +235,10 @@ const Dashboard: React.FC = () => {
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {[
-              { label: 'MTD Revenue', val: `$${stats.monthlyTotalCollected.toLocaleString()}`, sub: 'Settled this month', icon: DollarSign, color: 'bg-indigo-600' },
-              { label: 'Asset Load', val: `${Math.round(stats.occupancyRate)}%`, sub: `${stats.activeUnits} Units Occupied`, icon: Home, color: 'bg-emerald-600' },
-              { label: 'Portfolio Cap', val: `$${stats.monthlyRentExpected.toLocaleString()}`, sub: 'Monthly target', icon: Target, color: 'bg-slate-950' },
-              { label: 'Yield Rate', val: `${Math.round(stats.collectionRate)}%`, sub: 'Payment efficiency', icon: TrendingUp, color: 'bg-amber-50' },
+              { label: t('mtd_revenue'), val: `₹${stats.monthlyTotalCollected.toLocaleString()}`, sub: t('settled_this_month'), icon: DollarSign, color: 'bg-indigo-600' },
+              { label: t('asset_load'), val: `${Math.round(stats.occupancyRate)}%`, sub: `${stats.activeUnits} ${t('units_occupied')}`, icon: Home, color: 'bg-emerald-600' },
+              { label: t('portfolio_cap'), val: `₹${stats.totalPotentialRent.toLocaleString()}`, sub: t('total_capacity'), icon: Target, color: 'bg-slate-950' },
+              { label: t('security_held'), val: `₹${stats.heldDeposits.toLocaleString()}`, sub: t('total_deposits'), icon: ShieldCheck, color: 'bg-indigo-100 !text-indigo-600' },
             ].map((item, i) => (
               <div key={i} className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm hover:translate-y-[-2px] transition-all duration-300">
                 <div className="flex justify-between items-start mb-6">
@@ -257,7 +248,7 @@ const Dashboard: React.FC = () => {
                   <ArrowUpRight className="w-5 h-5 text-slate-300" />
                 </div>
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{item.label}</p>
-                <h3 className="text-3xl font-black text-slate-900 tracking-tight">{item.val}</h3>
+                <h3 className="text-2xl font-black text-slate-900 tracking-tight">{item.val}</h3>
                 <p className="text-[11px] text-slate-400 font-bold mt-2">{item.sub}</p>
               </div>
             ))}
@@ -267,12 +258,12 @@ const Dashboard: React.FC = () => {
             <div className="lg:col-span-8 bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm flex flex-col min-h-[500px]">
               <div className="flex items-center justify-between mb-12">
                 <div>
-                  <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Revenue Stream</h2>
-                  <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mt-1">MTD Target vs Collection</p>
+                  <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">{t('revenue_stream')}</h2>
+                  <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mt-1">{t('mtd_target_vs_collection')}</p>
                 </div>
                 <div className="flex gap-4">
-                   <div className="flex items-center gap-2 text-[10px] font-black uppercase"><div className="w-2.5 h-2.5 rounded-full bg-slate-100"></div> Target</div>
-                   <div className="flex items-center gap-2 text-[10px] font-black uppercase"><div className="w-2.5 h-2.5 rounded-full bg-indigo-500"></div> Actual</div>
+                   <div className="flex items-center gap-2 text-[10px] font-black uppercase"><div className="w-2.5 h-2.5 rounded-full bg-slate-100"></div> {t('target')}</div>
+                   <div className="flex items-center gap-2 text-[10px] font-black uppercase"><div className="w-2.5 h-2.5 rounded-full bg-indigo-500"></div> {t('actual')}</div>
                 </div>
               </div>
               <div className="flex-1 h-full">
@@ -280,7 +271,7 @@ const Dashboard: React.FC = () => {
                   <BarChart data={propertyChartData} barGap={10}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                     <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 900, fill: '#94a3b8' }} dy={10} />
-                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 900, fill: '#94a3b8' }} tickFormatter={v => `$${v/1000}k`} />
+                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 900, fill: '#94a3b8' }} tickFormatter={v => `₹${v/1000}k`} />
                     <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '1rem', color: '#fff' }} />
                     <Bar dataKey="target" fill="#f1f5f9" radius={[8, 8, 0, 0]} barSize={25} />
                     <Bar dataKey="collected" fill="#6366f1" radius={[8, 8, 0, 0]} barSize={25} />
@@ -291,7 +282,7 @@ const Dashboard: React.FC = () => {
 
             <div className="lg:col-span-4 bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm flex flex-col">
               <div className="flex items-center justify-between mb-10">
-                <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Overdue Units</h2>
+                <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">{t('overdue_units')}</h2>
                 <div className="w-12 h-12 bg-rose-50 text-rose-500 rounded-2xl flex items-center justify-center"><AlertCircle className="w-6 h-6" /></div>
               </div>
               <div className="flex-1 space-y-4 max-h-[420px] overflow-y-auto pr-2 custom-scrollbar">
@@ -305,18 +296,18 @@ const Dashboard: React.FC = () => {
                       </div>
                     </div>
                     <div className="text-right flex-shrink-0">
-                      <p className="text-sm font-black text-rose-600">${item.amount.toLocaleString()}</p>
+                      <p className="text-sm font-black text-rose-600">₹{item.amount.toLocaleString()}</p>
                     </div>
                   </div>
                 )) : (
                   <div className="h-full flex flex-col items-center justify-center text-center opacity-40 py-12">
                     <CheckCircle2 className="w-16 h-16 text-emerald-500 mb-6" />
-                    <p className="text-[10px] font-black uppercase tracking-widest">Everything Settled</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest">{t('everything_settled')}</p>
                   </div>
                 )}
               </div>
               <button onClick={() => navigate('/collection')} className="w-full mt-8 py-5 bg-slate-950 text-white rounded-2xl font-black uppercase text-[11px] tracking-widest shadow-xl flex items-center justify-center gap-2">
-                Open Ledger <ArrowRight className="w-4 h-4" />
+                {t('open_ledger')} <ArrowRight className="w-4 h-4" />
               </button>
             </div>
           </div>
