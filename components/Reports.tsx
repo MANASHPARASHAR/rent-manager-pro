@@ -9,7 +9,7 @@ import {
   Calendar, Download, ArrowUpRight, Wallet, 
   ChevronLeft, ChevronRight, Zap, History, User,
   CalendarDays, ChevronDown, Landmark, CreditCard, ShieldCheck,
-  Building2, Layers, Filter, Users, Receipt
+  Building2, Layers, Filter, Users, Receipt, Trash2
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { useLanguageStore } from '../lib/i18n';
@@ -104,16 +104,44 @@ const Reports: React.FC = () => {
       const recipient = p.paidTo || 'Unassigned';
       const mode = p.paymentMode || 'Cash';
       
-      // Get Tenant Name
-      const recordValues = store.recordValues.filter(v => v.recordId === p.recordId);
+      // Get Tenant Name from History for accurate reporting
+      const pDateString = p.paidAt || (p.month !== 'ONE_TIME' ? `${p.month}-15` : new Date().toISOString());
+      const pDate = new Date(pDateString);
+      
+      const recordHists = store.unitHistory
+        .filter((h: any) => h.recordId === p.recordId)
+        .sort((a: any, b: any) => new Date(b.effectiveFrom).getTime() - new Date(a.effectiveFrom).getTime());
+      
+      // Find the history that was active when this payment was made/applied
+      let historicalState = recordHists.find((h: any) => {
+        const from = new Date(h.effectiveFrom);
+        const to = h.effectiveTo ? new Date(h.effectiveTo) : new Date(8640000000000000);
+        return pDate >= from && pDate <= to;
+      });
+
+      // Fallback: If no history state found for that exact time, check if it's a rent payment for a previous month
+      // that was recorded later. Use the history of that specific month.
+      if (!historicalState && p.month && p.month !== 'ONE_TIME') {
+          const [y, m] = p.month.split('-').map(Number);
+          const midMonth = new Date(y, m - 1, 15);
+          historicalState = recordHists.find((h: any) => {
+            const from = new Date(h.effectiveFrom);
+            const to = h.effectiveTo ? new Date(h.effectiveTo) : new Date(8640000000000000);
+            return midMonth >= from && midMonth <= to;
+          });
+      }
+
+      const activeValues = historicalState?.values || store.recordValues.filter(v => v.recordId === p.recordId).reduce((acc: any, v: any) => ({...acc, [v.columnId]: v.value}), {});
+      
       const propertyType = store.propertyTypes.find(pt => pt.id === property?.propertyTypeId);
       const nameCol = propertyType?.columns.find(c => 
         c.name.toLowerCase().includes('name') || 
         c.name.toLowerCase().includes('tenant') ||
         c.name.toLowerCase().includes('holder')
       );
+      
       const tenantName = nameCol 
-        ? recordValues.find(v => v.columnId === nameCol.id)?.value?.toString() || 'Unnamed' 
+        ? activeValues[nameCol.id]?.toString() || 'Unnamed' 
         : (record?.id ? 'Unit ' + record.id.substring(0, 4) : 'Unknown Unit');
       
       if (!byDate[date]) byDate[date] = { date, rent: 0, deposit: 0, electricity: 0, refund: 0 };
@@ -168,10 +196,21 @@ const Reports: React.FC = () => {
           if (activeModality === 'DEPOSIT') {
             byProperty[prop] = (Number(byProperty[prop]) || 0) + amt;
             byRecipient[recipient] = (Number(byRecipient[recipient]) || 0) + amt;
-            // Optionally subtract from mode if we had a mode, but refunds often don't have one set
+            // Subtract from mode if we had a mode
             if (mode && mode !== 'Cash') {
                byMode[mode] = (Number(byMode[mode]) || 0) + amt;
             }
+            
+            // Track negative collection in matrix for accuracy
+            if (!attributionMatrix[recipient]) attributionMatrix[recipient] = {};
+            if (!attributionMatrix[recipient][mode]) attributionMatrix[recipient][mode] = { total: 0, breakdown: {} };
+            attributionMatrix[recipient][mode].total += amt;
+
+            const bKey = `${prop}-${tenantName}`;
+            if (!attributionMatrix[recipient][mode].breakdown[bKey]) {
+              attributionMatrix[recipient][mode].breakdown[bKey] = { property: prop, tenant: tenantName, amount: 0 };
+            }
+            attributionMatrix[recipient][mode].breakdown[bKey].amount += amt;
           }
         } else {
           totalDeposits += amt;
@@ -610,6 +649,86 @@ const Reports: React.FC = () => {
                     );
                  }) : (
                     <tr><td colSpan={3} className="py-20 text-center text-slate-300 font-bold uppercase tracking-widest text-xs italic">No financial data within selected range</td></tr>
+                 )}
+              </tbody>
+           </table>
+        </div>
+      </div>
+      <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm mt-10 overflow-hidden">
+        <div className="flex items-center justify-between mb-10">
+          <div>
+            <h2 className="text-2xl font-black text-rose-900 uppercase tracking-tight flex items-center gap-3">
+              <Zap className="w-6 h-6 text-rose-500" /> {t('data_audit_ledger')}
+            </h2>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Reviewing All Individual Transactions for this range</p>
+          </div>
+          <div className="bg-rose-50 px-4 py-2 rounded-xl border border-rose-100">
+             <span className="text-[10px] font-black text-rose-600 uppercase tracking-widest">{filteredPayments.length} Transactions</span>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto -mx-10 px-10 max-h-[600px] overflow-y-auto custom-scrollbar">
+           <table className="w-full text-left">
+              <thead className="sticky top-0 bg-white z-10 shadow-sm">
+                 <tr className="border-b border-slate-100">
+                    <th className="pb-6 pt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Type</th>
+                    <th className="pb-6 pt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Source/Tenant</th>
+                    <th className="pb-6 pt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Reference</th>
+                    <th className="pb-6 pt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Amount</th>
+                    <th className="pb-6 pt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Action</th>
+                 </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                 {filteredPayments.length > 0 ? [...filteredPayments].sort((a,b) => (b.paidAt||'').localeCompare(a.paidAt||'')).map((p: any, i) => {
+                    const record = store.records.find(r => r.id === p.recordId);
+                    const prop = store.properties.find(pr => pr.id === record?.propertyId);
+                    const pt = store.propertyTypes.find(t => t.id === prop?.propertyTypeId);
+                    const nameCol = pt?.columns.find(c => c.name.toLowerCase().includes('name'));
+                    const vMap = store.unitHistory.find(h => h.id === p.historyId)?.values || store.recordValues.filter(v => v.recordId === p.recordId).reduce((acc: any, v: any) => ({...acc, [v.columnId]: v.value}), {});
+                    const tName = nameCol ? vMap[nameCol.id] || 'Unknown' : 'Unit ' + (record?.id?.substring(0,4)||'??');
+
+                    return (
+                       <tr key={p.id} className="group hover:bg-rose-50/10 transition-colors">
+                          <td className="py-5">
+                             <div className="flex flex-col">
+                                <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-lg w-fit ${p.type === 'RENT' ? 'bg-indigo-50 text-indigo-600' : p.type === 'ELECTRICITY' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                                   {p.type}
+                                </span>
+                                <span className="text-[9px] font-bold text-slate-400 mt-1 uppercase">{p.paidAt ? new Date(p.paidAt).toLocaleDateString() : 'No Date'}</span>
+                             </div>
+                          </td>
+                          <td className="py-5">
+                             <div className="flex flex-col">
+                                <span className="text-sm font-black text-slate-900 uppercase truncate max-w-[200px]">{tName}</span>
+                                <span className="text-[10px] font-bold text-slate-400 uppercase truncate max-w-[200px]">{prop?.name}</span>
+                             </div>
+                          </td>
+                          <td className="py-5 text-center">
+                             <span className="text-[10px] font-mono text-slate-500 uppercase">{p.month || '-'}</span>
+                          </td>
+                          <td className="py-5 text-right">
+                             <span className={`text-sm font-black ${p.amount < 0 ? 'text-rose-600' : 'text-slate-900'}`}>
+                               ₹{Math.abs(p.amount).toLocaleString()}
+                               {p.amount < 0 && <span className="text-[9px] ml-1 uppercase">Refund</span>}
+                             </span>
+                          </td>
+                          <td className="py-5 text-right">
+                             <button 
+                               onClick={() => {
+                                 if (window.confirm('Are you sure you want to delete this payment record? This will affect your balance and cannot be undone.')) {
+                                   store.deletePayment(p.id);
+                                 }
+                               }}
+                               className="p-3 bg-white border border-slate-100 text-slate-300 hover:text-rose-600 hover:border-rose-100 hover:bg-rose-50 rounded-xl transition-all shadow-sm"
+                               title="Delete Records"
+                             >
+                                <Trash2 className="w-4 h-4" />
+                             </button>
+                          </td>
+                       </tr>
+                    );
+                 }) : (
+                    <tr><td colSpan={5} className="py-20 text-center text-slate-300 font-bold uppercase tracking-widest text-xs italic">No transactions found</td></tr>
                  )}
               </tbody>
            </table>

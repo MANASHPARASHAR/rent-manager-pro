@@ -305,7 +305,9 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // Second effect to handle dependent listeners for non-admins (records, payments, etc.)
   useEffect(() => {
-    const isGlobalAdmin = user?.role === UserRole.ADMIN || (user?.username && isSuperAdmin(user.username));
+    const isGlobalAdmin = user?.role === UserRole.ADMIN || 
+                          user?.role === UserRole.MANAGER || 
+                          (user?.username && isSuperAdmin(user.username));
     
     if (!user || isGlobalAdmin) {
       return;
@@ -950,6 +952,17 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       await setDoc(doc(db, 'payments', payId), newPayment);
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'payments');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const deletePayment = async (id: string) => {
+    setIsSyncing(true);
+    try {
+      await deleteDoc(doc(db, 'payments', id));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `payments/${id}`);
     } finally {
       setIsSyncing(false);
     }

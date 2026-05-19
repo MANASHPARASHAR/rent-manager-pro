@@ -275,6 +275,24 @@ const PropertyManagement: React.FC = () => {
     });
   }, [store.properties, store.user, isAdmin, searchTerm, selectedCity, effectiveUser]);
 
+  const recordsByProperty = useMemo(() => {
+    const map: Record<string, PropertyRecord[]> = {};
+    (store.records || []).forEach(r => {
+      if (!map[r.propertyId]) map[r.propertyId] = [];
+      map[r.propertyId].push(r);
+    });
+    return map;
+  }, [store.records]);
+
+  const valuesByRecord = useMemo(() => {
+    const map: Record<string, RecordValue[]> = {};
+    (store.recordValues || []).forEach(v => {
+      if (!map[v.recordId]) map[v.recordId] = [];
+      map[v.recordId].push(v);
+    });
+    return map;
+  }, [store.recordValues]);
+
   const personnel = useMemo(() => {
     return (store.users || []).filter((u: User) => u.role !== UserRole.ADMIN);
   }, [store.users]);
@@ -507,8 +525,19 @@ const PropertyManagement: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
           {filteredProperties.map((prop: Property) => {
             const type = (store.propertyTypes || []).find((t: any) => t.id === prop.propertyTypeId);
-            const unitCount = (store.records || []).filter((r: any) => r.propertyId === prop.id).length;
+            const propertyUnits = recordsByProperty[prop.id] || [];
+            const unitCount = propertyUnits.length;
             const allowedCount = (prop.allowedUserIds || []).length;
+
+            const rentCols = type?.columns.filter((c: any) => c.isRentCalculatable) || [];
+            const totalRent = propertyUnits.reduce((acc, unit) => {
+              const unitVals = valuesByRecord[unit.id] || [];
+              const unitRent = rentCols.reduce((sum, col) => {
+                const val = unitVals.find(v => v.columnId === col.id)?.value;
+                return sum + (parseFloat(val) || 0);
+              }, 0);
+              return acc + unitRent;
+            }, 0);
             
             return (
               <div key={prop.id} className="group bg-white rounded-[2.5rem] border border-gray-100 shadow-sm hover:shadow-2xl hover:border-indigo-100 transition-all duration-300 flex flex-col overflow-hidden">
@@ -545,8 +574,14 @@ const PropertyManagement: React.FC = () => {
                   </div>
 
                   <div className="mt-6 flex items-center justify-between border-t border-gray-50 pt-6">
-                    <div className="space-y-1"><p className="text-[10px] uppercase font-black text-gray-300 tracking-[0.2em]">Schema</p><span className="px-3 py-1 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-black uppercase tracking-tighter">{type?.name || 'Standard'}</span></div>
-                    <div className="text-right"><p className="text-[10px] uppercase font-black text-gray-300 tracking-[0.2em]">Inventory</p><span className="text-2xl font-black text-gray-900">{unitCount} <span className="text-[10px] text-gray-400 font-bold">Units</span></span></div>
+                    <div className="space-y-1">
+                      <p className="text-[10px] uppercase font-black text-gray-300 tracking-[0.2em]">Monthly Yield</p>
+                      <span className="text-lg font-black text-indigo-600 block">₹{totalRent.toLocaleString()}</span>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] uppercase font-black text-gray-300 tracking-[0.2em]">{unitCount} Units</p>
+                      <span className="px-3 py-1 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-black uppercase tracking-tighter block mt-1">{type?.name || 'Standard'}</span>
+                    </div>
                   </div>
                 </div>
                 

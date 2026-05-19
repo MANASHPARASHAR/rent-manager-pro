@@ -98,6 +98,7 @@ const Dashboard: React.FC = () => {
       
       const statusValue = Object.entries(activeValues).find(([cid]) => occupancyColIds.includes(cid))?.[1]?.toString().toLowerCase() || 'active';
       const isActive = statusValue === 'active' || statusValue === 'occupied';
+      const isVacant = statusValue && statusValue.includes('vacant');
       
       // Sum all rent-calculatable columns for this unit
       let unitRent = 0;
@@ -113,8 +114,10 @@ const Dashboard: React.FC = () => {
       const unitPayments = store.payments.filter(p => String(p.recordId) === String(record.id) && p.type === 'DEPOSIT');
       heldDeposits += unitPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
-      if (isActive) {
-        activeUnits++;
+      const hasRentDues = unitRent > 0;
+
+      if (isActive || (isVacant && hasRentDues)) {
+        if (isActive) activeUnits++;
         monthlyRentExpected += unitRent;
         const isPaid = store.payments.some((p: Payment) => p.recordId === record.id && p.month === currentMonthKey && p.type === 'RENT' && p.status === PaymentStatus.PAID);
         if (!isPaid) {
@@ -122,11 +125,13 @@ const Dashboard: React.FC = () => {
           const tenantName = Object.entries(activeValues).find(([cid]) => {
             const col = types.find(t => t.id === property?.propertyTypeId)?.columns.find(c => c.id === cid);
             return col?.name.toLowerCase().includes('name');
-          })?.[1]?.toString() || 'Unknown';
+          })?.[1]?.toString() || (isVacant ? 'Vacant Unit' : 'Unknown');
           
           overdueUnitsList.push({ id: record.id, amount: unitRent, propertyName: property?.name, tenant: tenantName });
         }
-      } else if (statusValue && statusValue.includes('vacant')) {
+      } 
+      
+      if (isVacant) {
         vacantUnits++;
       }
     });
@@ -140,7 +145,7 @@ const Dashboard: React.FC = () => {
       activeUnits, vacantUnits, monthlyRentExpected, totalPotentialRent,
       heldDeposits,
       monthlyTotalCollected: collectedThisMonth,
-      overdueUnitsList: overdueUnitsList.sort((a,b) => b.amount - a.amount).slice(0, 5),
+      overdueUnitsList: overdueUnitsList.sort((a,b) => b.amount - a.amount),
       collectionRate: monthlyRentExpected > 0 ? (collectedThisMonth / monthlyRentExpected) * 100 : 0,
       occupancyRate: (activeUnits + vacantUnits) > 0 ? (activeUnits / (activeUnits + vacantUnits)) * 100 : 0
     };
@@ -254,8 +259,8 @@ const Dashboard: React.FC = () => {
             ))}
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            <div className="lg:col-span-8 bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm flex flex-col min-h-[500px]">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
+            <div className="lg:col-span-8 bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm flex flex-col min-h-[550px]">
               <div className="flex items-center justify-between mb-12">
                 <div>
                   <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">{t('revenue_stream')}</h2>
@@ -266,8 +271,8 @@ const Dashboard: React.FC = () => {
                    <div className="flex items-center gap-2 text-[10px] font-black uppercase"><div className="w-2.5 h-2.5 rounded-full bg-indigo-500"></div> {t('actual')}</div>
                 </div>
               </div>
-              <div className="flex-1 h-full overflow-x-auto pb-4 custom-scrollbar">
-                <div style={{ minWidth: propertyChartData.length > 6 ? `${propertyChartData.length * 100}px` : '100%' }} className="h-full">
+              <div className="flex-1 min-h-[300px] w-full overflow-x-auto pb-4 custom-scrollbar">
+                <div style={{ minWidth: propertyChartData.length > 4 ? `${propertyChartData.length * 120}px` : '100%' }} className="h-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={propertyChartData} barGap={10} margin={{ top: 0, right: 20, left: 0, bottom: 20 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -275,25 +280,28 @@ const Dashboard: React.FC = () => {
                         dataKey="name" 
                         axisLine={false} 
                         tickLine={false} 
-                        tick={{ fontSize: 9, fontWeight: 900, fill: '#94a3b8' }} 
-                        dy={10}
+                        tick={{ fontSize: 9, fontWeight: 900, fill: '#64748b' }}
+                        interval={0}
                       />
                       <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 900, fill: '#94a3b8' }} tickFormatter={v => `₹${v/1000}k`} />
-                      <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '1rem', color: '#fff' }} />
-                      <Bar dataKey="target" fill="#f1f5f9" radius={[8, 8, 0, 0]} barSize={25} />
-                      <Bar dataKey="collected" fill="#6366f1" radius={[8, 8, 0, 0]} barSize={25} />
+                      <Tooltip 
+                        cursor={{ fill: '#f8fafc' }}
+                        contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '10px', fontWeight: '900', textTransform: 'uppercase' }}
+                      />
+                      <Bar dataKey="target" fill="#f1f5f9" radius={[8, 8, 0, 0]} barSize={35} />
+                      <Bar dataKey="collected" fill="#6366f1" radius={[8, 8, 0, 0]} barSize={35} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
               </div>
             </div>
 
-            <div className="lg:col-span-4 bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm flex flex-col">
+            <div className="lg:col-span-4 bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm flex flex-col h-full">
               <div className="flex items-center justify-between mb-10">
                 <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">{t('overdue_units')}</h2>
-                <div className="w-12 h-12 bg-rose-50 text-rose-500 rounded-2xl flex items-center justify-center"><AlertCircle className="w-6 h-6" /></div>
+                <div className="w-12 h-12 bg-rose-50 text-rose-500 rounded-2xl flex items-center justify-center font-black text-sm">{stats.overdueUnitsList.length}</div>
               </div>
-              <div className="flex-1 space-y-4 max-h-[420px] overflow-y-auto pr-2 custom-scrollbar">
+              <div className="flex-1 space-y-4 max-h-[440px] overflow-y-auto pr-2 custom-scrollbar">
                 {stats.overdueUnitsList.length > 0 ? stats.overdueUnitsList.map((item, idx) => (
                   <div key={idx} className="flex items-center justify-between p-5 bg-slate-50 rounded-[2rem] border border-transparent hover:bg-indigo-50 transition-all group">
                     <div className="flex items-center gap-4">

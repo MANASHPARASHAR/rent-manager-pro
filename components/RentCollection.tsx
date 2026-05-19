@@ -41,7 +41,8 @@ import {
   Settings,
   Plus,
   Trash2,
-  StickyNote
+  StickyNote,
+  Ban
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { useLanguageStore } from '../lib/i18n';
@@ -66,6 +67,7 @@ const RentCollection: React.FC = () => {
   });
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPropertyId, setSelectedPropertyId] = useState<string>('all');
+  const [selectedCity, setSelectedCity] = useState<string>('all');
   
   const [paymentModal, setPaymentModal] = useState<any>({ 
     isOpen: false, 
@@ -75,7 +77,7 @@ const RentCollection: React.FC = () => {
     paidTo: store.config.paidToOptions?.[0] || '', 
     mode: store.config.paymentModeOptions?.[0] || '', 
     date: new Date().toLocaleDateString('en-CA'),
-    time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+    time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
     startReading: '',
     endReading: '',
     perUnitCost: ''
@@ -115,7 +117,7 @@ const RentCollection: React.FC = () => {
     record: null, 
     formValues: {}, 
     effectiveDate: new Date().toLocaleDateString('en-CA'),
-    effectiveTime: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+    effectiveTime: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
     errors: {}
   });
 
@@ -215,6 +217,11 @@ const RentCollection: React.FC = () => {
 
   const visiblePropertyIds = useMemo(() => visibleProperties.map((p: any) => p.id), [visibleProperties]);
 
+  const uniqueCities = useMemo(() => {
+    const cities = visibleProperties.map(p => p.city).filter(Boolean) as string[];
+    return Array.from(new Set(cities)).sort();
+  }, [visibleProperties]);
+
   const dynamicLedgerHeaders = useMemo(() => {
     const typesToConsider = selectedPropertyId === 'all' 
       ? store.propertyTypes.filter((t: any) => visibleProperties.some((p: any) => p.propertyTypeId === t.id))
@@ -240,8 +247,10 @@ const RentCollection: React.FC = () => {
   }, [store.propertyTypes, store.properties, selectedPropertyId, visibleProperties]);
 
   const recordsWithRent = useMemo(() => {
-    const today = new Date(); today.setHours(0,0,0,0);
+        const today = new Date(); today.setHours(0,0,0,0);
     const [y, m] = selectedMonth.split('-').map(Number);
+    const startOfMonth = new Date(y, m - 1, 1, 0, 0, 0);
+    const endOfMonth = new Date(y, m, 0, 23, 59, 59);
 
     return store.records
       .filter((r: any) => visiblePropertyIds.includes(r.propertyId))
@@ -251,26 +260,36 @@ const RentCollection: React.FC = () => {
         const pName = property?.name || 'Unassigned Asset';
         
         const dueDay = propertyType?.defaultDueDateDay || 5;
-        // Anchor context to mid-day of the last day to avoid micro-rounding/timezone boundary issues
-        const contextDate = new Date(y, m, 0, 12, 0, 0); 
+        
+        const occupancyCol = propertyType?.columns.find(c => c.type === ColumnType.OCCUPANCY_STATUS);
+        const rentCol = propertyType?.columns.find(c => c.isRentCalculatable);
+        const depositCol = propertyType?.columns.find(c => c.type === ColumnType.SECURITY_DEPOSIT);
+        const nameCol = propertyType?.columns.find(c => c.name.toLowerCase().includes('name'));
 
         // Get history for this record, sorted by most recent start first
         const histsForRecord = store.unitHistory
           .filter((h: any) => h.recordId === record.id)
           .sort((a: any, b: any) => new Date(b.effectiveFrom).getTime() - new Date(a.effectiveFrom).getTime());
 
-        // Find the record that was active as of the anchor date
-        let historicalState = histsForRecord.find((h: UnitHistory) => {
-          const from = new Date(h.effectiveFrom);
-          return contextDate >= from;
+        // Find hists that overlapped with this month
+        const overlappingHists = histsForRecord.filter((h: any) => {
+           const from = new Date(h.effectiveFrom);
+           const to = h.effectiveTo ? new Date(h.effectiveTo) : new Date(8640000000000000);
+           return from <= endOfMonth && to >= startOfMonth;
         });
 
-        // Fallback for dates before the first history entry (Pre-Journaling era)
+        // Representative History for the month:
+        // 1. If any history in this month is "Active" (not Vacant), pick the most recent one of those.
+        // 2. Otherwise, pick the most recent history of the month (likely the last Vacant one).
+        let historicalState = overlappingHists.find((h: any) => {
+           const occVal = String(h.values[occupancyCol?.id || ''] || '').toLowerCase();
+           return occVal && !occVal.includes('vacant');
+        }) || overlappingHists[0];
+
+        // Fallback for dates before the first history entry
         if (!historicalState && histsForRecord.length > 0) {
           const oldestHist = histsForRecord[histsForRecord.length - 1];
-          if (contextDate < new Date(oldestHist.effectiveFrom)) {
-            const occupancyCol = propertyType?.columns.find(c => c.type === ColumnType.OCCUPANCY_STATUS);
-            const nameCol = propertyType?.columns.find(c => c.name.toLowerCase().includes('name'));
+          if (endOfMonth < new Date(oldestHist.effectiveFrom)) {
             historicalState = {
               values: {
                 ...(occupancyCol ? { [occupancyCol.id]: 'Vacant' } : {}),
@@ -281,10 +300,6 @@ const RentCollection: React.FC = () => {
         }
 
         const activeValues = historicalState?.values || store.recordValues.filter((v: any) => v.recordId === record.id).reduce((acc: any, v: any) => ({...acc, [v.columnId]: v.value}), {});
-        const rentCol = propertyType?.columns.find(c => c.isRentCalculatable);
-        const depositCol = propertyType?.columns.find(c => c.type === ColumnType.SECURITY_DEPOSIT);
-        const occupancyCol = propertyType?.columns.find(c => c.type === ColumnType.OCCUPANCY_STATUS);
-        const nameCol = propertyType?.columns.find(c => c.name.toLowerCase().includes('name'));
         
         const rentValue = activeValues[rentCol?.id || ''] || '0';
         const depositValue = activeValues[depositCol?.id || ''] || '0';
@@ -323,12 +338,12 @@ const RentCollection: React.FC = () => {
         const isDepositPartialPaid = totalDepositPaid > 0 && totalDepositPaid < parseFloat(depositValue);
 
         let statusBadge: any = 'PENDING';
-        if (isVacant) statusBadge = 'VACANT';
-        else if (isRentPaid) statusBadge = 'PAID';
+        if (isRentPaid) statusBadge = 'PAID';
+        else if (isPartialPaid) statusBadge = 'PARTIAL';
+        else if (isVacant && totalRentPaid === 0) statusBadge = 'VACANT';
         else {
           const deadline = new Date(y, m - 1, dueDay, 23, 59, 59);
           if (today > deadline) statusBadge = 'OVERDUE';
-          else if (isPartialPaid) statusBadge = 'PARTIAL';
         }
 
         return { 
@@ -336,6 +351,7 @@ const RentCollection: React.FC = () => {
           property: property ? { ...property, name: pName } : { id: 'unknown', name: 'Unassigned Asset' },
           propertyType, 
           tenantName: tenantName || 'Unknown Tenant', 
+          city: property?.city,
           historyId: currentHistoryId,
           rentAmount: parseFloat(rentValue) || 0, 
           depositAmount: parseFloat(depositValue) || 0, 
@@ -355,10 +371,11 @@ const RentCollection: React.FC = () => {
       })
       .filter((r: any) => {
         const matchesProp = selectedPropertyId === 'all' || r.propertyId === selectedPropertyId;
+        const matchesCity = selectedCity === 'all' || r.city === selectedCity;
         const matchesSearch = searchTerm === '' || Object.values(r.rawValuesMap).some(v => String(v).toLowerCase().includes(searchTerm.toLowerCase()));
-        return matchesProp && matchesSearch;
+        return matchesProp && matchesCity && matchesSearch;
       });
-  }, [store.records, store.properties, store.propertyTypes, store.recordValues, store.unitHistory, store.payments, selectedMonth, searchTerm, selectedPropertyId, visiblePropertyIds]);
+  }, [store.records, store.properties, store.propertyTypes, store.recordValues, store.unitHistory, store.payments, selectedMonth, searchTerm, selectedPropertyId, selectedCity, visiblePropertyIds]);
 
   const ledgerStats = useMemo(() => {
     let collected = 0;
@@ -372,8 +389,8 @@ const RentCollection: React.FC = () => {
       electricityCollected += r.totalElectricityPaid;
       heldDeposits += r.totalDepositPaid;
 
-      // Only calculate pending amount for non-vacant units
-      if (!r.isVacant) {
+      // Only calculate pending amount for non-vacant units OR units with outstanding balance (arrears)
+      if (!r.isVacant || (r.rentAmount > 0 && !r.isRentPaid)) {
         if (!r.isRentPaid) {
           pending += (r.rentAmount - r.totalRentPaid);
         }
@@ -396,7 +413,7 @@ const RentCollection: React.FC = () => {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedPropertyId, searchTerm, recordsPerPage]);
+  }, [selectedPropertyId, selectedCity, searchTerm, recordsPerPage]);
 
   const unitTimeline = useMemo(() => {
     if (!historyModal.record) return [];
@@ -469,7 +486,7 @@ const RentCollection: React.FC = () => {
       paidTo: store.config.paidToOptions?.[0] || '',
       mode: store.config.paymentModeOptions?.[0] || '',
       date: defaultDate,
-      time: now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+      time: now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
       startReading,
       endReading,
       perUnitCost
@@ -539,7 +556,7 @@ const RentCollection: React.FC = () => {
       type,
       paidTo,
       paymentMode: mode,
-      paidAt: `${date}T${time}:00`,
+      paidAt: time.split(':').length === 2 ? `${date}T${time}:00` : `${date}T${time}`,
       isRefunded: false,
     };
 
@@ -612,7 +629,7 @@ const RentCollection: React.FC = () => {
       value: String(val)
     }));
     
-    const combinedEffectiveFrom = `${effectiveDate}T${effectiveTime}:00`;
+    const combinedEffectiveFrom = effectiveTime.split(':').length === 2 ? `${effectiveDate}T${effectiveTime}:00` : `${effectiveDate}T${effectiveTime}`;
     store.updateRecord(record.id, values, combinedEffectiveFrom);
     setTemporalAction({ ...temporalAction, isOpen: false, errors: {} });
   };
@@ -810,13 +827,27 @@ const RentCollection: React.FC = () => {
       </div>
 
       <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
-         <div className="px-8 py-6 border-b border-slate-50 flex items-center justify-between bg-slate-50/30">
+         <div className="px-8 py-6 border-b border-slate-50 flex flex-col lg:flex-row lg:items-center justify-between bg-slate-50/30 gap-4">
             <div className="flex items-center gap-4">
                <div className="p-3 bg-slate-900 text-white rounded-xl shadow-lg"><Landmark className="w-5 h-5" /></div>
                <h2 className="text-base font-black text-slate-900 uppercase tracking-tight">{t('financial_unit_ledger')}</h2>
             </div>
-            <div className="flex items-center gap-6">
-               <div className="flex items-center gap-3">
+            <div className="flex items-center gap-6 overflow-x-auto pb-1 no-scrollbar -mx-2 px-2 lg:mx-0 lg:px-0">
+               <div className="flex items-center gap-3 shrink-0">
+                  <MapPin className="w-4 h-4 text-slate-400" />
+                  <select 
+                    className="text-xs font-black uppercase text-slate-700 outline-none bg-transparent cursor-pointer hover:text-indigo-600 transition-colors"
+                    value={selectedCity}
+                    onChange={e => {
+                      setSelectedCity(e.target.value);
+                      setSelectedPropertyId('all'); // Reset property filter when city changes
+                    }}
+                  >
+                    <option value="all">{t('view_all_cities') || 'All Cities'}</option>
+                    {uniqueCities.map(city => <option key={city} value={city}>{city}</option>)}
+                  </select>
+               </div>
+               <div className="flex items-center gap-3 shrink-0">
                   <Layers className="w-4 h-4 text-slate-400" />
                   <select 
                     className="text-xs font-black uppercase text-slate-700 outline-none bg-transparent cursor-pointer hover:text-indigo-600 transition-colors"
@@ -828,7 +859,7 @@ const RentCollection: React.FC = () => {
                     <option value="all">Show All</option>
                   </select>
                </div>
-               <div className="flex items-center gap-3">
+               <div className="flex items-center gap-3 shrink-0">
                   <Filter className="w-4 h-4 text-slate-400" />
                   <select 
                     className="text-xs font-black uppercase text-slate-700 outline-none bg-transparent cursor-pointer hover:text-indigo-600 transition-colors"
@@ -836,7 +867,10 @@ const RentCollection: React.FC = () => {
                     onChange={e => setSelectedPropertyId(e.target.value)}
                   >
                     <option value="all">{t('view_all_properties')}</option>
-                    {visibleProperties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    {visibleProperties
+                      .filter(p => selectedCity === 'all' || p.city === selectedCity)
+                      .map(p => <option key={p.id} value={p.id}>{p.name}</option>)
+                    }
                   </select>
                </div>
             </div>
@@ -856,7 +890,7 @@ const RentCollection: React.FC = () => {
                </thead>
                <tbody className="divide-y divide-slate-50">
                   {paginatedRecords.map((record) => (
-                    <tr key={record.id} className={`group hover:bg-slate-50/50 transition-all ${record.isVacant ? 'opacity-50' : ''}`}>
+                    <tr key={record.id} className={`group hover:bg-slate-50/50 transition-all ${record.isVacant && !record.isRentPaid ? 'opacity-60 bg-slate-50/30' : ''}`}>
                        <td className="px-2 py-3 bg-white group-hover:bg-slate-50 transition-colors border-r border-slate-50">
                           <button 
                             onClick={() => setUnitDetailsModal({ isOpen: true, record })}
@@ -880,9 +914,9 @@ const RentCollection: React.FC = () => {
                        <td className="px-1 md:px-3 py-4 text-center">
                           <div className="flex flex-col items-center gap-1.5">
                              <button 
-                               disabled={record.isVacant || !canEdit}
+                               disabled={!canEdit || (record.isVacant && !record.isRentPaid)}
                                onClick={() => record.isRentPaid ? handleOpenRevert(record, 'RENT') : handleOpenPayment(record, 'RENT')}
-                               className={`min-w-[90px] md:min-w-[115px] px-1.5 md:px-2 py-1.5 rounded-lg text-[7px] md:text-[8.5px] font-black uppercase tracking-widest border transition-all flex items-center justify-center gap-1 md:gap-1.5 mx-auto ${record.isRentPaid ? 'bg-emerald-50 text-emerald-700 border-emerald-100 hover:bg-rose-50 hover:text-rose-700' : record.isPartialPaid ? 'bg-amber-50 text-amber-700 border-amber-100' : record.statusBadge === 'OVERDUE' ? 'bg-rose-50 text-rose-700 border-rose-100' : 'bg-slate-50 text-slate-400 border-slate-100'}`}
+                               className={`min-w-[90px] md:min-w-[115px] px-1.5 md:px-2 py-1.5 rounded-lg text-[7px] md:text-[8.5px] font-black uppercase tracking-widest border transition-all flex items-center justify-center gap-1 md:gap-1.5 mx-auto ${record.isRentPaid ? 'bg-emerald-50 text-emerald-700 border-emerald-100 hover:bg-rose-50 hover:text-rose-700' : record.isPartialPaid ? 'bg-amber-50 text-amber-700 border-amber-100' : record.statusBadge === 'OVERDUE' ? 'bg-rose-50 text-rose-700 border-rose-100' : (record.isVacant ? 'bg-slate-50 text-slate-200 border-slate-100 opacity-50' : 'bg-slate-50 text-slate-400 border-slate-100')}`}
                              >
                                 {record.isRentPaid ? (
                                   <div className="flex flex-col items-center leading-none">
@@ -891,8 +925,8 @@ const RentCollection: React.FC = () => {
                                   </div>
                                 ) : (
                                   <>
-                                    {record.statusBadge === 'OVERDUE' ? <AlertCircle className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-                                    <span className="whitespace-nowrap">{record.isPartialPaid ? t('balance') : t('collect_rent')}</span>
+                                    {record.statusBadge === 'OVERDUE' ? <AlertCircle className="w-3 h-3" /> : (record.isVacant ? <Ban className="w-3 h-3" /> : <Clock className="w-3 h-3" />)}
+                                    <span className="whitespace-nowrap">{record.isVacant && !record.isRentPaid ? t('n_a') : (record.isPartialPaid ? t('balance') : t('collect_rent'))}</span>
                                   </>
                                 )}
                              </button>
@@ -909,9 +943,9 @@ const RentCollection: React.FC = () => {
 
                        <td className="px-1 md:px-3 py-4 text-center">
                           <button 
-                            disabled={record.isVacant || !canEdit}
+                            disabled={!canEdit || (record.isVacant && !record.isElectricityPaid)}
                             onClick={() => record.isElectricityPaid ? handleOpenRevert(record, 'ELECTRICITY') : handleOpenPayment(record, 'ELECTRICITY')}
-                            className={`min-w-[90px] md:min-w-[115px] px-1.5 md:px-2 py-1.5 rounded-lg text-[7px] md:text-[8.5px] font-black uppercase tracking-widest border transition-all flex items-center justify-center gap-1 md:gap-1.5 mx-auto ${record.isElectricityPaid ? 'bg-amber-50 text-amber-700 border-amber-100 hover:bg-rose-50 hover:text-rose-700' : 'bg-slate-50 text-slate-400 border-slate-100'}`}
+                            className={`min-w-[90px] md:min-w-[115px] px-1.5 md:px-2 py-1.5 rounded-lg text-[7px] md:text-[8.5px] font-black uppercase tracking-widest border transition-all flex items-center justify-center gap-1 md:gap-1.5 mx-auto ${record.isElectricityPaid ? 'bg-amber-50 text-amber-700 border-amber-100 hover:bg-rose-50 hover:text-rose-700' : (record.isVacant ? 'bg-slate-50 text-slate-200 border-slate-100 opacity-50' : 'bg-slate-50 text-slate-400 border-slate-100')}`}
                           >
                              {record.isElectricityPaid ? (
                                <div className="flex flex-col items-center leading-tight">
@@ -921,7 +955,7 @@ const RentCollection: React.FC = () => {
                              ) : (
                                <>
                                  <Zap className="w-3 h-3" />
-                                 <span className="whitespace-nowrap">{record.isVacant ? t('n_a') : t('electricity')}</span>
+                                 <span className="whitespace-nowrap">{record.isVacant && !record.isElectricityPaid ? t('n_a') : t('electricity')}</span>
                                </>
                              )}
                           </button>
@@ -930,10 +964,10 @@ const RentCollection: React.FC = () => {
                        <td className="px-3 py-4 text-center">
                           <div className="flex flex-col items-center gap-1.5">
                              <button 
-                               disabled={record.isVacant || !canEdit}
+                               disabled={!canEdit || (record.isVacant && !record.isDepositPaid && !record.isDepositRefunded)}
                                onClick={() => record.isDepositPaid ? handleOpenRevert(record, 'DEPOSIT') : handleOpenPayment(record, 'DEPOSIT')}
                                onContextMenu={(e) => { e.preventDefault(); if(record.isDepositPaid && canEdit) setRefundConfirm({ isOpen: true, record }); }}
-                               className={`min-w-[90px] md:min-w-[115px] px-1.5 md:px-2 py-1.5 rounded-lg text-[7px] md:text-[8.5px] font-black uppercase tracking-widest border transition-all flex items-center justify-center gap-1 md:gap-1.5 mx-auto ${record.isDepositPaid ? 'bg-indigo-50 text-indigo-700 border-indigo-100 hover:bg-rose-50 hover:text-rose-700' : record.isDepositPartialPaid ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-slate-50 text-slate-400 border-slate-100'}`}
+                               className={`min-w-[90px] md:min-w-[115px] px-1.5 md:px-2 py-1.5 rounded-lg text-[7px] md:text-[8.5px] font-black uppercase tracking-widest border transition-all flex items-center justify-center gap-1 md:gap-1.5 mx-auto ${record.isDepositPaid ? 'bg-indigo-50 text-indigo-700 border-indigo-100 hover:bg-rose-50 hover:text-rose-700' : record.isDepositPartialPaid ? 'bg-amber-50 text-amber-700 border-amber-100' : (record.isVacant && !record.isDepositRefunded ? 'bg-slate-50 text-slate-200 border-slate-100 opacity-50' : 'bg-slate-50 text-slate-400 border-slate-100')}`}
                              >
                                 {record.isDepositPaid ? (
                                   <div className="flex flex-col items-center leading-tight">
@@ -943,7 +977,7 @@ const RentCollection: React.FC = () => {
                                 ) : (
                                   <>
                                     <Landmark className="w-3 h-3" />
-                                    {record.isDepositRefunded ? t('refunded') : (record.isVacant ? t('n_a') : (record.isDepositPartialPaid ? t('balance') : t('security')))}
+                                    {record.isDepositRefunded ? t('refunded') : (record.isVacant && !record.isDepositPartialPaid ? t('n_a') : (record.isDepositPartialPaid ? t('balance') : t('security')))}
                                   </>
                                 )}
                              </button>
@@ -981,7 +1015,7 @@ const RentCollection: React.FC = () => {
                                    record, 
                                    formValues: freshValues, 
                                    effectiveDate: today,
-                                    effectiveTime: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+                                   effectiveTime: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
                                    errors: {}
                                  });
                                }} 
@@ -997,27 +1031,7 @@ const RentCollection: React.FC = () => {
                                if (!canAddTenant) return <div className="absolute -top-1 -right-1 w-2 h-2 bg-rose-500 rounded-full border border-white" />;
                                return null;
                              })()}
-                             <button 
-                               onClick={() => {
-                                 const statusCol = record.propertyType?.columns.find((c: any) => c.type === ColumnType.OCCUPANCY_STATUS);
-                                 const vacatingValues = { ...record.rawValuesMap };
-                                 if (statusCol) vacatingValues[statusCol.id] = 'Vacant';
-                                 const now = new Date();
-                                 setTemporalAction({ 
-                                   isOpen: true, 
-                                   type: 'STATUS', 
-                                   record, 
-                                   formValues: vacatingValues, 
-                                   effectiveDate: now.toLocaleDateString('en-CA'), 
-                                   effectiveTime: now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
-                                   errors: {} 
-                                 });
-                               }} 
-                               className="p-1.5 text-slate-400 hover:text-rose-600 transition-colors bg-white rounded-lg shadow-sm"
-                             >
-                               <Activity className="w-4 h-4" />
-                             </button>
-                           </>
+                            </>
                          )}
                        </div>
                     </td>
@@ -1233,6 +1247,7 @@ const RentCollection: React.FC = () => {
                       <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Clock className="w-4 h-4 text-indigo-500" /> Time</label>
                       <input 
                         type="time" 
+                        step="1"
                         className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-6 py-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all" 
                         value={paymentModal.time} 
                         onChange={e => setPaymentModal({...paymentModal, time: e.target.value})} 
@@ -1311,7 +1326,7 @@ const RentCollection: React.FC = () => {
                                  </span>
                                  <div className="flex flex-col items-end">
                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{new Date(item.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                                   <span className="text-[8px] font-bold text-slate-300 uppercase tracking-tighter mt-0.5">{new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                   <span className="text-[8px] font-bold text-slate-300 uppercase tracking-tighter mt-0.5">{new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
                                  </div>
                               </div>
 
@@ -1405,13 +1420,13 @@ const RentCollection: React.FC = () => {
       {temporalAction.isOpen && (
         <div className="fixed inset-0 z-[1100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
            <div className="bg-white w-full max-w-lg rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
-              <div className={`p-10 text-white flex justify-between items-center ${temporalAction.type === 'TENANT' ? 'bg-indigo-600' : 'bg-rose-600'}`}>
+              <div className={`p-10 text-white flex justify-between items-center bg-indigo-600`}>
                  <div className="flex items-center gap-5">
                     <div className="p-4 bg-white/20 rounded-2xl backdrop-blur-md">
-                       {temporalAction.type === 'TENANT' ? <UserPlus className="w-7 h-7" /> : <Activity className="w-7 h-7" />}
+                       <UserPlus className="w-7 h-7" />
                     </div>
                     <div>
-                       <h3 className="text-2xl font-black uppercase leading-none tracking-tight">{temporalAction.type === 'TENANT' ? t('member_onboarding') : t('occupancy_update')}</h3>
+                       <h3 className="text-2xl font-black uppercase leading-none tracking-tight">{t('member_onboarding')}</h3>
                        <p className="text-[11px] font-bold text-white/60 uppercase mt-2">{t('unit')}: {temporalAction.record.property?.name}</p>
                     </div>
                  </div>
@@ -1432,7 +1447,7 @@ const RentCollection: React.FC = () => {
                               const updatedValues = { ...temporalAction.formValues };
                               
                               const rentDateCol = temporalAction.record.propertyType?.columns.find((c: any) => c.name.toLowerCase() === 'rent date');
-                              if (rentDateCol && temporalAction.type === 'TENANT') {
+                              if (rentDateCol) {
                                 updatedValues[rentDateCol.id] = newDate;
                               }
 
@@ -1449,6 +1464,7 @@ const RentCollection: React.FC = () => {
                           <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Clock className="w-4 h-4 text-indigo-500" /> {t('time')}</label>
                           <input 
                             type="time"
+                            step="1"
                             className="w-full bg-white border border-slate-200 rounded-2xl px-6 py-4 text-sm font-bold outline-none shadow-sm focus:ring-4 focus:ring-indigo-500/5 transition-all"
                             value={temporalAction.effectiveTime}
                             onChange={e => setTemporalAction({ ...temporalAction, effectiveTime: e.target.value })}
@@ -1460,8 +1476,7 @@ const RentCollection: React.FC = () => {
 
                  <div className="space-y-6">
                     {temporalAction.record.propertyType?.columns.map((col: ColumnDefinition) => {
-                      const isStatus = col.type === ColumnType.OCCUPANCY_STATUS;
-                      const isRelevant = temporalAction.type === 'TENANT' ? true : isStatus;
+                      const isRelevant = true;
                       
                       const isSynchronizedRentDate = temporalAction.type === 'TENANT' && col.name.toLowerCase() === 'rent date';
 
@@ -1472,7 +1487,7 @@ const RentCollection: React.FC = () => {
                       return (
                         <div key={col.id} className="space-y-2 animate-in slide-in-from-top-3">
                            <label className={`text-[11px] font-black uppercase tracking-widest ml-1 ${hasError ? 'text-red-500' : 'text-slate-400'}`}>
-                             {col.name} {temporalAction.type === 'TENANT' && <span className="text-red-500">*</span>}
+                             {col.name} <span className="text-red-500">*</span>
                            </label>
                            {col.options ? (
                              <select 
@@ -1528,9 +1543,9 @@ const RentCollection: React.FC = () => {
 
                  <button 
                   onClick={handleSaveTemporalAction}
-                  className={`w-full py-6 text-white rounded-[2rem] font-black uppercase text-[12px] tracking-widest shadow-xl transition-all active:scale-95 flex items-center justify-center gap-4 ${temporalAction.type === 'TENANT' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-rose-600 hover:bg-rose-700'}`}
+                  className="w-full py-6 text-white rounded-[2rem] font-black uppercase text-[12px] tracking-widest shadow-xl transition-all active:scale-95 flex items-center justify-center gap-4 bg-indigo-600 hover:bg-indigo-700"
                  >
-                    <Save className="w-6 h-6" /> {temporalAction.type === 'TENANT' ? t('authorize_onboarding') : t('execute_status_shift')}
+                    <Save className="w-6 h-6" /> {t('authorize_onboarding')}
                  </button>
               </div>
            </div>
