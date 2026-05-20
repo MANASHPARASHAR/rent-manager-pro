@@ -42,7 +42,8 @@ import {
   Plus,
   Trash2,
   StickyNote,
-  Ban
+  Ban,
+  MessageSquare
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { useLanguageStore } from '../lib/i18n';
@@ -50,7 +51,7 @@ import { PaymentStatus, ColumnType, Payment, UnitHistory, ColumnDefinition, Reco
 
 const RentCollection: React.FC = () => {
   const store = useRentalStore();
-  const { t } = useLanguageStore();
+  const { t, language } = useLanguageStore();
   const SUPERADMIN_EMAIL = 'manashparashar9926@gmail.com';
   const isAdmin = store.user?.role === UserRole.ADMIN || 
                    store.user?.username?.toLowerCase().trim() === SUPERADMIN_EMAIL;
@@ -131,6 +132,37 @@ const RentCollection: React.FC = () => {
     isOpen: false,
     record: null
   });
+
+  const [reminderModal, setReminderModal] = useState<{
+    isOpen: boolean;
+    record: any | null;
+    phone: string;
+    message: string;
+  }>({
+    isOpen: false,
+    record: null,
+    phone: '',
+    message: ''
+  });
+
+  const handleOpenReminder = (record: any, phone: string) => {
+    const pName = record.property?.name || 'Property';
+    const tName = record.tenantName || 'Tenant';
+    const rentVal = record.rentAmount ? record.rentAmount.toLocaleString('en-IN') : '0';
+    const monthFormatted = selectedMonth;
+
+    const isHi = language === 'hi';
+    const defaultMsg = isHi
+      ? `नमस्ते ${tName}, आपके ${pName} का ${monthFormatted} महीने का किराया ₹${rentVal} अभी तक लंबित है। कृपया जल्द से जल्द भुगतान सुनिश्चित करें। धन्यवाद!`
+      : `Dear ${tName}, your rent of ₹${rentVal} for ${pName} (Month: ${monthFormatted}) is currently pending. Please pay at your earliest convenience. Thank you!`;
+
+    setReminderModal({
+      isOpen: true,
+      record,
+      phone,
+      message: defaultMsg
+    });
+  };
 
   const [recordsPerPage, setRecordsPerPage] = useState<number | 'all'>(25);
   const [currentPage, setCurrentPage] = useState(1);
@@ -1005,6 +1037,24 @@ const RentCollection: React.FC = () => {
                        <td className="px-2 py-3 text-right">
                           <div className="flex justify-end gap-1.5 transition-all">
                              <button onClick={() => setNotesModal({ isOpen: true, record, text: record.notes || '' })} className="p-1.5 text-slate-400 hover:text-amber-600 transition-colors bg-white rounded-lg shadow-sm" title="Notes"><StickyNote className="w-3.5 h-3.5" /></button>
+                             {(() => {
+                                const phoneCol = record.propertyType?.columns.find((col: any) => col.type === ColumnType.PHONE || col.name.toLowerCase().includes('phone') || (col.name.toLowerCase().includes('number') && !col.isRentCalculatable));
+                                const tenantPhone = record.rawValuesMap?.[phoneCol?.id || ''] || '';
+                                const isPendingOrOverdue = !record.isRentPaid && !record.isVacant;
+                                
+                                if (tenantPhone && isPendingOrOverdue) {
+                                   return (
+                                      <button 
+                                         onClick={() => handleOpenReminder(record, tenantPhone)}
+                                         className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:scale-105 hover:bg-emerald-100 transition-all bg-emerald-50 rounded-lg shadow-sm border border-emerald-100 flex items-center justify-center animate-pulse" 
+                                         title={t('Send Reminder') || "Send Rent Reminder"}
+                                      >
+                                         <MessageSquare className="w-3.5 h-3.5" />
+                                      </button>
+                                   );
+                                 }
+                                 return null;
+                              })()}
                              <button onClick={() => setHistoryModal({ isOpen: true, record })} className="p-1.5 text-slate-400 hover:text-indigo-600 transition-colors bg-white rounded-lg shadow-sm" title="History"><History className="w-3.5 h-3.5" /></button>
                              {canEdit && (
                                <>
@@ -1632,14 +1682,143 @@ const RentCollection: React.FC = () => {
                                 </div>
                                 <p className="text-sm font-black text-slate-800 uppercase tracking-tight">{value || '-'}</p>
                              </div>
-                          </div>
-                        );
-                    })}
+                                                                 </div>
+                         );
+                     })}
+                  </div>
+               </div>
+
+               <div className="p-8 bg-slate-50 border-t border-slate-100">
+                  <button onClick={() => setUnitDetailsModal({isOpen: false, record: null})} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[11px] tracking-widest shadow-lg transition-all active:scale-95">Close Details</button>
+                  {(() => {
+                    const record = unitDetailsModal.record;
+                    if (!record) return null;
+                    const phoneCol = record.propertyType?.columns.find((col: any) => col.type === ColumnType.PHONE || col.name.toLowerCase().includes('phone') || (col.name.toLowerCase().includes('number') && !col.isRentCalculatable));
+                    const tenantPhone = record.rawValuesMap?.[phoneCol?.id || ''] || '';
+                    if (!tenantPhone) return null;
+                    return (
+                      <div className="mt-4 p-4 bg-emerald-50 rounded-2xl border border-emerald-100 flex items-center justify-between text-left">
+                        <div>
+                          <p className="text-[10px] font-black text-emerald-800 uppercase tracking-widest">{t('rent_reminder') || "Due Rent Reminder"}</p>
+                          <p className="text-xs text-slate-500 mt-1">{t('phone_num') || "Tenant Phone"}: <span className="font-bold text-slate-800">{tenantPhone}</span></p>
+                        </div>
+                        <button
+                          onClick={() => handleOpenReminder(record, tenantPhone)}
+                          className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 hover:bg-emerald-700 shadow-md shadow-emerald-100 transition-all active:scale-95"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5 animate-bounce" />
+                          {t('remind') || "Remind"}
+                        </button>
+                      </div>
+                    );
+                  })()}
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* RENT REMINDER MODAL (Free WhatsApp & SMS Portal) */}
+      {reminderModal.isOpen && reminderModal.record && (
+        <div className="fixed inset-0 z-[1200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+           <div className="bg-white w-full max-w-lg rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
+              <div className="p-8 bg-emerald-600 text-white flex justify-between items-center">
+                 <div className="flex items-center gap-4">
+                    <div className="p-3 bg-white/20 rounded-xl backdrop-blur-md">
+                       <MessageSquare className="w-5 h-5 text-white animate-pulse" />
+                    </div>
+                    <div>
+                       <h3 className="text-xl font-black uppercase leading-none tracking-tight">Send Due Reminder</h3>
+                       <p className="text-[10px] font-bold text-white/70 uppercase mt-1.5">Free Zero-Cost SMS & WhatsApp Protocol</p>
+                    </div>
                  </div>
+                 <button onClick={() => setReminderModal({...reminderModal, isOpen: false})} className="p-2 hover:bg-white/10 rounded-full transition-colors text-white/60"><X className="w-6 h-6" /></button>
               </div>
 
-              <div className="p-8 bg-slate-50 border-t border-slate-100">
-                 <button onClick={() => setUnitDetailsModal({isOpen: false, record: null})} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[11px] tracking-widest shadow-lg transition-all active:scale-95">Close Details</button>
+              <div className="p-8 space-y-6 text-left">
+                 <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Recipient Info</label>
+                    <div className="grid grid-cols-2 gap-3">
+                       <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl">
+                          <p className="text-[9px] font-bold text-slate-400 uppercase">Tenant Name</p>
+                          <p className="text-sm font-black text-slate-800 mt-1 uppercase">{reminderModal.record.tenantName}</p>
+                       </div>
+                       <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl">
+                          <p className="text-[9px] font-bold text-slate-400 uppercase">Phone Number</p>
+                          <input 
+                            type="text"
+                            value={reminderModal.phone}
+                            onChange={e => setReminderModal({ ...reminderModal, phone: e.target.value })}
+                            className="text-sm font-black text-slate-800 mt-1 bg-transparent border-b border-dashed border-slate-300 focus:border-indigo-500 outline-none w-full"
+                          />
+                       </div>
+                    </div>
+                 </div>
+
+                 <div className="space-y-2">
+                    <div className="flex justify-between items-center px-1 animate-in fade-in">
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Message Template</label>
+                       <div className="flex gap-2">
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              const pName = reminderModal.record.property?.name || 'Property';
+                              const tName = reminderModal.record.tenantName || 'Tenant';
+                              const rentVal = reminderModal.record.rentAmount ? reminderModal.record.rentAmount.toLocaleString('en-IN') : '0';
+                              const msg = `Dear ${tName}, your rent of ₹${rentVal} for ${pName} (Month: ${selectedMonth}) is pending. Please pay at your earliest convenience. Thank you!`;
+                              setReminderModal({ ...reminderModal, message: msg });
+                            }}
+                            className="text-[9px] font-black uppercase text-indigo-600 hover:text-indigo-700 hover:underline bg-indigo-50 px-2 py-1 rounded"
+                          >
+                             English
+                          </button>
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              const pName = reminderModal.record.property?.name || 'Property';
+                              const tName = reminderModal.record.tenantName || 'Tenant';
+                              const rentVal = reminderModal.record.rentAmount ? reminderModal.record.rentAmount.toLocaleString('en-IN') : '0';
+                              const msg = `नमस्ते ${tName}, आपके ${pName} का ${selectedMonth} महीने का किराया ₹${rentVal} अभी तक लंबित है। कृपया जल्द से जल्द भुगतान सुनिश्चित करें। धन्यवाद!`;
+                              setReminderModal({ ...reminderModal, message: msg });
+                            }}
+                            className="text-[9px] font-black uppercase text-emerald-600 hover:text-emerald-700 hover:underline bg-emerald-50 px-2 py-1 rounded"
+                          >
+                             हिंदी
+                          </button>
+                       </div>
+                    </div>
+
+                    <textarea 
+                      className="w-full bg-slate-50 border border-slate-200 rounded-[2rem] px-6 py-5 text-xs font-semibold outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-400 transition-all min-h-[140px] shadow-inner text-slate-700 leading-relaxed font-sans"
+                      placeholder="Write your reminder message..."
+                      value={reminderModal.message}
+                      onChange={e => setReminderModal({ ...reminderModal, message: e.target.value })}
+                    />
+                 </div>
+
+                 <div className="grid grid-cols-2 gap-4 pt-2">
+                    <button 
+                      onClick={() => {
+                        const cleanDigits = reminderModal.phone.replace(/\D/g, '');
+                        const finalPhone = cleanDigits.length === 10 ? `91${cleanDigits}` : cleanDigits;
+                        const url = `https://api.whatsapp.com/send?phone=${finalPhone}&text=${encodeURIComponent(reminderModal.message)}`;
+                        window.open(url, '_blank', 'noreferrer,noopener');
+                      }}
+                      className="py-5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-emerald-100 transition-all active:scale-95 flex items-center justify-center gap-2"
+                    >
+                       💬 WhatsApp
+                    </button>
+                    <button 
+                      onClick={() => {
+                        const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+                        const separator = isIos ? '&' : '?';
+                        const url = `sms:${reminderModal.phone}${separator}body=${encodeURIComponent(reminderModal.message)}`;
+                        window.location.href = url;
+                      }}
+                      className="py-5 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-slate-200 transition-all active:scale-95 flex items-center justify-center gap-2"
+                    >
+                       ✉️ Send SMS
+                    </button>
+                 </div>
               </div>
            </div>
         </div>
