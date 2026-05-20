@@ -124,6 +124,8 @@ export interface Payment {
   startReading?: number;
   endReading?: number;
   perUnitCost?: number;
+  createdBy?: string;
+  createdByRole?: UserRole;
 }
 
 export interface AppConfig {

@@ -66,6 +66,11 @@ const Dashboard: React.FC = () => {
   });
 
   const stats = useMemo(() => {
+    // Deduplicate payments to prevent stats inflation
+    const pUnique = new Map();
+    (store.payments || []).forEach((p: any) => { if (!pUnique.has(p.id)) pUnique.set(p.id, p); });
+    const deduplicatedPayments = Array.from(pUnique.values()) as Payment[];
+
     const records = store.records.filter((r: any) => visiblePropertyIds.includes(r.propertyId));
     const recordIds = records.map((r: any) => r.id);
     const types = store.propertyTypes;
@@ -111,7 +116,7 @@ const Dashboard: React.FC = () => {
       totalPotentialRent += unitRent;
 
       // Calculate Held Deposit for this unit (Sum includes negative refunds)
-      const unitPayments = store.payments.filter(p => String(p.recordId) === String(record.id) && p.type === 'DEPOSIT');
+      const unitPayments = deduplicatedPayments.filter(p => String(p.recordId) === String(record.id) && p.type === 'DEPOSIT');
       heldDeposits += unitPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
       const hasRentDues = unitRent > 0;
@@ -119,7 +124,7 @@ const Dashboard: React.FC = () => {
       if (isActive || (isVacant && hasRentDues)) {
         if (isActive) activeUnits++;
         monthlyRentExpected += unitRent;
-        const isPaid = store.payments.some((p: Payment) => p.recordId === record.id && p.month === currentMonthKey && p.type === 'RENT' && p.status === PaymentStatus.PAID);
+        const isPaid = deduplicatedPayments.some((p: Payment) => p.recordId === record.id && p.month === currentMonthKey && p.type === 'RENT' && p.status === PaymentStatus.PAID);
         if (!isPaid) {
           const property = store.properties.find((p: any) => p.id === record.propertyId);
           const tenantName = Object.entries(activeValues).find(([cid]) => {
@@ -136,7 +141,7 @@ const Dashboard: React.FC = () => {
       }
     });
 
-    const collectedThisMonth = store.payments
+    const collectedThisMonth = deduplicatedPayments
       .filter((p: Payment) => recordIds.includes(p.recordId) && p.month === currentMonthKey && p.status === PaymentStatus.PAID && p.type === 'RENT')
       .reduce((sum: number, p: Payment) => sum + (Number(p.amount) || 0), 0);
 
@@ -152,6 +157,11 @@ const Dashboard: React.FC = () => {
   }, [store, currentMonthKey, visiblePropertyIds]);
 
   const propertyChartData = useMemo(() => {
+    // Deduplicate payments for accuracy
+    const pUnique = new Map();
+    (store.payments || []).forEach((p: any) => { if (!pUnique.has(p.id)) pUnique.set(p.id, p); });
+    const deduplicatedPayments = Array.from(pUnique.values()) as Payment[];
+
     return visibleProperties.map(p => {
       const propRecords = store.records.filter((r: any) => r.propertyId === p.id);
       const propertyType = store.propertyTypes.find((pt: any) => pt.id === p.propertyTypeId);
@@ -165,7 +175,7 @@ const Dashboard: React.FC = () => {
         target += rent.reduce((sum: number, rv: any) => sum + (parseFloat(rv.value) || 0), 0);
       });
 
-      const collected = store.payments
+      const collected = deduplicatedPayments
         .filter((pay: any) => {
           const record = store.records.find((r: any) => r.id === pay.recordId);
           return record?.propertyId === p.id && pay.month === currentMonthKey && pay.status === PaymentStatus.PAID && pay.type === 'RENT';

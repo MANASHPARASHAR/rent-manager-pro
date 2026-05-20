@@ -926,6 +926,8 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           type: t,
           dueDate: d,
           paidAt: new Date().toISOString(),
+          createdBy: user?.name || user?.username || 'System',
+          createdByRole: user?.role || UserRole.ADMIN,
           ...x
         });
         await setDoc(doc(db, 'payments', payId), payload);
@@ -947,6 +949,8 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         paidAt: new Date().toISOString(),
         status: 'PAID',
         propertyId,
+        createdBy: user?.name || user?.username || 'System',
+        createdByRole: user?.role || UserRole.ADMIN,
         ...p
       });
       await setDoc(doc(db, 'payments', payId), newPayment);
@@ -1253,7 +1257,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     addPropertyType, updatePropertyType, deletePropertyType,
     addProperty, updateProperty, deleteProperty,
     addRecord, updateRecord, deleteRecord, updateRecordNotes,
-    addPayment, togglePayment, updateConfig,
+    addPayment, togglePayment, deletePayment, updateConfig,
     addExpense, deleteExpense,
     markNotificationAsRead,
     deleteNotification,

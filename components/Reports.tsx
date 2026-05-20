@@ -9,7 +9,7 @@ import {
   Calendar, Download, ArrowUpRight, Wallet, 
   ChevronLeft, ChevronRight, Zap, History, User,
   CalendarDays, ChevronDown, Landmark, CreditCard, ShieldCheck,
-  Building2, Layers, Filter, Users, Receipt, Trash2
+  Building2, Layers, Filter, Users, Receipt, Trash2, Check, X
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { useLanguageStore } from '../lib/i18n';
@@ -27,6 +27,7 @@ const Reports: React.FC = () => {
   
   const [activeModality, setActiveModality] = useState<Modality>('RENT');
   const [filterType, setFilterType] = useState<FilterType>('monthly');
+  const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null);
   
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const d = new Date();
@@ -62,6 +63,15 @@ const Reports: React.FC = () => {
     let filteredPayments = store.payments.filter((p: any) => 
       recordIds.includes(p.recordId) && p.status === PaymentStatus.PAID
     );
+
+    // Strict deduplication by ID to prevent repeated entries and inflated totals
+    const uniqueMap = new Map();
+    filteredPayments.forEach(p => {
+      if (!uniqueMap.has(p.id)) {
+        uniqueMap.set(p.id, p);
+      }
+    });
+    filteredPayments = Array.from(uniqueMap.values());
 
     if (filterType === 'monthly') {
       filteredPayments = filteredPayments.filter(p => {
@@ -264,7 +274,7 @@ const Reports: React.FC = () => {
     return {
       totalRent, totalDeposits, totalElectricity, totalRefunds, totalExpenses,
       netFlow: totalRent + totalDeposits + totalElectricity - totalRefunds - totalExpenses,
-      timeSeries, propertyData, modeData, recipientData, attributionMatrix
+      timeSeries, propertyData, modeData, recipientData, attributionMatrix, filteredPayments
     };
   }, [store, filterType, selectedMonth, selectedYear, startDate, endDate, activeModality, effectiveIsAdmin, effectiveUser]);
 
@@ -660,10 +670,15 @@ const Reports: React.FC = () => {
             <h2 className="text-2xl font-black text-rose-900 uppercase tracking-tight flex items-center gap-3">
               <Zap className="w-6 h-6 text-rose-500" /> {t('data_audit_ledger')}
             </h2>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Reviewing All Individual Transactions for this range</p>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">
+              Reviewing All Individual Transactions for this range.
+              <span className="block text-rose-500/80 normal-case mt-1 font-semibold italic text-[11px]">
+                💡 Delete button action: Deleting a record permanently removes it from the database and reverses its amount, restoring the due rent/electricity balance of the primary unit.
+              </span>
+            </p>
           </div>
           <div className="bg-rose-50 px-4 py-2 rounded-xl border border-rose-100">
-             <span className="text-[10px] font-black text-rose-600 uppercase tracking-widest">{filteredPayments.length} Transactions</span>
+             <span className="text-[10px] font-black text-rose-600 uppercase tracking-widest">{analyticsData.filteredPayments.length} Transactions</span>
           </div>
         </div>
 
@@ -674,18 +689,29 @@ const Reports: React.FC = () => {
                     <th className="pb-6 pt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Type</th>
                     <th className="pb-6 pt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Source/Tenant</th>
                     <th className="pb-6 pt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Reference</th>
+                    <th className="pb-6 pt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Collector / Role</th>
                     <th className="pb-6 pt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Amount</th>
-                    <th className="pb-6 pt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Action</th>
+                    {(isAdmin || effectiveIsAdmin) && <th className="pb-6 pt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Action</th>}
                  </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                 {filteredPayments.length > 0 ? [...filteredPayments].sort((a,b) => (b.paidAt||'').localeCompare(a.paidAt||'')).map((p: any, i) => {
+                 {analyticsData.filteredPayments.length > 0 ? [...analyticsData.filteredPayments].sort((a,b) => (b.paidAt||'').localeCompare(a.paidAt||'')).map((p: any, i) => {
                     const record = store.records.find(r => r.id === p.recordId);
                     const prop = store.properties.find(pr => pr.id === record?.propertyId);
                     const pt = store.propertyTypes.find(t => t.id === prop?.propertyTypeId);
                     const nameCol = pt?.columns.find(c => c.name.toLowerCase().includes('name'));
                     const vMap = store.unitHistory.find(h => h.id === p.historyId)?.values || store.recordValues.filter(v => v.recordId === p.recordId).reduce((acc: any, v: any) => ({...acc, [v.columnId]: v.value}), {});
                     const tName = nameCol ? vMap[nameCol.id] || 'Unknown' : 'Unit ' + (record?.id?.substring(0,4)||'??');
+
+                    // Resolve collector user details
+                    const collectorUser = store.users.find((u: any) => 
+                      u.name === p.createdBy || 
+                      u.username === p.createdBy || 
+                      u.name === p.paidTo || 
+                      u.username === p.paidTo
+                    );
+                    const collectorName = p.createdBy || p.paidTo || 'Root Account';
+                    const collectorRole = p.createdByRole || collectorUser?.role || 'ADMIN';
 
                     return (
                        <tr key={p.id} className="group hover:bg-rose-50/10 transition-colors">
@@ -706,29 +732,56 @@ const Reports: React.FC = () => {
                           <td className="py-5 text-center">
                              <span className="text-[10px] font-mono text-slate-500 uppercase">{p.month || '-'}</span>
                           </td>
+                          <td className="py-5 text-center">
+                             <div className="flex flex-col items-center">
+                                <span className="text-xs font-black text-indigo-600 uppercase tracking-tight">{collectorName}</span>
+                                <span className="text-[9px] font-black bg-indigo-50 text-indigo-500 px-2.5 py-0.5 rounded-lg mt-1 tracking-wider uppercase">{collectorRole}</span>
+                             </div>
+                          </td>
                           <td className="py-5 text-right">
                              <span className={`text-sm font-black ${p.amount < 0 ? 'text-rose-600' : 'text-slate-900'}`}>
                                ₹{Math.abs(p.amount).toLocaleString()}
                                {p.amount < 0 && <span className="text-[9px] ml-1 uppercase">Refund</span>}
                              </span>
                           </td>
-                          <td className="py-5 text-right">
-                             <button 
-                               onClick={() => {
-                                 if (window.confirm('Are you sure you want to delete this payment record? This will affect your balance and cannot be undone.')) {
-                                   store.deletePayment(p.id);
-                                 }
-                               }}
-                               className="p-3 bg-white border border-slate-100 text-slate-300 hover:text-rose-600 hover:border-rose-100 hover:bg-rose-50 rounded-xl transition-all shadow-sm"
-                               title="Delete Records"
-                             >
-                                <Trash2 className="w-4 h-4" />
-                             </button>
-                          </td>
+                          {(isAdmin || effectiveIsAdmin) && (
+                            <td className="py-5 text-right whitespace-nowrap">
+                              {deletingPaymentId === p.id ? (
+                                <div className="inline-flex items-center gap-1 bg-rose-50 border border-rose-100 rounded-xl p-1 shadow-sm">
+                                  <span className="text-[10px] font-black text-rose-600 uppercase tracking-widest px-2">Confirm?</span>
+                                  <button 
+                                    onClick={async () => {
+                                      await store.deletePayment(p.id);
+                                      setDeletingPaymentId(null);
+                                    }}
+                                    className="p-1.5 bg-rose-600 text-white rounded-lg hover:bg-rose-700 transition-colors shadow-sm"
+                                    title="Yes, Delete Record"
+                                  >
+                                    <Check className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button 
+                                    onClick={() => setDeletingPaymentId(null)}
+                                    className="p-1.5 bg-white border border-slate-200 text-slate-500 rounded-lg hover:bg-slate-50 transition-colors"
+                                    title="Cancel"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <button 
+                                  onClick={() => setDeletingPaymentId(p.id)}
+                                  className="p-3 bg-white border border-slate-100 text-slate-300 hover:text-rose-600 hover:border-rose-100 hover:bg-rose-50 rounded-xl transition-all shadow-sm"
+                                  title="Delete Records"
+                                >
+                                   <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                            </td>
+                          )}
                        </tr>
                     );
                  }) : (
-                    <tr><td colSpan={5} className="py-20 text-center text-slate-300 font-bold uppercase tracking-widest text-xs italic">No transactions found</td></tr>
+                     <tr><td colSpan={(isAdmin || effectiveIsAdmin) ? 6 : 5} className="py-20 text-center text-slate-300 font-bold uppercase tracking-widest text-xs italic">No transactions found</td></tr>
                  )}
               </tbody>
            </table>

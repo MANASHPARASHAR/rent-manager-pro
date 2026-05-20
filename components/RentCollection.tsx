@@ -247,7 +247,12 @@ const RentCollection: React.FC = () => {
   }, [store.propertyTypes, store.properties, selectedPropertyId, visibleProperties]);
 
   const recordsWithRent = useMemo(() => {
-        const today = new Date(); today.setHours(0,0,0,0);
+    // Deduplicate payments by ID to prevent inflated collection stats
+    const pUnique = new Map();
+    (store.payments || []).forEach((p: any) => { if (!pUnique.has(p.id)) pUnique.set(p.id, p); });
+    const deduplicatedPayments = Array.from(pUnique.values());
+
+    const today = new Date(); today.setHours(0,0,0,0);
     const [y, m] = selectedMonth.split('-').map(Number);
     const startOfMonth = new Date(y, m - 1, 1, 0, 0, 0);
     const endOfMonth = new Date(y, m, 0, 23, 59, 59);
@@ -308,7 +313,7 @@ const RentCollection: React.FC = () => {
         const isVacant = (occupancyValue || '').toLowerCase().includes('vacant');
         const currentHistoryId = historicalState?.id;
 
-        const monthlyPayments = store.payments.filter((p: any) => 
+        const monthlyPayments = deduplicatedPayments.filter((p: any) => 
           p.recordId === record.id && 
           p.month === selectedMonth && 
           p.type === 'RENT' &&
@@ -318,7 +323,7 @@ const RentCollection: React.FC = () => {
         const isRentPaid = totalRentPaid >= parseFloat(rentValue) && parseFloat(rentValue) > 0;
         const isPartialPaid = totalRentPaid > 0 && totalRentPaid < parseFloat(rentValue);
 
-        const electricityPayments = store.payments.filter((p: any) => 
+        const electricityPayments = deduplicatedPayments.filter((p: any) => 
           String(p.recordId) === String(record.id) && 
           p.month === selectedMonth && 
           p.type === 'ELECTRICITY' &&
@@ -327,7 +332,7 @@ const RentCollection: React.FC = () => {
         const totalElectricityPaid = electricityPayments.reduce((acc: number, p: any) => acc + (Number(p.amount) || 0), 0);
         const isElectricityPaid = totalElectricityPaid > 0; 
 
-        const depositPayments = store.payments.filter((p: any) => 
+        const depositPayments = deduplicatedPayments.filter((p: any) => 
           String(p.recordId) === String(record.id) && 
           p.type === 'DEPOSIT' &&
           (!p.historyId || p.historyId === currentHistoryId)
@@ -418,8 +423,13 @@ const RentCollection: React.FC = () => {
   const unitTimeline = useMemo(() => {
     if (!historyModal.record) return [];
     
+    // Deduplicate payments for accuracy
+    const pUnique = new Map();
+    (store.payments || []).forEach((p: any) => { if (!pUnique.has(p.id)) pUnique.set(p.id, p); });
+    const deduplicatedPayments = Array.from(pUnique.values());
+
     const recordId = historyModal.record.id;
-    const pHistory = store.payments
+    const pHistory = deduplicatedPayments
       .filter((p: Payment) => p.recordId === recordId)
       .map(p => ({ 
         ...p, 
@@ -880,7 +890,7 @@ const RentCollection: React.FC = () => {
             <table className="w-full text-left">
                <thead className="sticky top-0 z-10 bg-white border-b border-slate-100 shadow-sm">
                   <tr className="bg-white">
-                     <th className="px-2 py-3 text-[9px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest bg-white border-r border-slate-50">{t('unit_and_member')}</th>
+                     <th className="px-2 py-3 text-[9px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest bg-white border-r border-slate-50">{t('unit_and_member')} ({recordsWithRent.length})</th>
                      
                      <th className="px-2 py-3 text-[9px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">{t('rent_status')}</th>
                      <th className="px-2 py-3 text-[9px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">{t('electricity')}</th>
