@@ -62,6 +62,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isBooting, setIsBooting] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [impersonatedUser, setImpersonatedUser] = useState<User | null>(null);
+  const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(null);
 
   // Firestore Data State
   const [users, setUsers] = useState<User[]>([]);
@@ -526,10 +527,36 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     try {
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({ prompt: 'select_account' });
-      await signInWithPopup(auth, provider);
+      provider.addScope('https://www.googleapis.com/auth/gmail.readonly');
+      const result = await signInWithPopup(auth, provider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (credential?.accessToken) {
+        setGoogleAccessToken(credential.accessToken);
+      }
       return true;
     } catch (error: any) {
       console.error("Google login failed:", error);
+      throw error;
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const linkGmailAccount = async () => {
+    setIsSyncing(true);
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.addScope('https://www.googleapis.com/auth/gmail.readonly');
+      provider.setCustomParameters({ prompt: 'consent' });
+      const result = await signInWithPopup(auth, provider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (credential?.accessToken) {
+        setGoogleAccessToken(credential.accessToken);
+        return credential.accessToken;
+      }
+      return null;
+    } catch (error: any) {
+      console.error("Google Gmail linking failed:", error);
       throw error;
     } finally {
       setIsSyncing(false);
@@ -1262,6 +1289,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     effectiveUser,
     setImpersonatedUser,
     login, loginWithGoogle, logout,
+    googleAccessToken, setGoogleAccessToken, linkGmailAccount,
     addUser, updateUser, deleteUser,
     addPropertyType, updatePropertyType, deletePropertyType,
     addProperty, updateProperty, deleteProperty,

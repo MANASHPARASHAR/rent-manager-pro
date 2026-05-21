@@ -43,9 +43,15 @@ import {
   StickyNote,
   Ban,
   MessageSquare,
+  Mail,
+  RefreshCw,
+  Upload,
+  FileSpreadsheet,
+  Download,
 } from "lucide-react";
 import { useRentalStore } from "../store/useRentalStore";
 import { useLanguageStore } from "../lib/i18n";
+import * as XLSX from "xlsx";
 import {
   PaymentStatus,
   ColumnType,
@@ -66,6 +72,502 @@ const RentCollection: React.FC = () => {
     store.user?.username?.toLowerCase().trim() === SUPERADMIN_EMAIL;
   const isManager = store.user?.role === UserRole.MANAGER;
   const canEdit = isAdmin || isManager;
+
+  // --- SMART PAYMENTS DETECTOR AND BACKEND PARSER STATE ---
+  const [detectorOpen, setDetectorOpen] = useState(false);
+  const [detectorMode, setDetectorMode] = useState<"gmail" | "statement">("gmail");
+  const [detectorQuery, setDetectorQuery] = useState("credited OR received OR payment OR rent");
+  const [isLoadingEmails, setIsLoadingEmails] = useState(false);
+  const [gmailError, setGmailError] = useState<string | null>(null);
+  const [detectedTransactions, setDetectedTransactions] = useState<any[]>([]);
+  const [isSandboxMode, setIsSandboxMode] = useState(true); // Default to true so they can test immediately with zero setups
+  const [approvedTxIds, setApprovedTxIds] = useState<Set<string>>(new Set());
+
+  // Function to match a credit transaction with prospective pending tenancies
+  const matchTransactionToTenant = (amount: number, description: string, refId: string) => {
+    const descLower = (description || "").toLowerCase();
+    
+    // Find non-vacant, unpaid units for the selected month that have expected rent values
+    const candidates = recordsWithRent.filter((r: any) => {
+      return !r.isVacant && !r.isRentPaid && parseFloat(r.rentValue) > 0;
+    });
+
+    let bestMatch: any = null;
+    let confidence: "HIGH" | "RENT_ONLY" | "PARTIAL" | "MULTI_MONTH" | "NONE" = "NONE";
+    let matchReason = "";
+
+    // 1. Try to find a candidate where Name or Property is mentioned in the description, AND check amount relation (exact, partial, multi-month)
+    for (const c of candidates) {
+      if (!c.tenantName) continue;
+      const nameParts = c.tenantName.toLowerCase().split(/\s+/).filter((p: string) => p.length > 2);
+      const isNameInDesc = nameParts.length > 0 && nameParts.some((part: string) => descLower.includes(part));
+      const rentAmount = parseFloat(c.rentValue) || 0;
+
+      if (isNameInDesc) {
+        bestMatch = c;
+        const isAmountMatch = Math.abs(rentAmount - amount) < 1;
+
+        if (isAmountMatch) {
+          confidence = "HIGH";
+          matchReason = `Direct match found! Tenant name "${c.tenantName}" was detected in details, and the transaction of ₹${amount.toLocaleString()} matches exactly their expected monthly rent level.`;
+        } else if (amount < rentAmount) {
+          confidence = "PARTIAL";
+          matchReason = `Partial Payment detected! Tenant name "${c.tenantName}" was found, and the payload ₹${amount.toLocaleString()} is a partial receipt of their ₹${rentAmount.toLocaleString()} expectations.`;
+        } else {
+          // amount > rentAmount
+          const monthsCovered = Math.floor(amount / rentAmount);
+          const remainder = amount % rentAmount;
+          confidence = "MULTI_MONTH";
+          if (remainder === 0) {
+            matchReason = `Multi-Month Payment detected! Tenant "${c.tenantName}" paid ₹${amount.toLocaleString()}, covering exactly ${monthsCovered} consecutive months. Approving will automatically split and pre-pay these cycles.`;
+          } else {
+            matchReason = `Multi-Month & Partial Payment detected! Tenant "${c.tenantName}" paid ₹${amount.toLocaleString()}, covering ${monthsCovered} month(s) plus ₹${remainder.toLocaleString()} partial excess. Approving will auto-distribute this correctly.`;
+          }
+        }
+        break;
+      }
+    }
+
+    // 2. Look for exact amount matches if no strict tenant name was specified
+    if (!bestMatch) {
+      const amountMatches = candidates.filter((c: any) => {
+        const rentAmount = parseFloat(c.rentValue) || 0;
+        return Math.abs(rentAmount - amount) < 1;
+      });
+
+      if (amountMatches.length === 1) {
+        bestMatch = amountMatches[0];
+        confidence = "RENT_ONLY";
+        matchReason = `Description mentions no tenant name, but this amount (₹${amount.toLocaleString()}) corresponds exactly to the unpaid expectation of ${amountMatches[0].tenantName}. No other active units expect this specific amount.`;
+      } else if (amountMatches.length > 1) {
+        bestMatch = amountMatches[0];
+        confidence = "NONE";
+        matchReason = `Multiple vacant/active tenants expect this exact rent figure (${amountMatches.map(m => m.tenantName).join(", ")}). Please select the correct tenant unit manually.`;
+      } else {
+        // Look for 2 months rent multiples without direct names
+        const doubleMatches = candidates.filter((c: any) => {
+          const rentAmount = parseFloat(c.rentValue) || 0;
+          return Math.abs((rentAmount * 2) - amount) < 1;
+        });
+
+        if (doubleMatches.length === 1) {
+          bestMatch = doubleMatches[0];
+          confidence = "MULTI_MONTH";
+          matchReason = `No direct tenant name matches, but ₹${amount.toLocaleString()} is exactly double (2 months) the monthly rent of ${doubleMatches[0].tenantName}. Approving will credit both current and next months.`;
+        }
+      }
+    }
+
+    return {
+      matchedRecord: bestMatch,
+      confidence,
+      matchReason,
+      allCandidates: candidates
+    };
+  };
+
+  const handleScanGmail = async () => {
+    setIsLoadingEmails(true);
+    setGmailError(null);
+    setDetectedTransactions([]);
+
+    try {
+      let token = store.googleAccessToken;
+      if (!token) {
+        setGmailError("Connect your Google/Gmail account first to utilize secure Live Scanner APIs.");
+        setIsLoadingEmails(false);
+        return;
+      }
+
+      // Query Gmail messages with the credit query and a max limit of 15
+      const searchUrl = `https://gmail.googleapis.com/v1/users/me/messages?q=${encodeURIComponent(detectorQuery)}&maxResults=15`;
+      const res = await fetch(searchUrl, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (!res.ok) {
+        if (res.status === 401) {
+          store.setGoogleAccessToken(null);
+          throw new Error("Expired session hook. Please click Link Gmail again to authorize access token.");
+        }
+        throw new Error(`Gmail API server responded with error status ${res.status}.`);
+      }
+
+      const listData = await res.json();
+      if (!listData.messages || listData.messages.length === 0) {
+        setGmailError("No credit notification emails detected in the last search.");
+        setIsLoadingEmails(false);
+        return;
+      }
+
+      const parsedTxList: any[] = [];
+
+      for (const msg of listData.messages) {
+        try {
+          const detailUrl = `https://gmail.googleapis.com/v1/users/me/messages/${msg.id}`;
+          const detailRes = await fetch(detailUrl, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          if (!detailRes.ok) continue;
+          const email = await detailRes.json();
+
+          const snippet = email.snippet || "";
+          const subjectHeader = email.payload?.headers?.find((h: any) => h.name === "Subject")?.value || "";
+          const dateHeader = email.payload?.headers?.find((h: any) => h.name === "Date")?.value || "";
+          
+          const fullText = `${subjectHeader} - ${snippet}`;
+          
+          // Regex search for currency indicators
+          const rupeeRegex = /(?:rs\.?|inr|₹|usd)\s*(\d{1,3}(?:,\d{2,3})*(?:\.\d+)?)/i;
+          const matchRupee = fullText.match(rupeeRegex);
+          let amount: number | null = null;
+          if (matchRupee) {
+            amount = parseFloat(matchRupee[1].replace(/,/g, ""));
+          } else {
+            const creditRegex = /(?:credited|received|deposited|transfer of)\s+(?:of\s+)?(\d{1,3}(?:,\d{2,3})*(?:\.\d+)?)/i;
+            const matchCredit = fullText.match(creditRegex);
+            if (matchCredit) {
+              amount = parseFloat(matchCredit[1].replace(/,/g, ""));
+            }
+          }
+
+          if (!amount || isNaN(amount) || amount <= 0) continue;
+
+          const utrRegex = /(?:utr|ref|transaction\s+no|upi\s+ref)\s*:?\s*([a-z0-9]+)/i;
+          const matchUtr = fullText.match(utrRegex);
+          const utr = matchUtr ? matchUtr[1] : `TXN${msg.id.substring(0, 8).toUpperCase()}`;
+
+          const { matchedRecord, confidence, matchReason, allCandidates } = matchTransactionToTenant(amount, fullText, utr);
+
+          parsedTxList.push({
+            id: msg.id,
+            source: "GMAIL",
+            subject: subjectHeader,
+            date: dateHeader ? new Date(dateHeader).toLocaleDateString() : new Date().toLocaleDateString(),
+            snippet: snippet,
+            amount,
+            utr,
+            matchedRecord,
+            confidence,
+            matchReason,
+            allCandidates,
+            textBody: fullText
+          });
+        } catch (err) {
+          console.error("Error reading single Gmail message:", err);
+        }
+      }
+
+      setDetectedTransactions(parsedTxList);
+      if (parsedTxList.length === 0) {
+        setGmailError("Identified emails matching query, but failed to scan clear deposit amount and transaction references. Adjust queries.");
+      }
+    } catch (err: any) {
+      console.error(err);
+      setGmailError(err.message || "An issue occurred connecting to the Live Gmail Scanner API.");
+    } finally {
+      setIsLoadingEmails(false);
+    }
+  };
+
+  const handleLoadSandboxData = () => {
+    setIsLoadingEmails(true);
+    setGmailError(null);
+    setDetectedTransactions([]);
+
+    setTimeout(() => {
+      const unpaidRecords = recordsWithRent.filter((r: any) => !r.isVacant && !r.isRentPaid && parseFloat(r.rentValue) > 0);
+      
+      if (unpaidRecords.length === 0) {
+        setGmailError("All tenants have already registered full payments for this month. Try selecting another billing month!");
+        setIsLoadingEmails(false);
+        return;
+      }
+
+      const mockTrxs: any[] = [];
+
+      unpaidRecords.forEach((rec: any, idx: number) => {
+        const baseRent = parseFloat(rec.rentValue) || 10000;
+        const utr = `UTR${Math.floor(100000000000 + Math.random() * 900000000000)}`;
+
+        let amount = baseRent;
+        let snippet = "";
+        let subject = "";
+
+        if (idx === 0) {
+          // Generate a Partial Payment Simulation
+          amount = baseRent * 0.5; // 50% partial payment
+          subject = `Alert: HDFC A/c Credited (Partial) - ₹${amount.toLocaleString()}`;
+          snippet = `HDFC Bank SMS Alert: Your Account has been credited with ₹${amount.toLocaleString()} on 2026-05-21 from UPI payment of ${rec.tenantName}. Ref ID: ${utr}. Reason: Rent partial payment.`;
+        } else if (idx === 1) {
+          // Generate a 2-Month Multi-Payment Simulation (Double)
+          amount = baseRent * 2; // Exactly 2 months rent
+          subject = `Alert: SBI A/c Credited - ₹${amount.toLocaleString()}`;
+          snippet = `SBI A/c Credited: Rent receipt of ₹${amount.toLocaleString()} received via IMPS from ${rec.tenantName} for 2 months advance. UTR Number: ${utr}.`;
+        } else {
+          // Normal payment
+          subject = `Transaction Advice: ₹${amount.toLocaleString()}`;
+          snippet = `Rent payment of ₹${amount.toLocaleString()} successfully received from tenant ${rec.tenantName}. Credited to ledger with Ref: ${utr}.`;
+        }
+
+        const textBody = `${subject} - ${snippet}`;
+        const { matchedRecord, confidence, matchReason, allCandidates } = matchTransactionToTenant(amount, textBody, utr);
+
+        mockTrxs.push({
+          id: `mock-txn-${rec.id}-${idx}`,
+          source: "SIMULATED_GMAIL",
+          subject,
+          date: new Date().toLocaleDateString(),
+          snippet,
+          amount,
+          utr,
+          matchedRecord,
+          confidence,
+          matchReason,
+          allCandidates,
+          textBody
+        });
+      });
+
+      // Add one unmatched txn (e.g. random partial amount with unknown source)
+      const unmatchedAmount = 4500;
+      const unmatchedUtr = `UTR999901025555`;
+      const unmatchedText = `ICICI Bank Credit Alert: Account credited with Rs ${unmatchedAmount}.00 - Transfer via IMPS/UPI from unknown source. Ref Num ${unmatchedUtr}.`;
+      const { matchedRecord, confidence, matchReason, allCandidates } = matchTransactionToTenant(unmatchedAmount, unmatchedText, unmatchedUtr);
+
+      mockTrxs.push({
+        id: `mock-unmatched-${Date.now()}`,
+        source: "SIMULATED_GMAIL",
+        subject: `Unknown Credit Transaction: INR ${unmatchedAmount}`,
+        date: new Date().toLocaleDateString(),
+        snippet: `Received credit transaction of ₹${unmatchedAmount}. Description mentions no tenant names or property tags. Ref No ${unmatchedUtr}.`,
+        amount: unmatchedAmount,
+        utr: unmatchedUtr,
+        matchedRecord,
+        confidence,
+        matchReason,
+        allCandidates,
+        textBody: unmatchedText
+      });
+
+      setDetectedTransactions(mockTrxs);
+      setIsLoadingEmails(false);
+    }, 700);
+  };
+
+  const handleStatementUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setGmailError(null);
+    setDetectedTransactions([]);
+    setIsLoadingEmails(true);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: "binary" });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        
+        const rawRows: any[] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+        if (rawRows.length === 0) {
+          throw new Error("Sheet is completely empty.");
+        }
+
+        let dateColIdx = -1;
+        let descColIdx = -1;
+        let creditColIdx = -1;
+        let utrColIdx = -1;
+
+        let headerRowIdx = 0;
+        for (let r = 0; r < Math.min(15, rawRows.length); r++) {
+          const cols = rawRows[r];
+          if (!cols || !Array.isArray(cols)) continue;
+          
+          const isHeader = cols.some((c: any) => {
+            const s = String(c).toLowerCase();
+            return s.includes("date") || s.includes("narration") || s.includes("particulars") || s.includes("credit") || s.includes("deposit") || s.includes("amount");
+          });
+
+          if (isHeader) {
+            headerRowIdx = r;
+            cols.forEach((cellVal: any, idx: number) => {
+              const s = String(cellVal).toLowerCase();
+              if (s.includes("date")) dateColIdx = idx;
+              if (s.includes("description") || s.includes("narration") || s.includes("particulars") || s.includes("remarks")) descColIdx = idx;
+              if (s.includes("credit") || s.includes("deposit") || s.includes("amount")) creditColIdx = idx;
+              if (s.includes("ref") || s.includes("utr") || s.includes("reference") || s.includes("cheque")) utrColIdx = idx;
+            });
+            break;
+          }
+        }
+
+        if (dateColIdx === -1) dateColIdx = 0;
+        if (descColIdx === -1) descColIdx = Math.min(1, rawRows[headerRowIdx].length - 1);
+        if (creditColIdx === -1) creditColIdx = Math.min(2, rawRows[headerRowIdx].length - 1);
+
+        const parsedList: any[] = [];
+
+        for (let r = headerRowIdx + 1; r < rawRows.length; r++) {
+          const row = rawRows[r];
+          if (!row || row.length <= Math.min(dateColIdx, creditColIdx)) continue;
+
+          const dateVal = row[dateColIdx];
+          const descVal = row[descColIdx];
+          const creditValStr = row[creditColIdx];
+          
+          if (!dateVal || !descVal) continue;
+
+          let amount = 0;
+          if (typeof creditValStr === "number") {
+            amount = creditValStr;
+          } else {
+            amount = parseFloat(String(creditValStr || "0").replace(/[^0-9.]/g, ""));
+          }
+
+          if (isNaN(amount) || amount <= 0) continue;
+
+          let utr = "";
+          if (utrColIdx !== -1 && row[utrColIdx]) {
+            utr = String(row[utrColIdx]);
+          } else {
+            const matchUtr = String(descVal).match(/(?:utr|ref|upi\s+num|txn)\s*:?\s*([a-z0-9]+)/i);
+            utr = matchUtr ? matchUtr[1] : `TX-${r}-${Date.now().toString().slice(-4)}`;
+          }
+
+          const descText = String(descVal);
+          const { matchedRecord, confidence, matchReason, allCandidates } = matchTransactionToTenant(amount, descText, utr);
+
+          parsedList.push({
+            id: `statement-row-${r}-${Date.now()}`,
+            source: "STATEMENT_UPLOAD",
+            subject: "Statement Transaction",
+            date: String(dateVal),
+            snippet: descText,
+            amount,
+            utr,
+            matchedRecord,
+            confidence,
+            matchReason,
+            allCandidates,
+            textBody: descText
+          });
+        }
+
+        setDetectedTransactions(parsedList);
+        if (parsedList.length === 0) {
+          throw new Error("Parsed sheet but found no positive deposit/credit transactions. Make sure the headers are descriptive.");
+        }
+      } catch (err: any) {
+        console.error(err);
+        setGmailError(err.message || "Failed to parse bank statement file. Check header names.");
+      } finally {
+        setIsLoadingEmails(false);
+      }
+    };
+
+    reader.readAsBinaryString(file);
+  };
+
+  const handleApproveTransaction = async (tx: any, manualRecordId?: string) => {
+    const finalRecordId = manualRecordId || tx.matchedRecord?.id;
+    if (!finalRecordId) {
+      alert("No matched tenant unit selected. Please select a tenant to reconcile this payment.");
+      return;
+    }
+
+    const matchedUnit = store.records.find((r: any) => r.id === finalRecordId);
+    if (!matchedUnit) return;
+
+    const matchedWithRent = recordsWithRent.find((r: any) => r.id === finalRecordId);
+    const rentAmount = matchedWithRent ? parseFloat(matchedWithRent.rentValue) || 0 : 0;
+    const totalRentPaid = matchedWithRent ? Number(matchedWithRent.totalRentPaid) || 0 : 0;
+
+    const paymentsToAdd: { month: string; amount: number; remarks: string }[] = [];
+
+    if (rentAmount > 0) {
+      const remainingSelectedMonthRent = Math.max(0, rentAmount - totalRentPaid);
+
+      if (tx.amount <= remainingSelectedMonthRent || remainingSelectedMonthRent <= 0) {
+        // Simple case: transaction fits in current month or is a simple partial, or current month is already paid/vacant expectation
+        paymentsToAdd.push({
+          month: selectedMonth,
+          amount: tx.amount,
+          remarks: `Auto-Reconciled ${tx.source === "STATEMENT_UPLOAD" ? "Bank Statement" : "Gmail"}: ${tx.amount < rentAmount ? "Partial Rent Payment" : "Rent Payment"}. UTR: ${tx.utr}.`
+        });
+      } else {
+        // Multi-month distribution or overpayment scenario!
+        if (remainingSelectedMonthRent > 0) {
+          paymentsToAdd.push({
+            month: selectedMonth,
+            amount: remainingSelectedMonthRent,
+            remarks: `Auto-Reconciled ${tx.source === "STATEMENT_UPLOAD" ? "Bank Statement" : "Gmail"} (Part 1 - Dues Completed): Rent Payment. UTR: ${tx.utr}.`
+          });
+        }
+
+        let surplus = tx.amount - remainingSelectedMonthRent;
+        let currentMonthKey = selectedMonth;
+
+        const getNextMonth = (monthStr: string) => {
+          const [y, m] = monthStr.split("-").map(Number);
+          const nextDate = new Date(y, m, 1);
+          return `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, "0")}`;
+        };
+
+        // Distribute the remaining balance sequentially
+        while (surplus > 0) {
+          currentMonthKey = getNextMonth(currentMonthKey);
+          const nextMonthAlloc = Math.min(surplus, rentAmount);
+          if (nextMonthAlloc <= 0) break;
+
+          paymentsToAdd.push({
+            month: currentMonthKey,
+            amount: nextMonthAlloc,
+            remarks: `Auto-Reconciled Surplus ${tx.source === "STATEMENT_UPLOAD" ? "Bank Statement" : "Gmail"}: Advance Allocation for ${currentMonthKey}. UTR: ${tx.utr}.`
+          });
+
+          surplus = parseFloat((surplus - nextMonthAlloc).toFixed(2));
+        }
+      }
+    } else {
+      // Direct fallback: make a single payment entry
+      paymentsToAdd.push({
+        month: selectedMonth,
+        amount: tx.amount,
+        remarks: `Auto-Reconciled ${tx.source === "STATEMENT_UPLOAD" ? "Bank Statement" : "Gmail"}: Rent Allocation. UTR: ${tx.utr}.`
+      });
+    }
+
+    try {
+      // Sequentially save payment objects in Firestore
+      for (const segment of paymentsToAdd) {
+        const paymentData = {
+          recordId: finalRecordId,
+          propertyId: matchedUnit.propertyId,
+          month: segment.month,
+          type: "RENT",
+          amount: segment.amount,
+          paidAt: new Date().toISOString(),
+          paymentMode: "UPI/QR",
+          paidTo: store.config.paidToOptions?.[0] || "Bank Account",
+          remarks: segment.remarks,
+        };
+        await store.addPayment(paymentData);
+      }
+      
+      // Mark as approved locally to hide from scanner
+      setApprovedTxIds((prev) => {
+        const next = new Set(prev);
+        next.add(tx.id);
+        return next;
+      });
+    } catch (err) {
+      console.error("Reconciliation failed:", err);
+      alert("Reconciliation failed. Try again.");
+    }
+  };
 
   const effectiveUser = store.effectiveUser;
   const effectiveIsAdmin =
@@ -1312,6 +1814,18 @@ const RentCollection: React.FC = () => {
             {t("today")}
           </button>
 
+          <button
+            onClick={() => setDetectorOpen(!detectorOpen)}
+            className={`px-5 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all active:scale-95 shadow-lg flex items-center gap-2 ${
+              detectorOpen 
+                ? "bg-indigo-600 text-white hover:bg-indigo-700" 
+                : "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50"
+            }`}
+          >
+            <Sparkles className={`w-4 h-4 ${detectorOpen ? "animate-pulse" : "text-indigo-500"}`} />
+            <span>Smart Auto-Detect</span>
+          </button>
+
           {(() => {
             const { count } = whatsappRemindersDueDetail;
             const hasMetaConfig = !!(
@@ -1366,6 +1880,330 @@ const RentCollection: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Smart Payment Detector Component */}
+      {detectorOpen && (
+        <div className="bg-slate-900 border border-slate-800 text-white rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden animate-in slide-in-from-top-10 duration-500">
+          <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute bottom-0 left-0 w-96 h-96 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
+
+          <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 relative z-10 select-none pb-6 border-b border-white/10">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="bg-gradient-to-r from-indigo-500 to-teal-400 text-[10px] px-2.5 py-1 text-white font-black uppercase tracking-widest rounded-full shadow-sm">
+                  Smart Engine
+                </span>
+                <span className="text-white/40 text-[10px] font-mono font-black uppercase">v2.1 Stable</span>
+              </div>
+              <h2 className="text-2xl font-black text-white hover:text-indigo-300 transition-colors tracking-tight uppercase">
+                Rent Automatic Detector Hub
+              </h2>
+              <p className="text-xs text-slate-400 max-w-xl font-medium">
+                Scan bank credit alerts from Gmail or parse Excel/CSV credit listings to match bank transfers and auto reconcile tenant files instantenously.
+              </p>
+            </div>
+
+            <div className="flex bg-slate-800 border border-white/5 rounded-2xl p-1.5 self-stretch sm:self-auto shadow-inner">
+              <button
+                onClick={() => {
+                  setDetectorMode("gmail");
+                  setDetectedTransactions([]);
+                  setGmailError(null);
+                }}
+                className={`flex-1 sm:flex-none px-5 py-2.5 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
+                  detectorMode === "gmail" ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/10" : "text-slate-400 hover:text-white"
+                }`}
+              >
+                <Mail className="w-4 h-4" /> Gmail Scanner
+              </button>
+              <button
+                onClick={() => {
+                  setDetectorMode("statement");
+                  setDetectedTransactions([]);
+                  setGmailError(null);
+                }}
+                className={`flex-1 sm:flex-none px-5 py-2.5 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
+                  detectorMode === "statement" ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/10" : "text-slate-400 hover:text-white"
+                }`}
+              >
+                <FileSpreadsheet className="w-4 h-4" /> Bank Statement
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-8 relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <div className="lg:col-span-4 space-y-6 bg-white/5 p-6 rounded-2xl border border-white/5 shadow-inner">
+              <h3 className="text-sm font-black text-indigo-400 uppercase tracking-wider">
+                Reconciliation Setup
+              </h3>
+
+              {detectorMode === "gmail" ? (
+                <div className="space-y-4">
+                  {/* Google Authenticator Section */}
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block font-sans">
+                      Google OAuth Protection
+                    </label>
+                    {store.googleAccessToken ? (
+                      <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 p-4 rounded-xl flex items-center gap-3 animate-in fade-in">
+                        <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
+                        <div className="text-xs">
+                          <p className="font-bold">Live API Ready</p>
+                          <p className="text-[10px] text-emerald-400/80 font-medium">Authorized via secure token.</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={async () => {
+                          try {
+                            await store.linkGmailAccount();
+                          } catch (err: any) {
+                            alert("Gmail auth failed: " + err.message);
+                          }
+                        }}
+                        className="w-full py-3 bg-white hover:bg-slate-50 text-slate-900 border border-slate-300 text-xs font-black uppercase tracking-widest rounded-xl transition-all shadow-md flex items-center justify-center gap-3 font-mono"
+                      >
+                        {/* Material gsi button asset */}
+                        <svg className="w-4 h-4 shrink-0" version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+                          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+                          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
+                          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
+                          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+                        </svg>
+                        <span>Link Gmail Account</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Settings Query */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block font-sans">
+                      Gmail Search Query
+                    </label>
+                    <input
+                      value={detectorQuery}
+                      onChange={(e) => setDetectorQuery(e.target.value)}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-xs font-semibold text-white outline-none focus:border-indigo-500 transition-all font-mono"
+                      placeholder="Gmail Search parameter..."
+                    />
+                  </div>
+
+                  {/* Simulation Sandbox Settings */}
+                  <div className="pt-2 border-t border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest font-sans">
+                        Preview Simulation
+                      </label>
+                      <button
+                        onClick={() => setIsSandboxMode(!isSandboxMode)}
+                        className={`text-[10px] font-black uppercase px-2 py-1 rounded transition-all ${
+                          isSandboxMode ? "bg-indigo-600 text-white" : "bg-slate-800 text-slate-400"
+                        }`}
+                      >
+                        {isSandboxMode ? "Enabled" : "Disabled"}
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-slate-500 leading-relaxed font-medium font-sans">
+                      Enable simulated emails mimicking live bank UPI triggers based on real tenant data inside your database. Perfect for local prototyping.
+                    </p>
+                  </div>
+
+                  {/* Actions scanner */}
+                  <button
+                    onClick={isSandboxMode ? handleLoadSandboxData : handleScanGmail}
+                    disabled={isLoadingEmails}
+                    className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black uppercase tracking-widest rounded-xl transition-all shadow-lg shadow-indigo-600/10 flex items-center justify-center gap-2 font-sans"
+                  >
+                    {isLoadingEmails ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Querying Bank SMS Alerts...</span>
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-4 h-4" />
+                        <span>{isSandboxMode ? "Scan Sandbox Alerts" : "Scan Live Gmail Inbox"}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Upload box */}
+                  <div className="border-2 border-dashed border-white/10 hover:border-indigo-500/50 bg-slate-800/20 hover:bg-slate-800/40 p-8 rounded-2xl text-center cursor-pointer transition-all relative">
+                    <input
+                      type="file"
+                      accept=".csv, .xlsx, .xls"
+                      onChange={handleStatementUpload}
+                      className="absolute inset-0 opacity-0 cursor-pointer"
+                    />
+                    <div className="space-y-3">
+                      <div className="mx-auto w-10 h-10 bg-white/5 rounded-full flex items-center justify-center">
+                        <Upload className="w-5 h-5 text-indigo-400" />
+                      </div>
+                      <div className="text-xs space-y-1">
+                        <p className="font-bold text-white font-sans">Upload Bank Statement</p>
+                        <p className="text-[10px] text-slate-400 font-mono">Excel or CSV Format allowed</p>
+                      </div>
+                      <p className="text-[11px] text-slate-500 max-w-xs mx-auto font-medium leading-relaxed font-sans">
+                        Drag & drop your statement here or browse local files. The parser dynamically maps date, narration, and credited payment balances!
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-800">
+                    <p className="text-[10px] text-slate-400 leading-relaxed font-medium font-sans">
+                      💡 <strong>Smart Parser Tips:</strong> Ensure you upload a statement where deposit transactions are represented as positive currency credits. The system automatically searches for dates, remarks, references, and amounts!
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="lg:col-span-8 flex flex-col min-h-[300px]">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-black text-indigo-400 uppercase tracking-wider">
+                  Scanning ledger output
+                </h3>
+                <span className="text-[11px] font-mono font-bold text-slate-400 bg-white/5 px-2.5 py-1 rounded-lg">
+                  {detectedTransactions.filter(tx => !approvedTxIds.has(tx.id)).length} alerts found
+                </span>
+              </div>
+
+              {gmailError && (
+                <div className="flex-1 bg-white/5 border border-white/5 rounded-2xl flex flex-col items-center justify-center text-center p-8">
+                  <AlertCircle className="w-10 h-10 text-amber-400 mb-3" />
+                  <p className="text-sm font-bold text-white max-w-sm font-sans">{gmailError}</p>
+                  <p className="text-xs text-slate-400 max-w-xs mt-1 font-sans">If using live scanner, please check your in-memory tokens or search strings.</p>
+                </div>
+              )}
+
+              {detectedTransactions.length === 0 && !gmailError ? (
+                <div className="flex-1 bg-white/5 border border-white/5 rounded-2xl flex flex-col items-center justify-center text-center p-8 text-slate-400 select-none">
+                  <CreditCard className="w-12 h-12 text-slate-700 animate-pulse mb-3" />
+                  <p className="text-sm font-bold text-slate-300 font-sans">No Transactions Detected</p>
+                  <p className="text-xs max-w-xs mt-1 font-sans">
+                    Select a scan parameter or upload an account spreadsheet on the left side to extract payments instantly!
+                  </p>
+                </div>
+              ) : null}
+
+              {detectedTransactions.length > 0 && (
+                <div className="flex-1 space-y-4 max-h-[420px] overflow-y-auto pr-2 custom-scrollbar">
+                  {detectedTransactions
+                    .filter(tx => !approvedTxIds.has(tx.id))
+                    .map((tx) => {
+                      return (
+                        <div key={tx.id} className="bg-slate-800/40 border border-white/5 hover:border-indigo-500/20 rounded-2xl p-5 flex flex-col sm:flex-row justify-between items-start gap-4 hover:bg-slate-800/60 transition-all animate-in fade-in zoom-in-95">
+                          <div className="space-y-3 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              {tx.source.includes("SIMULATED") && (
+                                <span className="bg-amber-500/10 text-amber-400 text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded font-mono">
+                                  SIMULATION
+                                </span>
+                              )}
+                              <span className="bg-indigo-500/10 text-indigo-300 text-[10px] font-mono px-2 py-0.5 rounded font-black">
+                                {tx.date}
+                              </span>
+                              <span className="bg-slate-700 text-slate-300 text-[10px] font-mono px-2 py-0.5 rounded font-black">
+                                {tx.utr}
+                              </span>
+                            </div>
+
+                            <div className="space-y-1">
+                              <p className="text-sm font-black text-white">{tx.subject}</p>
+                              <p className="text-xs text-slate-400 leading-relaxed font-medium block p-3 bg-black/20 rounded-xl font-mono">
+                                {tx.snippet}
+                              </p>
+                            </div>
+
+                            {/* Reconcile match banner */}
+                            {tx.matchedRecord ? (
+                              <div className={`p-3 rounded-xl border flex items-start gap-2.5 ${
+                                ["HIGH", "PARTIAL", "MULTI_MONTH"].includes(tx.confidence)
+                                  ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
+                                  : "bg-indigo-500/10 border-indigo-500/20 text-indigo-300"
+                              }`}>
+                                <Sparkles className="w-4 h-4 shrink-0 mt-0.5" />
+                                <div className="text-xs">
+                                  <span className="font-bold uppercase tracking-wider block text-[10px] mb-0.5">
+                                    {tx.confidence === "HIGH" && "🎖️ High Match Confidence"}
+                                    {tx.confidence === "PARTIAL" && "🌗 Partial Rent Detected"}
+                                    {tx.confidence === "MULTI_MONTH" && "⚡ Multi-Month Payment"}
+                                    {tx.confidence === "RENT_ONLY" && "💡 Rent Amount Match"}
+                                    {tx.confidence === "NONE" && "🔍 Suggested Allocation"}
+                                  </span>
+                                  <p className="font-medium text-[11px] leading-relaxed">
+                                    {tx.matchReason}
+                                  </p>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-300 rounded-xl flex items-start gap-2.5">
+                                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                                <div className="text-xs">
+                                  <span className="font-bold uppercase tracking-wider block text-[10px] mb-0.5">
+                                    ⚠️ No automatic match found
+                                  </span>
+                                  <p className="font-medium text-[11px] leading-relaxed text-slate-300">
+                                    Rent amount of ₹{tx.amount.toLocaleString()} does not map directly to any tenant's expected rent. Reconcile manually using the selector below!
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Dropdown for custom allocation if they want to override match or manually match */}
+                            <div className="flex flex-col sm:flex-row items-center gap-2 pt-2">
+                              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest shrink-0 self-start sm:self-center">
+                                Allocate to:
+                              </span>
+                              <select
+                                id={`assign-${tx.id}`}
+                                defaultValue={tx.matchedRecord?.id || ""}
+                                className="bg-slate-800 border border-slate-700 text-xs text-white px-3 py-2 rounded-xl focus:border-indigo-500 outline-none w-full sm:w-auto font-bold font-sans"
+                              >
+                                <option value="">-- Choose Tenant Unit --</option>
+                                {recordsWithRent
+                                  .filter((r: any) => !r.isRentPaid)
+                                  .map((r: any) => (
+                                    <option key={r.id} value={r.id}>
+                                      {r.tenantName} ({r.propertyName}) - Expected ₹{parseFloat(r.rentValue).toLocaleString()}
+                                    </option>
+                                  ))}
+                              </select>
+                            </div>
+                          </div>
+
+                          <div className="sm:self-center shrink-0 flex flex-col items-end gap-2">
+                            <div className="text-right">
+                              <span className="text-[10px] font-black text-slate-400 block uppercase tracking-widest leading-none mb-1 font-sans">
+                                Credits Checked
+                              </span>
+                              <span className="text-xl font-black text-emerald-400 font-mono">
+                                ₹{tx.amount.toLocaleString()}
+                              </span>
+                            </div>
+
+                            <button
+                              onClick={() => {
+                                const sel = document.getElementById(`assign-${tx.id}`) as HTMLSelectElement;
+                                const chosenId = sel?.value;
+                                handleApproveTransaction(tx, chosenId);
+                              }}
+                              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shadow-md shadow-emerald-600/10 flex items-center gap-1.5 font-sans"
+                            >
+                              <Check className="w-3.5 h-3.5" /> Reconcile
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* COLLECTION CONFIG MODAL */}
       {configModal.isOpen && isAdmin && (
