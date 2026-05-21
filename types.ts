@@ -133,6 +133,10 @@ export interface AppConfig {
   paymentModeOptions: string[];
   cities: string[];
   googleClientId?: string;
+  whatsappAccessToken?: string;
+  whatsappPhoneID?: string;
+  whatsappTemplateName?: string;
+  whatsappReminderIntervalDays?: number;
 }
 
 export type NotificationType = 'RENT_OVERDUE' | 'SYSTEM' | 'EXPENSE';

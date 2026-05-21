@@ -24,7 +24,9 @@ import {
   CheckCircle2,
   Globe,
   ChevronUp,
-  ChevronDown
+  ChevronDown,
+  Coins,
+  IndianRupee
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { useLanguageStore } from '../lib/i18n';
@@ -297,6 +299,49 @@ const PropertyManagement: React.FC = () => {
     return (store.users || []).filter((u: User) => u.role !== UserRole.ADMIN);
   }, [store.users]);
 
+  const overallStats = useMemo(() => {
+    let totalCollectable = 0;
+    let totalUnits = 0;
+    
+    const authorizedProps = (store.properties || []).filter((p: Property) => {
+      const lowerUsername = effectiveUser?.username?.toLowerCase().trim() || '';
+      const userId = effectiveUser?.id || '';
+      const allowed = (p.allowedUserIds || []).map(id => id.toLowerCase());
+      
+      const isActuallyAdmin = effectiveUser?.role === UserRole.ADMIN || 
+                              effectiveUser?.username?.toLowerCase().trim() === SUPERADMIN_EMAIL;
+
+      return isActuallyAdmin || 
+             (effectiveUser?.assignedPropertyIds || []).includes(p.id) ||
+             allowed.includes(userId.toLowerCase()) ||
+             allowed.includes(lowerUsername);
+    });
+
+    authorizedProps.forEach((prop) => {
+      const type = (store.propertyTypes || []).find((t: any) => t.id === prop.propertyTypeId);
+      const propertyUnits = recordsByProperty[prop.id] || [];
+      totalUnits += propertyUnits.length;
+
+      const rentCols = type?.columns.filter((c: any) => c.isRentCalculatable) || [];
+      const totalRentForProp = propertyUnits.reduce((acc: number, unit: any) => {
+        const unitVals = valuesByRecord[unit.id] || [];
+        const unitRent = rentCols.reduce((sum: number, col: any) => {
+          const val = unitVals.find((v: any) => v.columnId === col.id)?.value;
+          return sum + (parseFloat(val) || 0);
+        }, 0);
+        return acc + unitRent;
+      }, 0);
+      
+      totalCollectable += totalRentForProp;
+    });
+
+    return {
+      totalCollectable,
+      totalUnits,
+      count: authorizedProps.length
+    };
+  }, [store.properties, store.propertyTypes, recordsByProperty, valuesByRecord, effectiveUser]);
+
   return (
     <div className="space-y-8 max-w-6xl mx-auto pb-20 animate-in fade-in duration-500">
       {confirmConfig.isOpen && (
@@ -510,14 +555,137 @@ const PropertyManagement: React.FC = () => {
         </div>
       )}
 
-      <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-white p-4 rounded-[2rem] border border-gray-100 shadow-sm">
-        <div className="relative w-full md:w-96">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input className="w-full pl-11 pr-4 py-3.5 bg-gray-50 border border-transparent rounded-xl outline-none focus:bg-white focus:border-indigo-100 transition-all font-semibold text-sm" placeholder={t('search_portfolio')} value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+      {/* USER-SPECIFIC STATS SUMMARY */}
+      <div className="bg-slate-50/70 rounded-[2.5rem] border border-slate-100 p-8 space-y-6 animate-in fade-in slide-in-from-top-4 duration-300 text-left">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="flex h-3 w-3 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span>
+              </span>
+              <h2 className="text-xs font-black uppercase tracking-wider text-slate-800">
+                {language === 'hi' ? 'मेरा अलॉटेड पोर्टफोलियो विवरण' : 'My Assigned Portfolio Summary'}
+              </h2>
+            </div>
+            <p className="text-[11px] font-semibold text-slate-500 leading-normal">
+              {language === 'hi' 
+                ? `आपके असाइन किए गए प्रॉपर्टीज़ की कुल मासिक संग्रह सूची। यूज़र: ${effectiveUser?.name || effectiveUser?.username || 'Unknown'} (${t(effectiveUser?.role?.toLowerCase() || '') || effectiveUser?.role || 'User'})`
+                : `Aggregated data for properties assigned to your profile: ${effectiveUser?.name || effectiveUser?.username || 'Unknown'} (${effectiveUser?.role || 'User'})`}
+            </p>
+          </div>
+          <div className="self-start md:self-center">
+            <span className="bg-indigo-50 text-indigo-600 font-black uppercase text-[10px] tracking-wider px-4 py-2 rounded-2xl border border-indigo-100/80">
+              👤 {effectiveUser?.name || 'Assigned View'}
+            </span>
+          </div>
         </div>
-        <div className="flex items-center gap-3 w-full md:w-auto">
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Card 1: Total Collectable Amount */}
+          <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm hover:shadow-md transition-all duration-300 flex items-center justify-between group">
+            <div className="space-y-1">
+              <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                {language === 'hi' ? 'कुल संग्रहणीय राशि (मासिक)' : 'Total Collectable (Monthly Rent)'}
+              </p>
+              <h3 className="text-2xl font-black text-indigo-600 tracking-tight group-hover:scale-105 transition-transform duration-300">
+                ₹{overallStats.totalCollectable.toLocaleString('en-IN')}
+              </h3>
+              <p className="text-[9px] font-bold text-slate-400">
+                {language === 'hi' ? 'सभी स्वीकृत प्रॉपर्टीज़ का योग' : 'Sum of active assigned assets'}
+              </p>
+            </div>
+            <div className="p-4 bg-indigo-50 text-indigo-600 rounded-2xl group-hover:bg-indigo-600 group-hover:text-white transition-colors duration-300 shrink-0">
+              <IndianRupee className="w-6 h-6" />
+            </div>
+          </div>
+
+          {/* Card 2: Assigned Properties */}
+          <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm hover:shadow-md transition-all duration-300 flex items-center justify-between group">
+            <div className="space-y-1">
+              <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                {language === 'hi' ? 'आवंटित प्रॉपर्टीज़' : 'Assigned Properties'}
+              </p>
+              <h3 className="text-2xl font-black text-slate-800 tracking-tight">
+                {overallStats.count} {language === 'hi' ? 'प्रॉपर्टीज़' : 'Asset(s)'}
+              </h3>
+              <p className="text-[9px] font-bold text-slate-400">
+                {language === 'hi' ? 'असाइन की हुई कुल बिल्डिंग्स' : 'Visible according to permissions'}
+              </p>
+            </div>
+            <div className="p-4 bg-emerald-50 text-emerald-600 rounded-2xl group-hover:bg-emerald-600 group-hover:text-white transition-colors duration-300 shrink-0">
+              <Building2 className="w-6 h-6" />
+            </div>
+          </div>
+
+          {/* Card 3: Total Managed Units */}
+          <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm hover:shadow-md transition-all duration-300 flex items-center justify-between group">
+            <div className="space-y-1">
+              <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                {language === 'hi' ? 'कुल संचालित इकाइयां' : 'Total Managed Units'}
+              </p>
+              <h3 className="text-2xl font-black text-slate-800 tracking-tight">
+                {overallStats.totalUnits} {language === 'hi' ? 'इकाइयां' : 'Unit(s)'}
+              </h3>
+              <p className="text-[9px] font-bold text-slate-400">
+                {language === 'hi' ? 'सभी असाइन प्रॉपर्टी यूनिट्स का कुल योग' : 'Registered units under portfolio'}
+              </p>
+            </div>
+            <div className="p-4 bg-amber-50 text-amber-600 rounded-2xl group-hover:bg-amber-600 group-hover:text-white transition-colors duration-300 shrink-0">
+              <Layers className="w-6 h-6" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-col lg:flex-row gap-4 items-center justify-between bg-white p-4 rounded-[2rem] border border-gray-100 shadow-sm">
+        <div className="flex flex-col md:flex-row items-center gap-4 w-full lg:w-auto">
+          <div className="relative w-full md:w-80">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input className="w-full pl-11 pr-4 py-3.5 bg-gray-50 border border-transparent rounded-xl outline-none focus:bg-white focus:border-indigo-100 transition-all font-semibold text-sm" placeholder={t('search_portfolio')} value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+          </div>
+
+          {isAdmin && (
+            <div className="flex items-center gap-2 bg-indigo-50/70 border border-indigo-100 text-indigo-600 px-4 py-2 rounded-2xl w-full md:w-auto shadow-sm">
+              <Users className="w-4 h-4 text-indigo-600 shrink-0" />
+              <span className="text-[10px] font-black uppercase text-indigo-500 tracking-wider whitespace-nowrap">
+                {language === 'hi' ? 'एडमिन परिप्रेक्ष्य:' : 'Admin Perspective:'}
+              </span>
+              <select
+                className="bg-transparent border-none text-[11px] font-black uppercase text-slate-700 outline-none cursor-pointer hover:text-indigo-600 transition-colors font-sans py-1"
+                value={store.impersonatedUser?.id || 'me'}
+                onChange={(e) => {
+                  if (e.target.value === 'me') {
+                    store.setImpersonatedUser(null);
+                  } else {
+                    const selected = store.users.find((u: any) => u.id === e.target.value);
+                    store.setImpersonatedUser(selected || null);
+                  }
+                }}
+              >
+                <option value="me">{language === 'hi' ? 'पूर्ण पोर्टफोलियो (ADMIN)' : 'Complete Portfolio (ADMIN)'}</option>
+                {store.users.filter((u: any) => u.id !== store.user?.id).map((u: any) => (
+                  <option key={u.id} value={u.id}>
+                    👤 {u.name} ({u.role})
+                  </option>
+                ))}
+              </select>
+              {store.impersonatedUser && (
+                <button
+                  type="button"
+                  onClick={() => store.setImpersonatedUser(null)}
+                  className="p-1 bg-indigo-500 hover:bg-slate-950 text-white rounded-lg transition-all shrink-0 ml-1 active:scale-95"
+                  title={language === 'hi' ? 'हटाएं' : 'Clear perspective'}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-3 w-full lg:w-auto">
           <Filter className="w-4 h-4 text-slate-400" />
-          <select className="bg-gray-50 border border-transparent rounded-xl px-4 py-3.5 text-[10px] font-black uppercase tracking-widest outline-none cursor-pointer hover:bg-gray-100" value={selectedCity} onChange={e => setSelectedCity(e.target.value)}><option value="all">{t('all_cities')}</option>{(store.config?.cities || []).map((city: string) => <option key={city} value={city}>{city}</option>)}</select>
+          <select className="bg-gray-50 border border-transparent rounded-xl px-4 py-3.5 text-[10px] font-black uppercase tracking-widest outline-none cursor-pointer hover:bg-gray-100 w-full lg:w-auto" value={selectedCity} onChange={e => setSelectedCity(e.target.value)}><option value="all">{t('all_cities')}</option>{(store.config?.cities || []).map((city: string) => <option key={city} value={city}>{city}</option>)}</select>
         </div>
       </div>
 

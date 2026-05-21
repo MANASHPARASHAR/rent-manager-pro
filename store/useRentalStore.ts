@@ -885,6 +885,15 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
+  const updateRecordReminder = async (id: string, month: string) => {
+    try {
+      const fieldName = `lastReminderSent_${month.replace(/-/g, '_')}`;
+      await updateDoc(doc(db, 'records', id), { [fieldName]: new Date().toISOString() });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `records/${id}`);
+    }
+  };
+
   const clean = (obj: any) => {
     const cleaned: any = {};
     Object.entries(obj).forEach(([key, val]) => {
@@ -1256,7 +1265,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     addUser, updateUser, deleteUser,
     addPropertyType, updatePropertyType, deletePropertyType,
     addProperty, updateProperty, deleteProperty,
-    addRecord, updateRecord, deleteRecord, updateRecordNotes,
+    addRecord, updateRecord, deleteRecord, updateRecordNotes, updateRecordReminder,
     addPayment, togglePayment, deletePayment, updateConfig,
     addExpense, deleteExpense,
     markNotificationAsRead,
