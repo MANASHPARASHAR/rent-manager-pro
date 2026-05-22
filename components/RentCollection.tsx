@@ -179,22 +179,23 @@ const RentCollection: React.FC = () => {
         return;
       }
 
-      // Query Gmail messages with the credit query and a max limit of 15
-      const searchUrl = `https://gmail.googleapis.com/v1/users/me/messages?q=${encodeURIComponent(detectorQuery)}&maxResults=15`;
-      const res = await fetch(searchUrl, {
-        headers: { Authorization: `Bearer ${token}` }
+      const proxyRes = await fetch("/api/gmail/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, q: detectorQuery, maxResults: 15 })
       });
 
-      if (!res.ok) {
-        if (res.status === 401) {
+      if (!proxyRes.ok) {
+        if (proxyRes.status === 401) {
           store.setGoogleAccessToken(null);
           throw new Error("Expired session hook. Please click Link Gmail again to authorize access token.");
         }
-        throw new Error(`Gmail API server responded with error status ${res.status}.`);
+        const errJson = await proxyRes.json().catch(() => ({}));
+        throw new Error(errJson.error || `Gmail proxy server responded with status ${proxyRes.status}.`);
       }
 
-      const listData = await res.json();
-      if (!listData.messages || listData.messages.length === 0) {
+      const { messages } = await proxyRes.json();
+      if (!messages || messages.length === 0) {
         setGmailError("No credit notification emails detected in the last search.");
         setIsLoadingEmails(false);
         return;
@@ -202,15 +203,9 @@ const RentCollection: React.FC = () => {
 
       const parsedTxList: any[] = [];
 
-      for (const msg of listData.messages) {
+      for (const email of messages) {
         try {
-          const detailUrl = `https://gmail.googleapis.com/v1/users/me/messages/${msg.id}`;
-          const detailRes = await fetch(detailUrl, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          if (!detailRes.ok) continue;
-          const email = await detailRes.json();
-
+          const msgId = email.id;
           const snippet = email.snippet || "";
           const subjectHeader = email.payload?.headers?.find((h: any) => h.name === "Subject")?.value || "";
           const dateHeader = email.payload?.headers?.find((h: any) => h.name === "Date")?.value || "";
@@ -235,12 +230,12 @@ const RentCollection: React.FC = () => {
 
           const utrRegex = /(?:utr|ref|transaction\s+no|upi\s+ref)\s*:?\s*([a-z0-9]+)/i;
           const matchUtr = fullText.match(utrRegex);
-          const utr = matchUtr ? matchUtr[1] : `TXN${msg.id.substring(0, 8).toUpperCase()}`;
+          const utr = matchUtr ? matchUtr[1] : `TXN${msgId.substring(0, 8).toUpperCase()}`;
 
           const { matchedRecord, confidence, matchReason, allCandidates } = matchTransactionToTenant(amount, fullText, utr);
 
           parsedTxList.push({
-            id: msg.id,
+            id: msgId,
             source: "GMAIL",
             subject: subjectHeader,
             date: dateHeader ? new Date(dateHeader).toLocaleDateString() : new Date().toLocaleDateString(),
@@ -254,7 +249,7 @@ const RentCollection: React.FC = () => {
             textBody: fullText
           });
         } catch (err) {
-          console.error("Error reading single Gmail message:", err);
+          console.error("Error reading single Gmail message payload:", err);
         }
       }
 

@@ -43,9 +43,7 @@ import {
   doc, 
   setDoc, 
   getDoc, 
-  getDocFromServer,
   getDocs,
-  getDocsFromServer,
   onSnapshot,
   query,
   where,
@@ -407,7 +405,7 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           await signInWithEmailAndPassword(auth, emailId, password);
           
           // Post-authentication ledger verification
-          const userDoc = await getDocFromServer(doc(db, 'users', emailId));
+          const userDoc = await getDoc(doc(db, 'users', emailId));
           if (userDoc.exists()) {
             const ud = userDoc.data() as User;
             if (ud.passwordHash && ud.passwordHash !== password) {
@@ -454,14 +452,14 @@ export const RentalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       
       try {
         let userDocRef = doc(db, 'users', emailId);
-        let snapshot = await getDocFromServer(userDocRef);
+        let snapshot = await getDoc(userDocRef);
         
         if (snapshot.exists()) {
           userData = snapshot.data() as User;
         } else {
           // Perform a constrained query
           const q = query(collection(db, 'users'), where('username', '==', emailId));
-          const qSnap = await getDocsFromServer(q);
+          const qSnap = await getDocs(q);
           if (!qSnap.empty) {
             userData = qSnap.docs[0].data() as User;
           }

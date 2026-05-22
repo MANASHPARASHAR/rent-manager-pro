@@ -42,6 +42,9 @@ const Login: React.FC = () => {
       if (err.message && (err.message.includes('managed') || err.message.includes('sign in') || err.message.includes('password') || err.message.includes('Account not found'))) {
         message = err.message;
       }
+      else if (err.message && (err.message.toLowerCase().includes('failed to fetch') || err.message.toLowerCase().includes('fetch') || err.message.toLowerCase().includes('network'))) {
+        message = "Network connection issue (Failed to fetch). If you are in a sandboxed preview environment, some external domains might be restricted. Press Google 'Quick Sign In' if you previously used it, or check your internet connection.";
+      }
       // Handle Firebase-specific error codes
       else if (err.code) {
         switch (err.code) {

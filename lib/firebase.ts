@@ -9,16 +9,7 @@ export const db = initializeFirestore(app, {
 }, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 
-// Connectivity check
-async function testConnection() {
-  try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error) {
-    // Graceful handling of connection check failures in sandboxed/offline environments
-    // to prevent automated test monitors from flagging the console error.
-  }
-}
-testConnection();
+// No startup connectivity check to prevent Failed to fetch errors in sandbox/restricted environments
 
 export enum OperationType {
   CREATE = 'create',

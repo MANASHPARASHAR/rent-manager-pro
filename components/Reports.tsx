@@ -9,7 +9,7 @@ import {
   Calendar, Download, ArrowUpRight, Wallet, 
   ChevronLeft, ChevronRight, Zap, History, User,
   CalendarDays, ChevronDown, Landmark, CreditCard, ShieldCheck,
-  Building2, Layers, Filter, Users, Receipt, Trash2, Check, X
+  Building2, Layers, Filter, Users, Receipt, Trash2, Check, X, Search
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { useLanguageStore } from '../lib/i18n';
@@ -40,6 +40,10 @@ const Reports: React.FC = () => {
     return d.toISOString().split('T')[0];
   });
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
+
+  const [ledgerSearch, setLedgerSearch] = useState('');
+  const [ledgerCollector, setLedgerCollector] = useState('ALL');
+  const [ledgerRole, setLedgerRole] = useState('ALL');
 
   const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4', '#ef4444', '#14b8a6', '#f43f5e'];
 
@@ -154,6 +158,11 @@ const Reports: React.FC = () => {
         ? activeValues[nameCol.id]?.toString() || 'Unnamed' 
         : (record?.id ? 'Unit ' + record.id.substring(0, 4) : 'Unknown Unit');
       
+      const shortId = record?.id ? record.id.substring(0, 4).toUpperCase() : '';
+      const displayTenant = nameCol && shortId 
+        ? `${tenantName} (${shortId})` 
+        : tenantName;
+      
       if (!byDate[date]) byDate[date] = { date, rent: 0, deposit: 0, electricity: 0, refund: 0 };
       
       if (p.type === 'RENT') {
@@ -169,9 +178,9 @@ const Reports: React.FC = () => {
           if (!attributionMatrix[recipient][mode]) attributionMatrix[recipient][mode] = { total: 0, breakdown: {} };
           attributionMatrix[recipient][mode].total += amt;
           
-          const bKey = `${prop}-${tenantName}`;
+          const bKey = `${prop}-${displayTenant}-${p.recordId}`;
           if (!attributionMatrix[recipient][mode].breakdown[bKey]) {
-            attributionMatrix[recipient][mode].breakdown[bKey] = { property: prop, tenant: tenantName, amount: 0 };
+            attributionMatrix[recipient][mode].breakdown[bKey] = { property: prop, tenant: displayTenant, amount: 0 };
           }
           attributionMatrix[recipient][mode].breakdown[bKey].amount += amt;
         }
@@ -188,9 +197,9 @@ const Reports: React.FC = () => {
           if (!attributionMatrix[recipient][mode]) attributionMatrix[recipient][mode] = { total: 0, breakdown: {} };
           attributionMatrix[recipient][mode].total += amt;
 
-          const bKey = `${prop}-${tenantName}`;
+          const bKey = `${prop}-${displayTenant}-${p.recordId}`;
           if (!attributionMatrix[recipient][mode].breakdown[bKey]) {
-            attributionMatrix[recipient][mode].breakdown[bKey] = { property: prop, tenant: tenantName, amount: 0 };
+            attributionMatrix[recipient][mode].breakdown[bKey] = { property: prop, tenant: displayTenant, amount: 0 };
           }
           attributionMatrix[recipient][mode].breakdown[bKey].amount += amt;
         }
@@ -216,9 +225,9 @@ const Reports: React.FC = () => {
             if (!attributionMatrix[recipient][mode]) attributionMatrix[recipient][mode] = { total: 0, breakdown: {} };
             attributionMatrix[recipient][mode].total += amt;
 
-            const bKey = `${prop}-${tenantName}`;
+            const bKey = `${prop}-${displayTenant}-${p.recordId}`;
             if (!attributionMatrix[recipient][mode].breakdown[bKey]) {
-              attributionMatrix[recipient][mode].breakdown[bKey] = { property: prop, tenant: tenantName, amount: 0 };
+              attributionMatrix[recipient][mode].breakdown[bKey] = { property: prop, tenant: displayTenant, amount: 0 };
             }
             attributionMatrix[recipient][mode].breakdown[bKey].amount += amt;
           }
@@ -234,9 +243,9 @@ const Reports: React.FC = () => {
             if (!attributionMatrix[recipient][mode]) attributionMatrix[recipient][mode] = { total: 0, breakdown: {} };
             attributionMatrix[recipient][mode].total += amt;
 
-            const bKey = `${prop}-${tenantName}`;
+            const bKey = `${prop}-${displayTenant}-${p.recordId}`;
             if (!attributionMatrix[recipient][mode].breakdown[bKey]) {
-              attributionMatrix[recipient][mode].breakdown[bKey] = { property: prop, tenant: tenantName, amount: 0 };
+              attributionMatrix[recipient][mode].breakdown[bKey] = { property: prop, tenant: displayTenant, amount: 0 };
             }
             attributionMatrix[recipient][mode].breakdown[bKey].amount += amt;
           }
@@ -277,6 +286,80 @@ const Reports: React.FC = () => {
       timeSeries, propertyData, modeData, recipientData, attributionMatrix, filteredPayments
     };
   }, [store, filterType, selectedMonth, selectedYear, startDate, endDate, activeModality, effectiveIsAdmin, effectiveUser]);
+
+  const { ledgerCollectors, ledgerRoles } = useMemo(() => {
+    const collectorsSet = new Set<string>();
+    const rolesSet = new Set<string>();
+
+    analyticsData.filteredPayments.forEach((p: any) => {
+      const collectorUser = store.users.find((u: any) => 
+        u.name === p.createdBy || 
+        u.username === p.createdBy || 
+        u.name === p.paidTo || 
+        u.username === p.paidTo
+      );
+      const collectorName = p.createdBy || p.paidTo || 'Root Account';
+      const collectorRole = p.createdByRole || collectorUser?.role || 'ADMIN';
+
+      collectorsSet.add(collectorName);
+      rolesSet.add(collectorRole);
+    });
+
+    return {
+      ledgerCollectors: Array.from(collectorsSet).sort(),
+      ledgerRoles: Array.from(rolesSet).sort()
+    };
+  }, [analyticsData.filteredPayments, store.users]);
+
+  const finalLedgerPayments = useMemo(() => {
+    return analyticsData.filteredPayments.filter((p: any) => {
+      // 1. Resolve tenant name (exactly matching how it is rendered in the row for consistency)
+      const record = store.records.find(r => r.id === p.recordId);
+      const prop = store.properties.find(pr => pr.id === record?.propertyId);
+      const pt = store.propertyTypes.find(t => t.id === prop?.propertyTypeId);
+      const nameCol = pt?.columns.find(c => 
+        c.name.toLowerCase().includes('name') || 
+        c.name.toLowerCase().includes('tenant') ||
+        c.name.toLowerCase().includes('holder')
+      );
+      const vMap = store.unitHistory.find(h => h.id === p.historyId)?.values || store.recordValues.filter(v => v.recordId === p.recordId).reduce((acc: any, v: any) => ({...acc, [v.columnId]: v.value}), {});
+      const tName = nameCol ? vMap[nameCol.id] || 'Unknown' : 'Unit ' + (record?.id?.substring(0,4)||'??');
+
+      // 2. Resolve collector details (exactly matching row resolution)
+      const collectorUser = store.users.find((u: any) => 
+        u.name === p.createdBy || 
+        u.username === p.createdBy || 
+        u.name === p.paidTo || 
+        u.username === p.paidTo
+      );
+      const collectorName = p.createdBy || p.paidTo || 'Root Account';
+      const collectorRole = p.createdByRole || collectorUser?.role || 'ADMIN';
+
+      // 3. Filter by search query (tenant name)
+      if (ledgerSearch.trim() !== '') {
+        const query = ledgerSearch.toLowerCase();
+        if (!tName.toLowerCase().includes(query)) {
+          return false;
+        }
+      }
+
+      // 4. Filter by collector username/name
+      if (ledgerCollector !== 'ALL') {
+        if (collectorName !== ledgerCollector) {
+          return false;
+        }
+      }
+
+      // 5. Filter by role
+      if (ledgerRole !== 'ALL') {
+        if (collectorRole !== ledgerRole) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [analyticsData.filteredPayments, ledgerSearch, ledgerCollector, ledgerRole, store.records, store.properties, store.propertyTypes, store.unitHistory, store.recordValues, store.users]);
 
   const navigateMonth = (direction: number) => {
     const [year, month] = selectedMonth.split('-').map(Number);
@@ -497,24 +580,23 @@ const Reports: React.FC = () => {
                                 ></div>
                              </div>
 
-                             {/* Tooltip on hover */}
-                             <div className="invisible group-hover/item:visible absolute z-50 left-1/2 -translate-x-1/2 bottom-full mb-3 w-max max-w-[280px] bg-slate-900 text-white p-4 rounded-2xl shadow-2xl animate-in fade-in zoom-in-95 duration-200 pointer-events-none">
-                                <p className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-500 mb-3 border-b border-white/10 pb-2">Collection Detail</p>
-                                <div className="space-y-2 max-h-[200px] overflow-y-auto pr-2 custom-scrollbar">
-                                   {Object.values(data.breakdown).sort((a,b) => b.amount - a.amount).map((item, bIdx) => (
-                                      <div key={bIdx} className="flex flex-col gap-0.5 border-b border-white/5 last:border-0 pb-2 last:pb-0">
-                                         <div className="flex items-center justify-between gap-6">
-                                            <span className="text-[10px] font-black text-white truncate max-w-[140px]">{item.tenant}</span>
-                                            <span className="text-[10px] font-black text-indigo-400 shrink-0">₹{item.amount.toLocaleString()}</span>
+                             {/* Accordion collection breakdown (mobile action + hover safe) */}
+                             <div className="max-h-0 opacity-0 overflow-hidden group-hover/item:max-h-[250px] group-hover/item:opacity-100 group-hover/item:mt-3 transition-all duration-300 ease-in-out border-t border-slate-100/50 pt-2 text-slate-700">
+                                <p className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-400 mb-2">Collection Detail</p>
+                                <div className="space-y-1.5 max-h-[160px] overflow-y-auto pr-1 custom-scrollbar">
+                                   {Object.values(data.breakdown).sort((a: any, b: any) => b.amount - a.amount).map((item: any, bIdx) => (
+                                      <div key={bIdx} className="flex flex-col gap-0.5 border-b border-slate-50 last:border-0 pb-1.5 last:pb-0">
+                                         <div className="flex items-center justify-between gap-4">
+                                            <span className="text-[10px] font-bold text-slate-700 truncate max-w-[124px]">{item.tenant}</span>
+                                            <span className="text-[10px] font-black text-indigo-600 shrink-0">₹{item.amount.toLocaleString()}</span>
                                          </div>
-                                         <div className="flex items-center gap-1.5 opacity-50">
-                                            <Building2 className="w-2.5 h-2.5" />
-                                            <span className="text-[8px] font-bold uppercase tracking-tight truncate max-w-[120px]">{item.property}</span>
+                                         <div className="flex items-center gap-1 opacity-60">
+                                            <Building2 className="w-2.5 h-2.5 text-slate-400" />
+                                            <span className="text-[8px] font-medium text-slate-500 uppercase tracking-tight truncate max-w-[110px]">{item.property}</span>
                                          </div>
                                       </div>
                                    ))}
                                 </div>
-                                <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-900"></div>
                              </div>
                           </div>
                        ))}
@@ -677,10 +759,100 @@ const Reports: React.FC = () => {
               </span>
             </p>
           </div>
-          <div className="bg-rose-50 px-4 py-2 rounded-xl border border-rose-100">
-             <span className="text-[10px] font-black text-rose-600 uppercase tracking-widest">{analyticsData.filteredPayments.length} Transactions</span>
+          <div className="bg-rose-50 px-4 py-2 rounded-xl border border-rose-100 flex items-center gap-2">
+             <span className="text-[10px] font-black text-rose-600 uppercase tracking-widest">
+                {finalLedgerPayments.length === analyticsData.filteredPayments.length
+                   ? `${analyticsData.filteredPayments.length} Transactions`
+                   : `${finalLedgerPayments.length} of ${analyticsData.filteredPayments.length} Matching`}
+             </span>
           </div>
         </div>
+
+        {/* Ledger Filters: Search & Dropdowns */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8 bg-slate-50 p-6 rounded-2xl border border-slate-100">
+          {/* Search bar */}
+          <div className="relative md:col-span-2">
+            <label className="block text-[9px] font-black uppercase text-slate-400 tracking-wider mb-2">Search Tenant Name</label>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input
+                type="text"
+                value={ledgerSearch}
+                onChange={(e) => setLedgerSearch(e.target.value)}
+                placeholder="Type tenant name to search..."
+                className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 transition-all shadow-sm"
+              />
+              {ledgerSearch && (
+                <button 
+                  onClick={() => setLedgerSearch('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 font-bold text-xs"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Filter by Collector */}
+          <div>
+            <label className="block text-[9px] font-black uppercase text-slate-400 tracking-wider mb-2">Filter by Collector</label>
+            <div className="relative">
+              <select
+                value={ledgerCollector}
+                onChange={(e) => setLedgerCollector(e.target.value)}
+                className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-black text-slate-700 focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 transition-all appearance-none cursor-pointer shadow-sm uppercase tracking-wide pr-8"
+              >
+                <option value="ALL">All Collectors</option>
+                {ledgerCollectors.map((col) => (
+                  <option key={col} value={col}>
+                    {col}
+                  </option>
+                ))}
+              </select>
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                <ChevronDown className="w-3.5 h-3.5" />
+              </div>
+            </div>
+          </div>
+
+          {/* Filter by Role */}
+          <div>
+            <label className="block text-[9px] font-black uppercase text-slate-400 tracking-wider mb-2">Filter by Role</label>
+            <div className="relative">
+              <select
+                value={ledgerRole}
+                onChange={(e) => setLedgerRole(e.target.value)}
+                className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-black text-slate-700 focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 transition-all appearance-none cursor-pointer shadow-sm uppercase tracking-wide pr-8"
+              >
+                <option value="ALL">All Roles</option>
+                {ledgerRoles.map((role) => (
+                  <option key={role} value={role}>
+                    {role}
+                  </option>
+                ))}
+              </select>
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                <ChevronDown className="w-3.5 h-3.5" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Reset button shown if any filter is active */}
+        {(ledgerSearch || ledgerCollector !== 'ALL' || ledgerRole !== 'ALL') && (
+          <div className="flex justify-end mb-6 -mt-2">
+            <button
+              onClick={() => {
+                setLedgerSearch('');
+                setLedgerCollector('ALL');
+                setLedgerRole('ALL');
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-black text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-100 rounded-lg uppercase tracking-wider transition-colors shadow-sm"
+            >
+              <X className="w-3 h-3" /> Clear Active Filters
+            </button>
+          </div>
+        )}
 
         <div className="overflow-x-auto -mx-10 px-10 max-h-[600px] overflow-y-auto custom-scrollbar">
            <table className="w-full text-left">
@@ -689,13 +861,15 @@ const Reports: React.FC = () => {
                     <th className="pb-6 pt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Type</th>
                     <th className="pb-6 pt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Source/Tenant</th>
                     <th className="pb-6 pt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Reference</th>
+                    <th className="pb-6 pt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">{t('recipient')}</th>
+                    <th className="pb-6 pt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">{t('payment_mode')}</th>
                     <th className="pb-6 pt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Collector / Role</th>
                     <th className="pb-6 pt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Amount</th>
                     {(isAdmin || effectiveIsAdmin) && <th className="pb-6 pt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Action</th>}
                  </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                 {analyticsData.filteredPayments.length > 0 ? [...analyticsData.filteredPayments].sort((a,b) => (b.paidAt||'').localeCompare(a.paidAt||'')).map((p: any, i) => {
+                 {finalLedgerPayments.length > 0 ? [...finalLedgerPayments].sort((a,b) => (b.paidAt||'').localeCompare(a.paidAt||'')).map((p: any, i) => {
                     const record = store.records.find(r => r.id === p.recordId);
                     const prop = store.properties.find(pr => pr.id === record?.propertyId);
                     const pt = store.propertyTypes.find(t => t.id === prop?.propertyTypeId);
@@ -731,6 +905,14 @@ const Reports: React.FC = () => {
                           </td>
                           <td className="py-5 text-center">
                              <span className="text-[10px] font-mono text-slate-500 uppercase">{p.month || '-'}</span>
+                          </td>
+                          <td className="py-5 text-center">
+                             <span className="text-xs font-black text-slate-700 uppercase tracking-tight">{p.paidTo || '-'}</span>
+                          </td>
+                          <td className="py-5 text-center">
+                             <span className="text-[10px] font-black uppercase px-2.5 py-1 bg-slate-50 border border-slate-100 rounded-lg text-slate-600 tracking-wider">
+                                {p.paymentMode || '-'}
+                             </span>
                           </td>
                           <td className="py-5 text-center">
                              <div className="flex flex-col items-center">
@@ -781,7 +963,7 @@ const Reports: React.FC = () => {
                        </tr>
                     );
                  }) : (
-                     <tr><td colSpan={(isAdmin || effectiveIsAdmin) ? 6 : 5} className="py-20 text-center text-slate-300 font-bold uppercase tracking-widest text-xs italic">No transactions found</td></tr>
+                     <tr><td colSpan={(isAdmin || effectiveIsAdmin) ? 8 : 7} className="py-20 text-center text-slate-300 font-bold uppercase tracking-widest text-xs italic">No transactions found</td></tr>
                  )}
               </tbody>
            </table>

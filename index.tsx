@@ -6,31 +6,26 @@ import App from './App';
 // Register global error and rejection listeners to gracefully handle sandbox/offline network blocks
 window.addEventListener('unhandledrejection', (event) => {
   const reason = event.reason;
+  const reasonStr = reason ? String(reason.message || reason) : '';
   if (
-    reason instanceof Error &&
-    (reason.message.includes('Failed to fetch') || reason.message.includes('fetch'))
+    reasonStr.toLowerCase().includes('failed to fetch') || 
+    reasonStr.toLowerCase().includes('fetch') ||
+    reasonStr.toLowerCase().includes('network-request-failed')
   ) {
     event.preventDefault();
-    console.warn('[Sandbox Guard] Handled unhandled fetch promise rejection:', reason.message);
-  } else if (
-    typeof reason === 'string' &&
-    (reason.includes('Failed to fetch') || reason.includes('fetch'))
-  ) {
-    event.preventDefault();
-    console.warn('[Sandbox Guard] Handled unhandled fetch promise rejection string:', reason);
+    console.warn('[Sandbox Guard] Handled unhandled fetch promise rejection:', reasonStr);
   }
 });
 
 window.addEventListener('error', (event) => {
+  const errorMsg = event.message || (event.error ? String(event.error.message || event.error) : '');
   if (
-    event.error instanceof Error &&
-    (event.error.message.includes('Failed to fetch') || event.error.message.includes('fetch'))
+    errorMsg.toLowerCase().includes('failed to fetch') || 
+    errorMsg.toLowerCase().includes('fetch') ||
+    errorMsg.toLowerCase().includes('network-request-failed')
   ) {
     event.preventDefault();
-    console.warn('[Sandbox Guard] Handled uncaught fetch error:', event.error.message);
-  } else if (event.message?.includes('Failed to fetch') || event.message?.includes('fetch')) {
-    event.preventDefault();
-    console.warn('[Sandbox Guard] Handled uncaught fetch message:', event.message);
+    console.warn('[Sandbox Guard] Handled uncaught fetch error:', errorMsg);
   }
 });
 
