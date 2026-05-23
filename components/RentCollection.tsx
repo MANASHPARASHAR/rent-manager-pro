@@ -1829,19 +1829,22 @@ const RentCollection: React.FC = () => {
             {t("today")}
           </button>
 
-          <button
-            onClick={() => setDetectorOpen(!detectorOpen)}
-            className={`px-5 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all active:scale-95 shadow-lg flex items-center gap-2 ${
-              detectorOpen 
-                ? "bg-indigo-600 text-white hover:bg-indigo-700" 
-                : "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50"
-            }`}
-          >
-            <Sparkles className={`w-4 h-4 ${detectorOpen ? "animate-pulse" : "text-indigo-500"}`} />
-            <span>Smart Auto-Detect</span>
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => setDetectorOpen(!detectorOpen)}
+              className={`px-5 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all active:scale-95 shadow-lg flex items-center gap-2 ${
+                detectorOpen 
+                  ? "bg-indigo-600 text-white hover:bg-indigo-700" 
+                  : "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              <Sparkles className={`w-4 h-4 ${detectorOpen ? "animate-pulse" : "text-indigo-500"}`} />
+              <span>Smart Auto-Detect</span>
+            </button>
+          )}
 
           {(() => {
+            if (!isAdmin) return null;
             const { count } = whatsappRemindersDueDetail;
             const hasMetaConfig = !!(
               store.config?.whatsappAccessToken && store.config?.whatsappPhoneID
@@ -1897,7 +1900,7 @@ const RentCollection: React.FC = () => {
       </div>
 
       {/* Smart Payment Detector Component */}
-      {detectorOpen && (
+      {isAdmin && detectorOpen && (
         <div className="bg-slate-900 border border-slate-800 text-white rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden animate-in slide-in-from-top-10 duration-500">
           <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
           <div className="absolute bottom-0 left-0 w-96 h-96 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
@@ -4495,7 +4498,7 @@ const RentCollection: React.FC = () => {
                 </button>
               </div>
 
-              {store.config?.whatsappAccessToken &&
+              {isAdmin && store.config?.whatsappAccessToken &&
                 store.config?.whatsappPhoneID && (
                   <div className="pt-2 animate-in slide-in-from-bottom">
                     <button
