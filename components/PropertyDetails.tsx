@@ -36,6 +36,7 @@ const PropertyDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const store = useRentalStore();
   const [searchTerm, setSearchTerm] = useState('');
+  const [occupancyFilter, setOccupancyFilter] = useState<'all' | 'active' | 'vacant'>('all');
   const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
@@ -104,6 +105,13 @@ const PropertyDetails: React.FC = () => {
     if (!propertyType) return [];
     return [...(propertyType.columns || [])].sort((a, b) => a.order - b.order);
   }, [propertyType]);
+
+  const occupancyCol = useMemo(() => {
+    return columns.find(
+      (c: any) => c.type === ColumnType.OCCUPANCY_STATUS ||
+                  (c.type === ColumnType.DROPDOWN && (c.name.toLowerCase().includes('status') || c.name.toLowerCase().includes('occupancy')))
+    );
+  }, [columns]);
   
   const records = useMemo(() => {
     return (store.records || []).filter((r: any) => r.propertyId === id);
@@ -278,9 +286,23 @@ const PropertyDetails: React.FC = () => {
       </div>
 
       <div className="bg-white rounded-[2.5rem] border border-gray-100 shadow-2xl overflow-hidden">
-        <div className="p-8 border-b border-gray-100 relative">
-          <Search className="absolute left-12 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
-          <input className="w-full pl-11 pr-4 py-4 bg-gray-50 border border-transparent rounded-2xl text-sm outline-none font-bold focus:bg-white focus:border-indigo-100 transition-all" placeholder="Filter inventory..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+        <div className="p-8 border-b border-gray-100 flex flex-col sm:flex-row items-center gap-4">
+          <div className="relative flex-1 w-full">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
+            <input className="w-full pl-11 pr-4 py-4 bg-gray-50 border border-transparent rounded-2xl text-sm outline-none font-bold focus:bg-white focus:border-indigo-100 transition-all" placeholder="Filter inventory by details..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+          </div>
+          <div className="flex items-center gap-3 shrink-0 bg-gray-50 border border-transparent rounded-2xl px-5 py-4 w-full sm:w-auto">
+            <span className="text-xs font-black uppercase text-slate-400 tracking-wider">Status:</span>
+            <select
+              className="text-xs font-black uppercase text-slate-700 outline-none bg-transparent cursor-pointer hover:text-indigo-600 transition-colors pr-2"
+              value={occupancyFilter}
+              onChange={(e) => setOccupancyFilter(e.target.value as any)}
+            >
+              <option value="all">All Units</option>
+              <option value="active">Active</option>
+              <option value="vacant">Vacant</option>
+            </select>
+          </div>
         </div>
         <div className="overflow-x-auto max-h-[600px] overflow-y-auto custom-scrollbar">
           <table className="w-full text-left">
@@ -316,7 +338,16 @@ const PropertyDetails: React.FC = () => {
               {records.filter((r: any) => {
                 const rValues = values.filter((v: any) => v.recordId === r.id);
                 const query = (searchTerm || '').toLowerCase();
-                return rValues.some((v: any) => (v.value || '').toLowerCase().includes(query));
+                const matchesSearch = rValues.some((v: any) => (v.value || '').toLowerCase().includes(query));
+                if (!matchesSearch) return false;
+
+                if (occupancyCol && occupancyFilter !== 'all') {
+                  const val = (rValues.find((v: any) => v.columnId === occupancyCol.id)?.value || 'Active').toLowerCase();
+                  if (occupancyFilter === 'active' && val.includes('vacant')) return false;
+                  if (occupancyFilter === 'vacant' && !val.includes('vacant')) return false;
+                }
+
+                return true;
               }).map((record: any) => {
                 const isEditing = editingRecordId === record.id;
                 const recordValues = values.filter((v: any) => v.recordId === record.id);
@@ -327,15 +358,26 @@ const PropertyDetails: React.FC = () => {
                       return (<td key={col.id} className="px-8 py-7 text-sm font-bold text-gray-700 align-top">
                         {isEditing ? (
                           <>
-                            <input 
-                              className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500' : 'border-indigo-200'} rounded-2xl px-5 py-4 text-sm font-bold`} 
-                              type={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.SECURITY_DEPOSIT ? 'number' : col.type === ColumnType.DATE ? 'date' : 'text'} 
-                              min={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.SECURITY_DEPOSIT ? "0" : undefined}
-                              maxLength={col.type === ColumnType.PHONE ? 10 : undefined}
-                              value={formData[col.id] || ''} 
-                              onChange={e => handleInputChange(col.id, e.target.value)} 
-                              placeholder={col.type === ColumnType.PHONE ? "10 Digit Mobile" : ""}
-                            />
+                            {(col.type === ColumnType.DROPDOWN || col.type === ColumnType.OCCUPANCY_STATUS) ? (
+                              <select 
+                                className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500' : 'border-indigo-200'} rounded-2xl px-5 py-4 text-sm font-bold outline-none cursor-pointer`} 
+                                value={formData[col.id] || ''} 
+                                onChange={e => handleInputChange(col.id, e.target.value)}
+                              >
+                                <option value="">Select...</option>
+                                {col.options?.map(o => <option key={o} value={o}>{o}</option>)}
+                              </select>
+                            ) : (
+                              <input 
+                                className={`w-full bg-white border ${formErrors[col.id] ? 'border-red-500' : 'border-indigo-200'} rounded-2xl px-5 py-4 text-sm font-bold outline-none`} 
+                                type={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.SECURITY_DEPOSIT ? 'number' : col.type === ColumnType.DATE ? 'date' : 'text'} 
+                                min={col.type === ColumnType.CURRENCY || col.type === ColumnType.NUMBER || col.type === ColumnType.SECURITY_DEPOSIT ? "0" : undefined}
+                                maxLength={col.type === ColumnType.PHONE ? 10 : undefined}
+                                value={formData[col.id] || ''} 
+                                onChange={e => handleInputChange(col.id, e.target.value)} 
+                                placeholder={col.type === ColumnType.PHONE ? "10 Digit Mobile" : ""}
+                              />
+                            )}
                             {formErrors[col.id] && <p className="text-[9px] text-red-500 font-black uppercase mt-2 ml-1">{formErrors[col.id]}</p>}
                           </>
                         ) : renderCellContent(val, col)}

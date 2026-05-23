@@ -30,12 +30,13 @@ import {
 } from 'lucide-react';
 import { useRentalStore } from '../store/useRentalStore';
 import { useLanguageStore } from '../lib/i18n';
-import { UserRole, Property, User } from '../types';
+import { UserRole, Property, User, ColumnType } from '../types';
 
 const PropertyManagement: React.FC = () => {
   const store = useRentalStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCity, setSelectedCity] = useState('all');
+  const [occupancyFilter, setOccupancyFilter] = useState<'all' | 'vacant' | 'occupied'>('all');
   const [isAdding, setIsAdding] = useState(false);
   const [editingProp, setEditingProp] = useState<Property | null>(null);
   const [showCityConfig, setShowCityConfig] = useState(false);
@@ -255,6 +256,24 @@ const PropertyManagement: React.FC = () => {
     setEditingCity(null);
   };
 
+  const recordsByProperty = useMemo(() => {
+    const map: Record<string, PropertyRecord[]> = {};
+    (store.records || []).forEach(r => {
+      if (!map[r.propertyId]) map[r.propertyId] = [];
+      map[r.propertyId].push(r);
+    });
+    return map;
+  }, [store.records]);
+
+  const valuesByRecord = useMemo(() => {
+    const map: Record<string, RecordValue[]> = {};
+    (store.recordValues || []).forEach(v => {
+      if (!map[v.recordId]) map[v.recordId] = [];
+      map[v.recordId].push(v);
+    });
+    return map;
+  }, [store.recordValues]);
+
   const filteredProperties = useMemo(() => {
     return (store.properties || []).filter((p: Property) => {
       const lowerUsername = effectiveUser?.username?.toLowerCase().trim() || '';
@@ -273,27 +292,39 @@ const PropertyManagement: React.FC = () => {
 
       const nameMatch = p.name.toLowerCase().includes(searchTerm.toLowerCase());
       const cityMatch = selectedCity === 'all' || p.city === selectedCity;
-      return nameMatch && cityMatch;
-    });
-  }, [store.properties, store.user, isAdmin, searchTerm, selectedCity, effectiveUser]);
+      if (!nameMatch || !cityMatch) return false;
 
-  const recordsByProperty = useMemo(() => {
-    const map: Record<string, PropertyRecord[]> = {};
-    (store.records || []).forEach(r => {
-      if (!map[r.propertyId]) map[r.propertyId] = [];
-      map[r.propertyId].push(r);
-    });
-    return map;
-  }, [store.records]);
+      if (occupancyFilter !== 'all') {
+        const type = (store.propertyTypes || []).find((t: any) => t.id === p.propertyTypeId);
+        const propertyUnits = recordsByProperty[p.id] || [];
+        const occupancyCol = type?.columns.find(
+          (c: any) => c.type === ColumnType.OCCUPANCY_STATUS ||
+                      (c.type === ColumnType.DROPDOWN && (c.name.toLowerCase().includes('status') || c.name.toLowerCase().includes('occupancy')))
+        );
 
-  const valuesByRecord = useMemo(() => {
-    const map: Record<string, RecordValue[]> = {};
-    (store.recordValues || []).forEach(v => {
-      if (!map[v.recordId]) map[v.recordId] = [];
-      map[v.recordId].push(v);
+        let activeCount = 0;
+        let vacantCount = 0;
+
+        propertyUnits.forEach(unit => {
+          const unitVals = valuesByRecord[unit.id] || [];
+          const occVal = occupancyCol
+            ? (unitVals.find((v: any) => v.columnId === occupancyCol.id)?.value || 'Active').toLowerCase()
+            : 'active';
+          
+          if (occVal.includes('vacant')) {
+            vacantCount++;
+          } else {
+            activeCount++;
+          }
+        });
+
+        if (occupancyFilter === 'vacant' && vacantCount === 0) return false;
+        if (occupancyFilter === 'occupied' && vacantCount > 0) return false;
+      }
+
+      return true;
     });
-    return map;
-  }, [store.recordValues]);
+  }, [store.properties, store.propertyTypes, recordsByProperty, valuesByRecord, store.user, isAdmin, searchTerm, selectedCity, effectiveUser, occupancyFilter]);
 
   const personnel = useMemo(() => {
     return (store.users || []).filter((u: User) => u.role !== UserRole.ADMIN);
@@ -325,6 +356,18 @@ const PropertyManagement: React.FC = () => {
       const rentCols = type?.columns.filter((c: any) => c.isRentCalculatable) || [];
       const totalRentForProp = propertyUnits.reduce((acc: number, unit: any) => {
         const unitVals = valuesByRecord[unit.id] || [];
+        
+        const occupancyCol = type?.columns.find(
+          (c: any) => c.type === ColumnType.OCCUPANCY_STATUS ||
+                      (c.type === ColumnType.DROPDOWN && (c.name.toLowerCase().includes('status') || c.name.toLowerCase().includes('occupancy')))
+        );
+        const occVal = occupancyCol
+          ? (unitVals.find((v: any) => v.columnId === occupancyCol.id)?.value || 'Active').toLowerCase()
+          : 'active';
+        if (occVal.includes('vacant')) {
+          return acc;
+        }
+
         const unitRent = rentCols.reduce((sum: number, col: any) => {
           const val = unitVals.find((v: any) => v.columnId === col.id)?.value;
           return sum + (parseFloat(val) || 0);
@@ -683,9 +726,26 @@ const PropertyManagement: React.FC = () => {
             </div>
           )}
         </div>
-        <div className="flex items-center gap-3 w-full lg:w-auto">
+        <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
           <Filter className="w-4 h-4 text-slate-400" />
-          <select className="bg-gray-50 border border-transparent rounded-xl px-4 py-3.5 text-[10px] font-black uppercase tracking-widest outline-none cursor-pointer hover:bg-gray-100 w-full lg:w-auto" value={selectedCity} onChange={e => setSelectedCity(e.target.value)}><option value="all">{t('all_cities')}</option>{(store.config?.cities || []).map((city: string) => <option key={city} value={city}>{city}</option>)}</select>
+          <select 
+            className="bg-gray-50 border border-transparent rounded-xl px-4 py-3.5 text-[10px] font-black uppercase tracking-widest outline-none cursor-pointer hover:bg-gray-100 flex-1 lg:flex-none" 
+            value={selectedCity} 
+            onChange={e => setSelectedCity(e.target.value)}
+          >
+            <option value="all">{t('all_cities')}</option>
+            {(store.config?.cities || []).map((city: string) => <option key={city} value={city}>{city}</option>)}
+          </select>
+
+          <select 
+            className="bg-gray-50 border border-transparent rounded-xl px-4 py-3.5 text-[10px] font-black uppercase tracking-widest outline-none cursor-pointer hover:bg-gray-100 flex-1 lg:flex-none" 
+            value={occupancyFilter} 
+            onChange={e => setOccupancyFilter(e.target.value as any)}
+          >
+            <option value="all">{language === 'hi' ? 'सभी इकाइयां (ALL)' : 'All Occupancies'}</option>
+            <option value="vacant">{language === 'hi' ? 'खाली इकाइयां मौजूद (Vacant)' : 'Has Vacancies'}</option>
+            <option value="occupied">{language === 'hi' ? 'पूरी तरह से सक्रिय (Occupied)' : 'Fully Occupied'}</option>
+          </select>
         </div>
       </div>
 
@@ -696,6 +756,27 @@ const PropertyManagement: React.FC = () => {
             const propertyUnits = recordsByProperty[prop.id] || [];
             const unitCount = propertyUnits.length;
             const allowedCount = (prop.allowedUserIds || []).length;
+
+            const occupancyCol = type?.columns.find(
+              (c: any) => c.type === ColumnType.OCCUPANCY_STATUS ||
+                          (c.type === ColumnType.DROPDOWN && (c.name.toLowerCase().includes('status') || c.name.toLowerCase().includes('occupancy')))
+            );
+
+            let activeCount = 0;
+            let vacantCount = 0;
+
+            propertyUnits.forEach(unit => {
+              const unitVals = valuesByRecord[unit.id] || [];
+              const occVal = occupancyCol
+                ? (unitVals.find((v: any) => v.columnId === occupancyCol.id)?.value || 'Active').toLowerCase()
+                : 'active';
+              
+              if (occVal.includes('vacant')) {
+                vacantCount++;
+              } else {
+                activeCount++;
+              }
+            });
 
             const rentCols = type?.columns.filter((c: any) => c.isRentCalculatable) || [];
             const totalRent = propertyUnits.reduce((acc, unit) => {
@@ -727,6 +808,22 @@ const PropertyManagement: React.FC = () => {
                   <div className="mt-2 flex flex-col gap-1.5">
                       <div className="flex items-center gap-2 text-gray-400 font-bold text-[10px] uppercase tracking-widest"><MapPin className="w-3 h-3 text-indigo-400" /><span className="truncate">{prop.address || 'No Address'}</span></div>
                       {prop.city && <div className="flex items-center gap-2 text-indigo-400 font-black text-[9px] uppercase tracking-widest"><Navigation className="w-3 h-3" /><span>{prop.city}</span></div>}
+                  </div>
+
+                  {/* Occupancy Status Badge Row */}
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <span className="px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-100 shadow-sm">
+                      🟢 {activeCount} {language === 'hi' ? 'सक्रिय' : 'Active'}
+                    </span>
+                    {vacantCount > 0 ? (
+                      <span className="px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-100 shadow-sm animate-pulse">
+                        🟡 {vacantCount} {language === 'hi' ? 'खाली' : 'Vacant'}
+                      </span>
+                    ) : (
+                      <span className="px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider bg-slate-50 text-slate-500 border border-slate-100">
+                        {language === 'hi' ? 'पूर्ण भरा हुआ' : 'Fully Occupied'}
+                      </span>
+                    )}
                   </div>
 
                   <div className="mt-8 flex items-center gap-2">

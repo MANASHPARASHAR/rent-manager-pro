@@ -576,6 +576,8 @@ const RentCollection: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedPropertyId, setSelectedPropertyId] = useState<string>("all");
   const [selectedCity, setSelectedCity] = useState<string>("all");
+  const [rentFilter, setRentFilter] = useState<string>("all");
+  const [occupancyFilter, setOccupancyFilter] = useState<string>("all");
 
   const [paymentModal, setPaymentModal] = useState<any>({
     isOpen: false,
@@ -1128,10 +1130,13 @@ const RentCollection: React.FC = () => {
           (acc: number, p: any) => acc + (Number(p.amount) || 0),
           0,
         );
+        const parsedRentValue = isVacant ? 0 : (parseFloat(rentValue) || 0);
+        const parsedDepositValue = isVacant ? 0 : (parseFloat(depositValue) || 0);
+
         const isRentPaid =
-          totalRentPaid >= parseFloat(rentValue) && parseFloat(rentValue) > 0;
+          totalRentPaid >= parsedRentValue && parsedRentValue > 0;
         const isPartialPaid =
-          totalRentPaid > 0 && totalRentPaid < parseFloat(rentValue);
+          totalRentPaid > 0 && totalRentPaid < parsedRentValue;
 
         const electricityPayments = deduplicatedPayments.filter(
           (p: any) =>
@@ -1160,10 +1165,10 @@ const RentCollection: React.FC = () => {
           0,
         );
         const isDepositPaid =
-          totalDepositPaid >= parseFloat(depositValue) &&
-          parseFloat(depositValue) > 0;
+          totalDepositPaid >= parsedDepositValue &&
+          parsedDepositValue > 0;
         const isDepositPartialPaid =
-          totalDepositPaid > 0 && totalDepositPaid < parseFloat(depositValue);
+          totalDepositPaid > 0 && totalDepositPaid < parsedDepositValue;
 
         let statusBadge: any = "PENDING";
         if (isRentPaid) statusBadge = "PAID";
@@ -1183,8 +1188,8 @@ const RentCollection: React.FC = () => {
           tenantName: tenantName || "Unknown Tenant",
           city: property?.city,
           historyId: currentHistoryId,
-          rentAmount: parseFloat(rentValue) || 0,
-          depositAmount: parseFloat(depositValue) || 0,
+          rentAmount: parsedRentValue,
+          depositAmount: parsedDepositValue,
           isRentPaid,
           isPartialPaid,
           totalRentPaid,
@@ -1429,20 +1434,35 @@ const RentCollection: React.FC = () => {
     return { collected, electricityCollected, pending, heldDeposits };
   }, [recordsWithRent]);
 
+  const filteredRecords = useMemo(() => {
+    return recordsWithRent.filter((r: any) => {
+      // Rent Filter
+      if (rentFilter === "paid" && !r.isRentPaid) return false;
+      if (rentFilter === "partial" && !r.isPartialPaid) return false;
+      if (rentFilter === "due" && (r.isRentPaid || r.isPartialPaid || r.isVacant || r.rentAmount <= 0)) return false;
+
+      // Occupancy Filter
+      if (occupancyFilter === "active" && r.isVacant) return false;
+      if (occupancyFilter === "vacant" && !r.isVacant) return false;
+
+      return true;
+    });
+  }, [recordsWithRent, rentFilter, occupancyFilter]);
+
   const totalPages = useMemo(() => {
     if (recordsPerPage === "all") return 1;
-    return Math.ceil(recordsWithRent.length / recordsPerPage);
-  }, [recordsWithRent.length, recordsPerPage]);
+    return Math.ceil(filteredRecords.length / recordsPerPage);
+  }, [filteredRecords.length, recordsPerPage]);
 
   const paginatedRecords = useMemo(() => {
-    if (recordsPerPage === "all") return recordsWithRent;
+    if (recordsPerPage === "all") return filteredRecords;
     const start = (currentPage - 1) * recordsPerPage;
-    return recordsWithRent.slice(start, start + recordsPerPage);
-  }, [recordsWithRent, currentPage, recordsPerPage]);
+    return filteredRecords.slice(start, start + recordsPerPage);
+  }, [filteredRecords, currentPage, recordsPerPage]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedPropertyId, selectedCity, searchTerm, recordsPerPage]);
+  }, [selectedPropertyId, selectedCity, searchTerm, recordsPerPage, rentFilter, occupancyFilter]);
 
   useEffect(() => {
     const isAutoEnabled = !!store.config?.whatsappAutoRemindersEnabled;
@@ -2808,6 +2828,31 @@ const RentCollection: React.FC = () => {
                   ))}
               </select>
             </div>
+            <div className="flex items-center gap-3 shrink-0">
+              <Wallet className="w-4 h-4 text-slate-400" />
+              <select
+                className="text-xs font-black uppercase text-slate-700 outline-none bg-transparent cursor-pointer hover:text-indigo-600 transition-colors"
+                value={rentFilter}
+                onChange={(e) => setRentFilter(e.target.value)}
+              >
+                <option value="all">{t("all_statuses") || "All Statuses"}</option>
+                <option value="due">{t("rent_due") || "Rent Due"}</option>
+                <option value="paid">{t("paid") || "Paid"}</option>
+                <option value="partial">{t("partial_paid") || "Partial Paid"}</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-3 shrink-0">
+              <Building2 className="w-4 h-4 text-slate-400" />
+              <select
+                className="text-xs font-black uppercase text-slate-700 outline-none bg-transparent cursor-pointer hover:text-indigo-600 transition-colors"
+                value={occupancyFilter}
+                onChange={(e) => setOccupancyFilter(e.target.value)}
+              >
+                <option value="all">{t("all_units") || "All Units"}</option>
+                <option value="active">{t("active") || "Active"}</option>
+                <option value="vacant">{t("vacant") || "Vacant"}</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -2816,7 +2861,7 @@ const RentCollection: React.FC = () => {
             <thead className="sticky top-0 z-10 bg-white border-b border-slate-100 shadow-sm">
               <tr className="bg-white">
                 <th className="px-2 py-3 text-[9px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest bg-white border-r border-slate-50">
-                  {t("unit_and_member")} ({recordsWithRent.length})
+                  {t("unit_and_member")} ({filteredRecords.length})
                 </th>
 
                 <th className="px-2 py-3 text-[9px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">
@@ -3159,11 +3204,11 @@ const RentCollection: React.FC = () => {
                 <span className="text-slate-900">
                   {Math.min(
                     currentPage * (recordsPerPage as number),
-                    recordsWithRent.length,
+                    filteredRecords.length,
                   )}
                 </span>{" "}
                 {t("of")}{" "}
-                <span className="text-slate-900">{recordsWithRent.length}</span>
+                <span className="text-slate-900">{filteredRecords.length}</span>
               </p>
             </div>
             <div className="flex items-center gap-2">
